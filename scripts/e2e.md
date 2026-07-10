@@ -62,7 +62,7 @@ recorded, not periodically sampled. `grep // WIRE:` in `src/core/snapshot/snapsh
 - [x] Headless conversion: the `.mdc` zip is converted to a valid `.alcpuprofile` via
   [`bc-mdc-converter`](https://github.com/SShadowS/bc-mdc-converter) (standalone Rust binary,
   discovered via `BC_MDC_CONVERTER` or `PATH`), whose output is byte-identical to the official AL
-  tooling's. <!-- originally validated 2026-07-05 with the since-removed .NET shim, see scripts/e2e-instrumentation-results-2026-07-04.md RUN A: converted a live BC28 finish response to a 708-node .alcpuprofile, validV8=true. The Rust converter's byte-identity acceptance suite covers the same fixtures; re-verify the discovery path (env/PATH) live on the next E2E sweep -->
+  tooling's. <!-- validated 2026-07-10 with the Rust converter through the BUILT server, see scripts/e2e-rust-converter-2026-07-10.md: BC_MDC_CONVERTER discovery converted a live BC28 finish response to a 708-node .alcpuprofile (validV8=true), and PATH-scan discovery reported converterAvailable:true. Earlier shim-based validation (2026-07-05): scripts/e2e-instrumentation-results-2026-07-04.md -->
 - [x] Graceful fallback: when `bc-mdc-converter` isn't found (or the converter process
   exits non-zero), `bcdev_profile_finish` still saves the raw `.mdc` `.zip` to disk
   (`captured:true`, `kind:"instrumentation-raw"`) and hints to convert manually or open it in VS
