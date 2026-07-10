@@ -1,0 +1,51 @@
+{
+  "name": "bc-dev-mcp",
+  "version": "0.1.1",
+  "description": "MCP server for Business Central AL development — run tests with coverage and debug interactively against the BC dev endpoint",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "business-central",
+    "dynamics-365",
+    "al",
+    "testing",
+    "debugging"
+  ],
+  "author": "Torben Leth <sshadows@sshadows.dk>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SShadowS/bc-dev-mcp.git"
+  },
+  "homepage": "https://github.com/SShadowS/bc-dev-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/SShadowS/bc-dev-mcp/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "bc-dev-mcp": "dist/index.js"
+  },
+  "files": ["dist", "LICENSE"],
+  "scripts": {
+    "embed-skills": "bun run scripts/embed-skills.ts",
+    "dev": "bun run embed-skills && bun run src/mcp/index.ts",
+    "capture-and-ship": "bun scripts/capture-and-ship.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build": "bun run embed-skills && bun build src/mcp/index.ts --target=node --outfile dist/index.js",
+    "compile": "bun run embed-skills && bun build src/mcp/index.ts --compile --outfile bc-dev-mcp.exe",
+    "prepublishOnly": "bun run test && bun run typecheck && bun run build"
+  },
+  "dependencies": {
+    "@microsoft/signalr": "^10.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}
