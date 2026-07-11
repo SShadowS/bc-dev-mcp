@@ -1,10 +1,33 @@
-export interface ConnectionConfig {
+export interface OnPremConnectionConfig {
+  environmentType: "OnPrem";
+  authentication: "UserPassword";
   server: string; // absolute URL, e.g. "http://localhost" or "https://host:8443"
   serverInstance: string; // e.g. "BC"
   port?: number; // developer service port; wins over any port in `server`
   tenant?: string;
   username: string;
   password: string;
+}
+
+export interface CloudConnectionConfig {
+  environmentType: "Sandbox" | "Production";
+  authentication: "EntraId";
+  environmentName: string;
+  tenant: string;
+}
+
+export type ConnectionConfig = OnPremConnectionConfig | CloudConnectionConfig;
+
+export interface ConnectionOverrides {
+  environmentType?: "OnPrem" | "Sandbox" | "Production";
+  authentication?: "UserPassword" | "AAD" | "EntraId" | "Windows";
+  server?: string;
+  serverInstance?: string;
+  environmentName?: string;
+  port?: number;
+  tenant?: string;
+  username?: string;
+  password?: string;
 }
 
 export type CoverageMode = "none" | "line" | "procedure";

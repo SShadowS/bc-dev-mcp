@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-117%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-199%20passing-green)]()
 
 ## Overview
 
@@ -15,7 +15,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | Runtime dependencies | 3 (`@microsoft/signalr`, `@modelcontextprotocol/sdk`, `zod`) |
 | Transport | MCP over stdio |
 | Server requirement | BC dev API `WebApiVersion >= 7.0` (AL 18 platform, e.g. BC28) |
-| Auth | UserPassword (on-prem / docker) |
+| Auth | Azure CLI / Entra ID (SaaS) · UserPassword (on-prem / docker) |
 | Validation | Live E2E against BC28 (`scripts/e2e-results-2026-07-03.md`, `scripts/e2e-profile-results-2026-07-04.md`) |
 
 ## Features
@@ -34,7 +34,8 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 ## Prerequisites
 
 - A reachable BC server with dev API `WebApiVersion >= 7.0` (check with `bcdev_status`)
-- UserPassword credentials for the dev endpoint
+- For SaaS: the standard Azure CLI, signed in to the launch configuration's tenant (`az login --tenant <tenant-id>`)
+- For on-premises: UserPassword credentials for the dev endpoint
 - Bun (to run from source) or Node 18+ (to run the built `dist/index.js`)
 
 ## Installation
@@ -59,7 +60,7 @@ claude mcp add bc-dev --env BC_DEV_USER=admin --env BC_DEV_PASSWORD=... -- npx -
 }
 ```
 
-(`bunx bc-dev-mcp` works too.) That's all the config there is: credentials via env, everything else (server, instance, tenant) is read from your AL project's `.vscode/launch.json` — and every connection-opening tool accepts overrides as parameters.
+(`bunx bc-dev-mcp` works too.) For on-premises, credentials come from the two environment variables above. For SaaS, no token or password environment variable is accepted: `environmentType`, `environmentName`, and `tenant` come from the AL project's `.vscode/launch.json`, and the server asks Azure CLI for an in-memory Business Central token. Every connection-opening tool also accepts target overrides.
 
 Running from source instead: `git clone` → `bun install && bun run build` → point `command` at `node dist/index.js`, or `bun run compile` for a standalone `bc-dev-mcp.exe`.
 
@@ -74,15 +75,32 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 
 | Setting | Source | Default | Description |
 |---------|--------|---------|-------------|
-| `BC_DEV_USER` | env var | — | Dev endpoint username (required) |
-| `BC_DEV_PASSWORD` | env var | — | Dev endpoint password (required) |
+| `BC_DEV_USER` | env var | — | On-prem UserPassword username |
+| `BC_DEV_PASSWORD` | env var | — | On-prem UserPassword password |
+| `BC_DEV_ENTRA_TENANT` | env var | — | SaaS tenant fallback when launch.json does not provide `tenant` |
+| `environmentType` | launch.json / tool param | inferred | `OnPrem`, `Sandbox`, or `Production` |
+| `environmentName` | launch.json / tool param | — | SaaS environment name |
 | `server` | launch.json / tool param | — | BC server URL, e.g. `http://bcserver` |
 | `serverInstance` | launch.json / tool param | — | Server instance, e.g. `BC` |
 | `port` | launch.json / tool param | `7049` | Developer service port |
 | `tenant` | launch.json / tool param | `default` | Tenant (hub negotiate requires one) |
 | `project` | tool param | server cwd | AL project dir for launch.json and `.al` scanning |
 
-Connection-opening tools (`bcdev_status`, `bcdev_test_run`, `bcdev_debug_attach`, `bcdev_debug_run_tests`) accept `server`/`serverInstance`/`port`/`tenant` as parameters; session-scoped debug tools reuse the attached session.
+Connection-opening tools accept the corresponding target fields; session-scoped tools reuse their attached authorization provider. On-premises `UserPassword` and SaaS Entra are explicit separate modes and never fall back to each other. Windows and on-premises AAD are not currently supported.
+
+Example SaaS launch configuration:
+
+```jsonc
+{
+  "type": "al",
+  "request": "launch",
+  "environmentType": "Sandbox",
+  "environmentName": "Sandbox",
+  "tenant": "00000000-0000-0000-0000-000000000000"
+}
+```
+
+Azure access tokens are acquired with `az account get-access-token`, cached only in memory until shortly before expiry, and never logged or written by this project.
 
 ## Architecture
 
@@ -95,6 +113,7 @@ src/mcp/server.ts ── tools/ (15 bcdev_* tools) ── state.ts (session, eve
   v
 src/core/  (pure library — typed returns, injected deps)
   |-- launch-config.ts   launch.json + env credentials
+  |-- authorization.ts   Basic or cached Azure CLI authorization provider
   |-- server-info.ts     GET dev/metadata, feature gates
   |-- al-objects.ts      file <-> (objectType, objectId) index, test discovery
   |-- hubs/test-runner-hub.ts ──> <server>/BC/dev/TestRunnerHub   (SignalR)
@@ -173,6 +192,7 @@ Sources live in `skills/`; `bun run embed-skills` regenerates `src/mcp/skills.ge
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/hubs/debugger-hub.ts` | DebuggerHub client (attach, breakpoints, stepping, inspection) |
 | `src/core/hubs/signalr-base.ts` | Hub seam: auth query params, key normalization, `HubProxy` |
+| `src/core/authorization.ts` | Shared Basic/Azure CLI authorization provider and token cache |
 | `scripts/e2e.md` | Real-server wire-assumption checklist + known server behaviours |
 
 ## Roadmap
@@ -182,7 +202,7 @@ Ordered by intent, not commitment:
 1. **Agent-grade responses** — structured run summaries, parsed call stacks mapped to source lines, verified breakpoint locations, changed-variable flags, structured errors, and next-step hints on every tool. Designed, wire-validated.
 2. **Debugger power controls** — SQL cost per frame at a break, targeted attach to a specific session/user, break on unhandled errors only, abort a hung operation, read source for objects not on local disk. Designed, wire-validated against a live BC28.
 3. **CPU profiling** (`bcdev_profile_*`) — **shipped.** Capture a sampling CPU profile (`.alcpuprofile`, V8 format) of a live session and get back a ranked AL-hotspot summary, not just a blob. Four tools (status/start/poll/finish), validated end-to-end against a live BC28 — a real profile with AL call frames captured through the tools (`scripts/e2e-profile-results-2026-07-04.md`). (Full snapshot recording for VS Code replay shares the same core and stays deferred.)
-4. **Entra ID auth** — cloud sandboxes / SaaS environments alongside on-prem UserPassword.
+4. **Entra ID auth** — **shipped.** Azure CLI-backed cloud sandbox/production access alongside explicit on-prem UserPassword.
 5. **Coverage gap analysis** — cross procedure coverage with `git diff`: which changed procedures have no test coverage.
 6. **Test orchestration** — repeat runs, diff pass/fail sets, flag flaky tests.
 7. **Break-on-record-write triage** — arm write breaks on a table and auto-collect the stacks of everything that writes it.

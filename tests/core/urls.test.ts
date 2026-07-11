@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { baseClientUrl, basicAuthHeader, hubUrl, metadataUrl } from "../../src/core/urls";
+import { baseClientUrl, hubUrl, metadataUrl, snapshotUrl } from "../../src/core/urls";
 import type { ConnectionConfig } from "../../src/core/types";
 
 const base: ConnectionConfig = {
+  environmentType: "OnPrem",
+  authentication: "UserPassword",
   server: "http://localhost",
   serverInstance: "BC",
   username: "admin",
@@ -36,7 +38,17 @@ describe("urls", () => {
     expect(hubUrl(base, "DebuggerHub")).toBe("http://localhost:7049/BC/dev/DebuggerHub");
   });
 
-  test("basic auth header", () => {
-    expect(basicAuthHeader(base)).toBe("Basic " + Buffer.from("admin:P@ss").toString("base64"));
+  test("builds confirmed SaaS developer and snapshot URLs", () => {
+    const cloud: ConnectionConfig = {
+      environmentType: "Sandbox",
+      authentication: "EntraId",
+      environmentName: "My Sandbox",
+      tenant: "tenant-id",
+    };
+    expect(metadataUrl(cloud)).toBe("https://api.businesscentral.dynamics.com/v2.0/My%20Sandbox/dev/metadata?tenant=tenant-id");
+    expect(hubUrl(cloud, "TestRunnerHub")).toBe("https://api.businesscentral.dynamics.com/v2.0/My%20Sandbox/dev/TestRunnerHub");
+    expect(snapshotUrl(cloud, "snapshotendpointmetadata", 7083)).toBe(
+      "https://api.businesscentral.dynamics.com/v2.0/My%20Sandbox/snapshotdebugger/snapshotendpointmetadata?tenant=tenant-id",
+    );
   });
 });

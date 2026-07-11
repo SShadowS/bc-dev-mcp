@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildServer } from "../../src/mcp/server";
+import { createAuthorizationProvider } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 
@@ -23,6 +24,7 @@ async function connect() {
   const state = new ServerState();
   const server = buildServer(state, {
     hubFactory: fakeHubFactory(new FakeHub()),
+    authorizationFactory: createAuthorizationProvider,
     fetchFn: (async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch,
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: makeProject(),

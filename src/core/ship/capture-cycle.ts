@@ -2,6 +2,7 @@ import { gzipSync } from "node:zlib";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ConnectionConfig } from "../types";
+import type { AuthorizationProviderFactory } from "../authorization";
 import { SnapshotClient, type FinishResult } from "../snapshot/snapshot-client";
 import type { SnapshotStatus } from "../snapshot/snapshot-types";
 import { listEntryNames } from "../snapshot/zip";
@@ -12,6 +13,7 @@ import { checkBudgets, shipIngest } from "./ingest-client";
 
 export interface CycleDeps {
   fetchFn: typeof fetch;
+  authorizationFactory: AuthorizationProviderFactory;
   runConverter: SpawnRunner;
   now: () => number;
   sleep: (ms: number) => Promise<void>;
@@ -60,7 +62,7 @@ export type CycleOutcome =
     };
 
 export async function runCaptureShipCycle(cfg: ShipConfig, conn: ConnectionConfig, deps: CycleDeps): Promise<CycleOutcome> {
-  const client = new SnapshotClient(deps.fetchFn, conn, cfg.snapshotPort);
+  const client = new SnapshotClient(deps.fetchFn, conn, cfg.snapshotPort, deps.authorizationFactory(conn));
   const requestTimeoutMs = deps.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
   // 1. Preflight the snapshot endpoint (separate port from the dev endpoint). Timeout-guarded

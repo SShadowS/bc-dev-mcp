@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { buildSamplingAttachBody, buildInstrumentationAttachBody, parseStatus, CLIENT_TYPE_WIRE } from "../../../src/core/snapshot/snapshot-types";
 import { snapshotUrl, DEFAULT_SNAPSHOT_PORT } from "../../../src/core/urls";
 
-const cfg = { server: "http://bc", serverInstance: "BC", tenant: "default", username: "u", password: "p" };
+const cfg = { environmentType: "OnPrem", authentication: "UserPassword", server: "http://bc", serverInstance: "BC", tenant: "default", username: "u", password: "p" } as const;
 
 describe("snapshot types", () => {
   test("attach body is PascalCase with integer sampling/profiling enums", () => {

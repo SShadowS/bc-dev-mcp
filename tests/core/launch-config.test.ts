@@ -32,6 +32,9 @@ describe("discoverLaunchConfig", () => {
       ],
     }`);
     expect(discoverLaunchConfig(dir)).toEqual({
+      environmentType: undefined,
+      environmentName: undefined,
+      authentication: "UserPassword",
       server: "http://bcserver",
       serverInstance: "BC",
       port: 7049,
@@ -49,6 +52,9 @@ describe("discoverLaunchConfig", () => {
       `{"configurations":[{"type":"al","request":"launch","server":"http://a","serverInstance":"BC","tenant":"weird, }value",},]}`,
     );
     expect(discoverLaunchConfig(dir)).toEqual({
+      environmentType: undefined,
+      environmentName: undefined,
+      authentication: undefined,
       server: "http://a",
       serverInstance: "BC",
       port: undefined,
@@ -61,10 +67,30 @@ describe("resolveConnection", () => {
   test("merges overrides > launch.json > env credentials", () => {
     const dir = projectWith(`{"configurations":[{"type":"al","request":"launch","server":"http://a","serverInstance":"BC"}]}`);
     const c = resolveConnection({ serverInstance: "BC2" }, dir, { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" });
-    expect(c).toEqual({ server: "http://a", serverInstance: "BC2", port: undefined, tenant: undefined, username: "u", password: "p" });
+    expect(c).toEqual({ environmentType: "OnPrem", authentication: "UserPassword", server: "http://a", serverInstance: "BC2", port: undefined, tenant: undefined, username: "u", password: "p" });
   });
 
   test("throws listing every missing field", () => {
     expect(() => resolveConnection({}, undefined, {})).toThrow(/server.*serverInstance.*username.*password/s);
+  });
+
+  test("resolves a cloud launch config without username/password", () => {
+    const dir = projectWith(`{"configurations":[{"type":"al","request":"launch","environmentType":"Sandbox","environmentName":"sandbox","tenant":"tenant-id"}]}`);
+    expect(resolveConnection({}, dir, {})).toEqual({
+      environmentType: "Sandbox",
+      authentication: "EntraId",
+      environmentName: "sandbox",
+      tenant: "tenant-id",
+    });
+  });
+
+  test("uses the narrow Entra tenant fallback and never Basic fallback", () => {
+    const dir = projectWith(`{"configurations":[{"type":"al","request":"launch","environmentType":"Production","environmentName":"Production"}]}`);
+    expect(resolveConnection({}, dir, { BC_DEV_ENTRA_TENANT: "tenant-env", BC_DEV_USER: "ignored", BC_DEV_PASSWORD: "ignored" })).toEqual({
+      environmentType: "Production",
+      authentication: "EntraId",
+      environmentName: "Production",
+      tenant: "tenant-env",
+    });
   });
 });

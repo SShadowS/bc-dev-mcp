@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTools, type ToolDeps } from "../../src/mcp/tools";
+import { createAuthorizationProvider } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 
@@ -24,6 +25,7 @@ function setup(hub: FakeHub, fetchFn?: typeof fetch) {
   const state = new ServerState();
   const deps: ToolDeps = {
     hubFactory: fakeHubFactory(hub),
+    authorizationFactory: createAuthorizationProvider,
     fetchFn: fetchFn ?? ((async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch),
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: makeProject(),
@@ -214,6 +216,7 @@ describe("tools", () => {
     };
     await tools.get("bcdev_debug_attach")!.handler({});
     await tools.get("bcdev_debug_run_tests")!.handler({ codeunits: [{ id: 50100 }] });
+    await Bun.sleep(0); // authorization acquisition is asynchronous before the background hub starts
     expect(hub.invoked("Initialize")[0]?.args[1]).toBe("fake-conn-1");
   });
 

@@ -1,5 +1,6 @@
 import type { ConnectionConfig } from "./types";
-import { basicAuthHeader, metadataUrl } from "./urls";
+import type { AuthorizationProvider } from "./authorization";
+import { metadataUrl } from "./urls";
 
 export interface DevServerInfo {
   webApiVersion: string;
@@ -29,11 +30,15 @@ function pick(obj: Record<string, unknown>, key: string): string | undefined {
   return value === null || value === undefined ? undefined : String(value);
 }
 
-export async function fetchServerInfo(c: ConnectionConfig, fetchFn: typeof fetch = fetch): Promise<DevServerInfo> {
+export async function fetchServerInfo(
+  c: ConnectionConfig,
+  authorization: AuthorizationProvider,
+  fetchFn: typeof fetch = fetch,
+): Promise<DevServerInfo> {
   let response: Response;
   try {
     // WIRE: GET dev/metadata returns ServerInfo JSON (dep-decomp ServerInfoApiClient.cs)
-    response = await fetchFn(metadataUrl(c), { headers: { Authorization: basicAuthHeader(c) } });
+    response = await fetchFn(metadataUrl(c), { headers: { Authorization: await authorization.getAuthorizationHeader() } });
   } catch (err) {
     throw new DevEndpointError(
       `Dev endpoint unreachable at ${metadataUrl(c)} — is the BC server running and the developer service port open? (${String(err)})`,
@@ -41,7 +46,7 @@ export async function fetchServerInfo(c: ConnectionConfig, fetchFn: typeof fetch
     );
   }
   if (response.status === 401 || response.status === 403) {
-    throw new DevEndpointError("Dev endpoint rejected credentials (check BC_DEV_USER / BC_DEV_PASSWORD)", "auth");
+    throw new DevEndpointError("Dev endpoint rejected authentication; verify the selected mode, tenant, and account access", "auth");
   }
   if (response.status === 404) {
     // Pre-metadata servers are dev API 1.0 (dep-decomp ServerInfoApiClient.TryGetLegacyServerInfo)
