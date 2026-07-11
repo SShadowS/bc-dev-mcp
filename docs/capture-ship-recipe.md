@@ -17,6 +17,14 @@ preflight (snapshotendpointmetadata)
 against the *next matching session*; in a quiet window nothing binds): the
 script logs it and exits 0 without shipping.
 
+Running on a fixed schedule against whatever traffic happens to show up is
+one way to use this recipe. If instead you want captures driven by al-perf's
+own deep-capture request queue — recurring telemetry findings automatically
+scheduling a follow-up profiler run, an executor claiming and servicing
+those requests, and al-perf's fulfillment matching closing the loop — see
+[`docs/capture-queue-worker.md`](capture-queue-worker.md), which wraps this
+same cycle (unchanged) in a queue-polling worker instead.
+
 ## Prerequisites
 
 1. **A reachable BC snapshot endpoint.** The snapshot debugger listens on its

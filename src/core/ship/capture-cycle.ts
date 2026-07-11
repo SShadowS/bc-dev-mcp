@@ -95,6 +95,10 @@ export async function runCaptureShipCycle(cfg: ShipConfig, conn: ConnectionConfi
       deps.sleep,
     );
     affinityCookie = attach.affinityCookie;
+    // LOAD-BEARING WORDING: src/core/queue/worker.ts's workload hook pattern-matches
+    // this exact line (ARMED_LINE = /armed .* capture/) to know when to spawn
+    // --workload-cmd. Changing "armed" or "capture" here requires updating ARMED_LINE
+    // in worker.ts too, or the hook silently stops firing (no error — nothing spawns).
     deps.log(`armed instrumentation capture ${activityId} (attachKind ${attach.attachKind})`);
   } catch (err) {
     return { kind: "error", stage: "attach", message: err instanceof Error ? err.message : String(err) };
