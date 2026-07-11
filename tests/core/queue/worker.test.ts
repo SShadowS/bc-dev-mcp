@@ -426,6 +426,53 @@ describe("workQueue: workload hook", () => {
     await workQueue(baseCfg(), deps);
     expect(spawned).toBe(false);
   });
+
+  test("a clean workload exit is logged with its exit code (a bad --workload-cmd must not be silently invisible)", async () => {
+    const { client } = fakeClient({ rows: [row({ id: 1 })] });
+    const logs: string[] = [];
+    const deps: WorkerDeps = {
+      client,
+      runCycle: async (_row, onLog) => {
+        onLog("armed instrumentation capture x (attachKind y)");
+        return { kind: "shipped", activityId: "a", gzippedBytes: 1 };
+      },
+      spawnWorkload: () => ({ kill: () => {}, done: Promise.resolve(3) }),
+      log: (m) => logs.push(m),
+    };
+    await workQueue(baseCfg({ workloadCmd: "wl" }), deps);
+    expect(logs.some((l) => l.includes("exited with code 3"))).toBe(true);
+  });
+
+  test("a workload spawn failure (done resolves null) is logged distinctly from a clean exit", async () => {
+    const { client } = fakeClient({ rows: [row({ id: 1 })] });
+    const logs: string[] = [];
+    const deps: WorkerDeps = {
+      client,
+      runCycle: async (_row, onLog) => {
+        onLog("armed instrumentation capture x (attachKind y)");
+        return { kind: "shipped", activityId: "a", gzippedBytes: 1 };
+      },
+      spawnWorkload: () => ({ kill: () => {}, done: Promise.resolve(null) }),
+      log: (m) => logs.push(m),
+    };
+    await workQueue(baseCfg({ workloadCmd: "wl" }), deps);
+    expect(logs.some((l) => l.includes("spawn failed"))).toBe(true);
+  });
+
+  test("workload exit-code logging never affects the report", async () => {
+    const { client } = fakeClient({ rows: [row({ id: 1 })] });
+    const deps: WorkerDeps = {
+      client,
+      runCycle: async (_row, onLog) => {
+        onLog("armed instrumentation capture x (attachKind y)");
+        return { kind: "shipped", activityId: "a", gzippedBytes: 1 };
+      },
+      spawnWorkload: () => ({ kill: () => {}, done: Promise.resolve(1) }),
+      log: () => {},
+    };
+    const report = await workQueue(baseCfg({ workloadCmd: "wl" }), deps);
+    expect(report.worked).toEqual([{ id: 1, outcome: "shipped", released: false }]);
+  });
 });
 
 describe("workQueue: failures counting", () => {

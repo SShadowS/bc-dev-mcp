@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { resolveEntryArgs, ENTRY_USAGE } from "../../../src/core/queue/entry-args";
+import { resolveEntryArgs, decideExit, ENTRY_USAGE } from "../../../src/core/queue/entry-args";
+import type { WorkerReport } from "../../../src/core/queue/worker";
 
 const HOSTNAME = () => "test-host";
 const ENV = { AL_PERF_CLI: "" as string | undefined };
@@ -208,5 +209,84 @@ describe("resolveEntryArgs: --dry-run gating (queue-claiming safety)", () => {
     expect(r.kind).toBe("config");
     if (r.kind !== "config") return;
     expect(r.config.rest).toEqual([]);
+  });
+});
+
+function report(over: Partial<WorkerReport> = {}): WorkerReport {
+  return { polled: 0, worked: [], failures: 0, claimErrors: 0, ...over };
+}
+
+describe("decideExit: full truth table", () => {
+  test("empty queue: exit 0, no messages", () => {
+    const d = decideExit(report());
+    expect(d).toEqual({ code: 0, messages: [] });
+  });
+
+  test("only claim-raced rows (busy pool, normal): exit 0, no messages", () => {
+    const d = decideExit(report({ polled: 1, worked: [{ id: 1, outcome: "claim-raced", released: false }] }));
+    expect(d).toEqual({ code: 0, messages: [] });
+  });
+
+  test("a request ran to a terminal outcome (shipped): exit 0, no messages", () => {
+    const d = decideExit(report({ polled: 1, worked: [{ id: 1, outcome: "shipped", released: false }] }));
+    expect(d).toEqual({ code: 0, messages: [] });
+  });
+
+  test("claimErrors > 0 and nothing reached a cycle outcome: exit 1, names the CLI as broken", () => {
+    const d = decideExit(
+      report({ polled: 2, worked: [{ id: 1, outcome: "claim-error", released: false }, { id: 2, outcome: "claim-raced", released: false }], claimErrors: 1 }),
+    );
+    expect(d.code).toBe(1);
+    expect(d.messages).toHaveLength(1);
+    expect(d.messages[0]).toContain("claim error");
+    expect(d.messages[0]).toContain("al-perf CLI itself appears broken");
+  });
+
+  test("claimErrors > 0 but something else still worked: exit 0 with a warning (previously unasserted branch)", () => {
+    const d = decideExit(
+      report({
+        polled: 2,
+        worked: [{ id: 1, outcome: "claim-error", released: false }, { id: 2, outcome: "shipped", released: false }],
+        claimErrors: 1,
+      }),
+    );
+    expect(d.code).toBe(0);
+    expect(d.messages).toHaveLength(1);
+    expect(d.messages[0]).toContain("WARNING");
+    expect(d.messages[0]).toContain("claim error");
+  });
+
+  test("a cycle failure alone: exit 1, no claim-error warning", () => {
+    const d = decideExit(report({ polled: 1, worked: [{ id: 1, outcome: "error", released: true }], failures: 1 }));
+    expect(d.code).toBe(1);
+    expect(d.messages).toHaveLength(1);
+    expect(d.messages[0]).toContain("cycle failure");
+  });
+
+  test("claimErrors > 0 (something worked) AND a separate cycle failure: exit 1, BOTH the warning and the failure message, in order", () => {
+    const d = decideExit(
+      report({
+        polled: 3,
+        worked: [
+          { id: 1, outcome: "claim-error", released: false },
+          { id: 2, outcome: "shipped", released: false },
+          { id: 3, outcome: "error", released: true },
+        ],
+        claimErrors: 1,
+        failures: 1,
+      }),
+    );
+    expect(d.code).toBe(1);
+    expect(d.messages).toHaveLength(2);
+    expect(d.messages[0]).toContain("WARNING");
+    expect(d.messages[1]).toContain("cycle failure");
+  });
+
+  test("dry-run and no-capture outcomes alone count as a cycle having run (not claim-error/claim-raced)", () => {
+    const d = decideExit(
+      report({ polled: 1, worked: [{ id: 1, outcome: "claim-error", released: false }], claimErrors: 1 }),
+    );
+    // sanity: claim-error alone with nothing else IS the broken-CLI case
+    expect(d.code).toBe(1);
   });
 });

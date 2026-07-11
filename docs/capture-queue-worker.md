@@ -131,12 +131,25 @@ bound the *next matching session*, the same instant capture-and-ship's own
 capture cycle itself were needed for this: the worker taps the log stream it
 already receives.
 
-The child is killed (SIGTERM) if it's still running when the cycle resolves;
-its exit code is logged but never fails the worker run. Without
-`--workload-cmd`, the capture window just catches organic traffic per
-`--client-type`, exactly like capture-and-ship today — the hook exists to
-make an *unattended* queue worker actually exercise the flagged routine
-instead of hoping something calls it during the window.
+The child is killed (SIGTERM) if it's still running when the cycle resolves.
+Either way its outcome is logged — `workload for request #<id> exited with
+code <n>`, or `workload spawn failed for request #<id>` if the command
+itself never started (bad path, not executable, …) — but never fails the
+worker run; a bad `--workload-cmd` shows up in the log instead of silently
+capturing nothing every cycle. The child's own stderr is inherited (not
+captured), so whatever the driver itself prints about *why* it failed lands
+directly in this process's stderr too, right alongside the worker's own log
+lines. Without `--workload-cmd`, the capture window just catches organic
+traffic per `--client-type`, exactly like capture-and-ship today — the hook
+exists to make an *unattended* queue worker actually exercise the flagged
+routine instead of hoping something calls it during the window.
+
+The child inherits this process's full environment (`process.env`) plus the
+`BCQ_*` vars below — including whatever secrets are set for capture-and-ship
+itself (`AL_PERF_TOKEN`, `BC_DEV_PASSWORD`, …). `--workload-cmd` is
+operator-controlled, not request data, so this is the same trust boundary as
+any other command you'd put in the `.cmd`/cron wrapper — but don't point it
+at something you wouldn't otherwise hand your capture credentials to.
 
 The child receives the claimed request's routine identity as environment
 variables:
@@ -227,6 +240,7 @@ as the executor contract itself gives for re-poll cadence.
 | `#<id>: claim-raced` in the log | another executor/human claimed it first, or it advanced/expired between poll and claim | **normal** in any pool with more than one worker — not an error, doesn't count against `--max` |
 | `#<id>: no-capture (released)` | `0 sessions captured` in the window (see capture-ship-recipe.md) | **normal** — not an error; the claim is freed for the next scan to re-file if still relevant |
 | exit 1, "the al-perf CLI itself appears broken" | `claimErrors > 0` and no request reached an actual cycle outcome | verify `--al-perf-cli`/`AL_PERF_CLI` actually runs `lifecycle captures ...` successfully by hand, and that `--queue-db` (if used) points at the right file |
+| always `polled 0`, exit 0, nothing ever happens | `--queue-db` points at the wrong path — SQLite silently creates a fresh, empty database at whatever path it's given rather than erroring on a typo | verify `--queue-db` (or the CLI's own default) points at the *real* lifecycle DB that `lifecycle sync` actually writes to; run `lifecycle captures list -f json --status pending` with the exact same `--al-perf-cli`/`--queue-db` by hand and confirm it returns the rows you expect |
 | `WARNING: N claim error(s) occurred alongside other work that succeeded` (exit 0) | some claims errored but at least one request still ran to a terminal outcome | investigate the CLI, but the run itself isn't failing overall |
 | profile ships but the request never fulfills | shipped to the wrong tenant | shouldn't happen through this script (tenant is overridden per request every time); if you're re-shipping a *retained* artifact manually per capture-ship-recipe's curl recipe, use the request's own `tenant`, not whatever you'd normally ship to |
 | preflight/attach/capture/finish/convert/budget/ship failures | same causes as plain capture-and-ship | see [capture-ship-recipe.md's Troubleshooting table](capture-ship-recipe.md#troubleshooting) — the underlying cycle is unchanged, only the queue loop is new |

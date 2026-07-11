@@ -7,10 +7,10 @@
 // Executor contract this implements: al-perf's docs/capture-request-contract.md
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { resolveEntryArgs, ENTRY_USAGE } from "../src/core/queue/entry-args";
+import { resolveEntryArgs, decideExit, ENTRY_USAGE } from "../src/core/queue/entry-args";
 import { resolveShipConfig, SHIP_USAGE, type ShipConfig } from "../src/core/ship/args";
 import { createQueueClient, type CaptureRequestRow, type CliRunner } from "../src/core/queue/queue-client";
-import { workQueue, type WorkerDeps } from "../src/core/queue/worker";
+import { workQueue, type WorkerDeps, type WorkerReport } from "../src/core/queue/worker";
 import { runCaptureShipCycle, type CycleOutcome } from "../src/core/ship/capture-cycle";
 import { spawnRunner } from "../src/core/snapshot/converter";
 
@@ -60,7 +60,10 @@ const client = createQueueClient({ cliPrefix: entry.cliPrefix, dbPath: entry.que
 // line. Whitespace-split, same convention (and limitation) as --al-perf-cli.
 const spawnWorkload: WorkerDeps["spawnWorkload"] = (cmd, env) => {
   const parts = cmd.trim().split(/\s+/);
-  const child = spawn(parts[0]!, parts.slice(1), { stdio: "ignore", env: { ...process.env, ...env } });
+  // stderr is inherited (not ignored) so the driver's own errors reach this process's
+  // stderr directly — worker.ts separately logs the exit code/spawn-failure outcome via
+  // deps.log, but the driver's OWN diagnostics (why it failed) only surface this way.
+  const child = spawn(parts[0]!, parts.slice(1), { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...env } });
   const done = new Promise<number | null>((resolve) => {
     child.on("close", (code) => resolve(code));
     child.on("error", () => resolve(null)); // spawn failure counts as "exited"; never fails the worker
@@ -105,21 +108,30 @@ async function runCycle(row: CaptureRequestRow, onLog: (line: string) => void): 
   });
 }
 
-const report = await workQueue(
-  {
-    executor: entry.executor,
-    max: entry.max,
-    tenant: entry.queueTenant,
-    keepClaimOnFailure: entry.keepClaimOnFailure,
-    workloadCmd: entry.workloadCmd,
-  },
-  {
-    client,
-    runCycle,
-    spawnWorkload,
-    log: (msg) => console.error(`[work-capture-queue] ${msg}`),
-  },
-);
+let report: WorkerReport;
+try {
+  report = await workQueue(
+    {
+      executor: entry.executor,
+      max: entry.max,
+      tenant: entry.queueTenant,
+      keepClaimOnFailure: entry.keepClaimOnFailure,
+      workloadCmd: entry.workloadCmd,
+    },
+    {
+      client,
+      runCycle,
+      spawnWorkload,
+      log: (msg) => console.error(`[work-capture-queue] ${msg}`),
+    },
+  );
+} catch (err) {
+  // workQueue itself only throws for a poll-stage failure (listPending) — a per-request
+  // cycle throw is already caught inside workQueue and reported as an "error" outcome.
+  // No raw stack dump on stderr for an operator/cron log to choke on.
+  console.error(`[work-capture-queue] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
 
 console.error(
   `[work-capture-queue] polled ${report.polled}, worked ${report.worked.length}, failures ${report.failures}, claimErrors ${report.claimErrors}`,
@@ -128,23 +140,6 @@ for (const w of report.worked) {
   console.error(`[work-capture-queue]   #${w.id}: ${w.outcome}${w.released ? " (released)" : ""}`);
 }
 
-// D5 exit codes, plus the claim-error carry-over: claimErrors alone (a busy pool
-// racing claims, or a request that vanished) is normal and doesn't fail the run;
-// claimErrors WITHOUT any request reaching an actual cycle outcome means the al-perf
-// CLI itself is broken (bad --al-perf-cli, unreachable queue db, ...) — a distinct,
-// louder signal for cron/monitoring than "just busy."
-const ranACycle = report.worked.some((w) => w.outcome !== "claim-raced" && w.outcome !== "claim-error");
-if (report.claimErrors > 0 && !ranACycle) {
-  console.error(
-    `[work-capture-queue] FAILED: ${report.claimErrors} claim error(s) and no request reached a cycle outcome — the al-perf CLI itself appears broken (check --al-perf-cli / AL_PERF_CLI and --queue-db)`,
-  );
-  process.exit(1);
-}
-if (report.claimErrors > 0) {
-  console.error(`[work-capture-queue] WARNING: ${report.claimErrors} claim error(s) occurred alongside other work that succeeded — investigate the al-perf CLI / queue db`);
-}
-if (report.failures > 0) {
-  console.error(`[work-capture-queue] FAILED: ${report.failures} cycle failure(s)`);
-  process.exit(1);
-}
-process.exit(0);
+const decision = decideExit(report);
+for (const m of decision.messages) console.error(`[work-capture-queue] ${m}`);
+process.exit(decision.code);

@@ -36,6 +36,9 @@ export interface WorkerReport {
   // expected in normal operation): this is the signal that something is broken, not busy.
 }
 
+// LOAD-BEARING: matches the exact wording of capture-cycle.ts's `deps.log("armed
+// instrumentation capture ...")` line. If that wording changes, update this regex too —
+// otherwise the workload hook silently stops firing (no error; --workload-cmd just never spawns).
 const ARMED_LINE = /armed .* capture/;
 
 function workloadEnv(row: CaptureRequestRow): Record<string, string> {
@@ -90,6 +93,14 @@ export async function workQueue(cfg: WorkerConfig, deps: WorkerDeps): Promise<Wo
       if (cfg.workloadCmd && !workloadFired && ARMED_LINE.test(line)) {
         workloadFired = true;
         spawned = deps.spawnWorkload(cfg.workloadCmd, workloadEnv(row));
+        // A bad --workload-cmd (typo, missing binary, ...) must never be silently
+        // invisible: log how it ended, distinguishing a genuine spawn failure (`done`
+        // resolves null) from a clean-or-nonzero exit. Purely observational — never
+        // affects the report either way.
+        spawned.done.then(
+          (code) => deps.log(code === null ? `workload spawn failed for request #${row.id}` : `workload for request #${row.id} exited with code ${code}`),
+          (err) => deps.log(`workload for request #${row.id} rejected: ${err instanceof Error ? err.message : String(err)}`),
+        );
         exited = spawned.done.then(
           () => true,
           () => true, // a rejected `done` counts as exited too — the child's exit never affects the report

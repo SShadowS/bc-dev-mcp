@@ -3,6 +3,7 @@
 // resolveShipConfig (src/core/ship/args.ts) — the entry script owns no BC/al-perf
 // connection flags of its own; those are all capture-and-ship's.
 import os from "node:os";
+import type { WorkerReport } from "./worker";
 
 export interface EntryConfig {
   cliPrefix: string[]; // whitespace-split --al-perf-cli / AL_PERF_CLI
@@ -51,8 +52,8 @@ contract's same-tenant rule); --description is likewise overridden with
 "capture-request #<id>: <reason>" — both overrides are logged.
 
 exit codes: 0 worked a request to a terminal outcome (shipped/duplicate/
-no-capture) or the queue was empty; 1 a cycle failed, or claim errors left
-nothing worked (the al-perf CLI itself looks broken); 2 bad usage`;
+no-capture/dry-run) or the queue was empty; 1 a cycle failed, or claim
+errors left nothing worked (the al-perf CLI itself looks broken); 2 bad usage`;
 
 const OWN_VALUE_FLAGS = new Set(["--al-perf-cli", "--queue-db", "--executor", "--max", "--queue-tenant", "--workload-cmd"]);
 
@@ -138,4 +139,36 @@ export function resolveEntryArgs(
       rest,
     },
   };
+}
+
+export interface ExitDecision {
+  code: 0 | 1;
+  messages: string[]; // logged (in order) before exiting; empty on a quiet success
+}
+
+// D5 exit codes, plus the claim-error carry-over: claimErrors alone (a busy pool racing
+// claims, or a request that vanished between poll and claim) is normal and doesn't fail
+// the run; claimErrors WITHOUT any request reaching an actual cycle outcome means the
+// al-perf CLI itself is broken (bad --al-perf-cli, unreachable queue db, ...) — a
+// distinct, louder signal for cron/monitoring than "just busy." Pure function of the
+// worker's report so the full branch truth table is unit-testable without spawning
+// anything (see tests/core/queue/entry-args.test.ts).
+export function decideExit(report: WorkerReport): ExitDecision {
+  const ranACycle = report.worked.some((w) => w.outcome !== "claim-raced" && w.outcome !== "claim-error");
+  const messages: string[] = [];
+
+  if (report.claimErrors > 0 && !ranACycle) {
+    messages.push(
+      `FAILED: ${report.claimErrors} claim error(s) and no request reached a cycle outcome — the al-perf CLI itself appears broken (check --al-perf-cli / AL_PERF_CLI and --queue-db)`,
+    );
+    return { code: 1, messages };
+  }
+  if (report.claimErrors > 0) {
+    messages.push(`WARNING: ${report.claimErrors} claim error(s) occurred alongside other work that succeeded — investigate the al-perf CLI / queue db`);
+  }
+  if (report.failures > 0) {
+    messages.push(`FAILED: ${report.failures} cycle failure(s)`);
+    return { code: 1, messages };
+  }
+  return { code: 0, messages };
 }
