@@ -1,5 +1,6 @@
 import type { ConnectionConfig, DebuggerEvent, StackFrameInfo } from "../types";
-import { basicAuthHeader, hubUrl } from "../urls";
+import type { AuthorizationProvider } from "../authorization";
+import { hubUrl } from "../urls";
 import type { HubFactory, HubProxy } from "./signalr-base";
 import { buildHubQuery, normalizeKeys } from "./signalr-base";
 
@@ -63,10 +64,11 @@ export class DebuggerClient {
     return this.hub?.connectionId ?? null;
   }
 
-  async connect(config: ConnectionConfig, opts: DebugAttachOptions = {}): Promise<void> {
+  async connect(config: ConnectionConfig, authorization: AuthorizationProvider, opts: DebugAttachOptions = {}): Promise<void> {
+    const authHeader = await authorization.getAuthorizationHeader();
     const hub = this.factory(hubUrl(config, "DebuggerHub"), {
-      authHeader: basicAuthHeader(config),
-      queryParams: buildHubQuery(config),
+      authHeader,
+      queryParams: buildHubQuery(config, authHeader),
     });
     this.hub = hub;
 

@@ -7,6 +7,7 @@ import { runCaptureShipCycle, type CycleDeps } from "../../../src/core/ship/capt
 import type { ShipConfig } from "../../../src/core/ship/args";
 import type { ConnectionConfig } from "../../../src/core/types";
 import type { SpawnRunner } from "../../../src/core/snapshot/converter";
+import { BasicAuthorizationProvider } from "../../../src/core/authorization";
 
 // zip fixture builder (same helper as tests/core/snapshot/zip.test.ts / tests/mcp/profile-tools.test.ts)
 function crc32(buf: Buffer): number { let c = ~0; for (let i = 0; i < buf.length; i++) { c ^= buf[i]!; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return (~c) >>> 0; }
@@ -20,7 +21,7 @@ function makeZip(name: string, content: Buffer) {
   return Uint8Array.from(Buffer.concat([localHeader, cdRec, eocd]));
 }
 
-const CONN: ConnectionConfig = { server: "http://bc", serverInstance: "BC", tenant: "default", username: "u", password: "p" };
+const CONN: ConnectionConfig = { environmentType: "OnPrem", authentication: "UserPassword", server: "http://bc", serverInstance: "BC", tenant: "default", username: "u", password: "p" };
 const UUID = "550e8400-e29b-41d4-a716-446655440042";
 const IR_DOC = JSON.stringify({ schemaVersion: 1, apps: [], invocations: [{}, {}, {}] });
 
@@ -44,6 +45,7 @@ function deps(fetchFn: typeof fetch, over: Partial<CycleDeps> = {}): CycleDeps {
   const requestTimeoutMs = over.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   return {
     fetchFn,
+    authorizationFactory: () => new BasicAuthorizationProvider("u", "p"),
     runConverter: okConverter,
     now: () => t,
     // Poll-interval / retry-backoff calls advance the deterministic virtual clock. A call for

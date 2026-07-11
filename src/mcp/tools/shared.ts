@@ -2,12 +2,14 @@ import { resolve as resolvePath } from "node:path";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { HubFactory } from "../../core/hubs/signalr-base";
+import type { AuthorizationProvider, AuthorizationProviderFactory } from "../../core/authorization";
 import { resolveConnection } from "../../core/launch-config";
 import type { ConnectionConfig } from "../../core/types";
 import { DebugSession, ServerState } from "../state";
 
 export interface ToolDeps {
   hubFactory: HubFactory;
+  authorizationFactory: AuthorizationProviderFactory;
   fetchFn: typeof fetch;
   env: Record<string, string | undefined>;
   cwd: string;
@@ -81,10 +83,12 @@ export const stackFrameSchema = z.looseObject({
 
 export const connectionShape = {
   project: z.string().optional().describe("AL project directory (default: server cwd); source for .vscode/launch.json connection defaults and .al file scanning"),
-  server: z.string().optional().describe("BC server base URL, e.g. http://bcserver (default: from launch.json)"),
-  serverInstance: z.string().optional().describe("BC server instance name, e.g. BC (default: from launch.json)"),
+  environmentType: z.enum(["OnPrem", "Sandbox", "Production"]).optional().describe("Target kind (default: from launch.json; server implies OnPrem)"),
+  environmentName: z.string().optional().describe("Business Central SaaS environment name (default: from launch.json)"),
+  server: z.string().optional().describe("On-prem BC server base URL, e.g. http://bcserver (default: from launch.json)"),
+  serverInstance: z.string().optional().describe("On-prem BC server instance name, e.g. BC (default: from launch.json)"),
   port: z.number().optional().describe("Developer service port (default: from launch.json, else 7049)"),
-  tenant: z.string().optional().describe("Tenant ID (default: 'default' — hub auth requires one even on single-tenant servers)"),
+  tenant: z.string().optional().describe("Tenant ID/domain (SaaS: required via launch/param/BC_DEV_ENTRA_TENANT; OnPrem default: 'default')"),
 } as const;
 
 export const codeunitsShape = z
@@ -103,15 +107,21 @@ export const breakpointShape = z.object({
   condition: z.string().optional().describe("Optional AL condition expression — break only when it evaluates true"),
 });
 
-export function resolve(params: Record<string, unknown>, deps: ToolDeps): { config: ConnectionConfig; project: string } {
+export function resolve(
+  params: Record<string, unknown>,
+  deps: ToolDeps,
+): { config: ConnectionConfig; authorization: AuthorizationProvider; project: string } {
   const project = (params["project"] as string | undefined) ?? deps.cwd;
-  const overrides: Partial<ConnectionConfig> = {
+  const overrides = {
+    environmentType: params["environmentType"] as "OnPrem" | "Sandbox" | "Production" | undefined,
+    environmentName: params["environmentName"] as string | undefined,
     server: params["server"] as string | undefined,
     serverInstance: params["serverInstance"] as string | undefined,
     port: params["port"] as number | undefined,
     tenant: params["tenant"] as string | undefined,
   };
-  return { config: resolveConnection(overrides, project, deps.env), project };
+  const config = resolveConnection(overrides, project, deps.env);
+  return { config, authorization: deps.authorizationFactory(config), project };
 }
 
 export async function mapBreakpoints(

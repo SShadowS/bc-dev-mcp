@@ -7,7 +7,8 @@ import type {
   TestMethodResult,
 } from "../types";
 import { COVERAGE_MODE_WIRE, TEST_STATUS_FROM_WIRE } from "../types";
-import { basicAuthHeader, hubUrl } from "../urls";
+import type { AuthorizationProvider } from "../authorization";
+import { hubUrl } from "../urls";
 import type { HubFactory } from "./signalr-base";
 import { buildHubQuery, normalizeKeys } from "./signalr-base";
 
@@ -26,10 +27,16 @@ interface WireCoverageForTest {
 export class TestRunnerClient {
   constructor(private factory: HubFactory) {}
 
-  async run(config: ConnectionConfig, plan: CodeunitTestGroup[], opts: RunOptions = {}): Promise<RunTestsResult> {
+  async run(
+    config: ConnectionConfig,
+    authorization: AuthorizationProvider,
+    plan: CodeunitTestGroup[],
+    opts: RunOptions = {},
+  ): Promise<RunTestsResult> {
+    const authHeader = await authorization.getAuthorizationHeader();
     const hub = this.factory(hubUrl(config, "TestRunnerHub"), {
-      authHeader: basicAuthHeader(config),
-      queryParams: buildHubQuery(config),
+      authHeader,
+      queryParams: buildHubQuery(config, authHeader),
     });
 
     const results: TestMethodResult[] = [];

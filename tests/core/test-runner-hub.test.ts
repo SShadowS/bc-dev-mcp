@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { TestRunnerClient } from "../../src/core/hubs/test-runner-hub";
+import { BasicAuthorizationProvider } from "../../src/core/authorization";
 import type { ConnectionConfig } from "../../src/core/types";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 
 const config: ConnectionConfig = {
+  environmentType: "OnPrem",
+  authentication: "UserPassword",
   server: "http://localhost",
   serverInstance: "BC",
   username: "u",
   password: "p",
 };
+const auth = new BasicAuthorizationProvider("u", "p");
 
 describe("TestRunnerClient.run", () => {
   test("initializes, runs groups sequentially, maps results", async () => {
@@ -32,11 +36,14 @@ describe("TestRunnerClient.run", () => {
 
     const result = await new TestRunnerClient(fakeHubFactory(hub)).run(
       config,
+      auth,
       [{ id: 50100 }, { id: 50110, methods: ["OtherTest"] }],
       { company: "CRONUS", coverage: "procedure" },
     );
 
     expect(hub.url).toBe("http://localhost:7049/BC/dev/TestRunnerHub");
+    expect(hub.opts?.authHeader).toBe("Basic " + Buffer.from("u:p").toString("base64"));
+    expect(hub.opts?.queryParams["Authentication"]).toBe(hub.opts?.authHeader);
     expect(hub.invoked("Initialize")[0]?.args).toEqual(["CRONUS", "", 2]);
     expect(hub.invoked("RunTests").map((i) => i.args)).toEqual([
       [50100, []],
@@ -70,7 +77,7 @@ describe("TestRunnerClient.run", () => {
       }
       return undefined;
     };
-    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(config, [{ id: 50100 }], { coverage: "procedure" });
+    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(config, auth, [{ id: 50100 }], { coverage: "procedure" });
     expect(result.coverage).toEqual([
       { testObjectId: 50100, testMethodId: 1, coveredProcedures: [{ objectType: 5, objectId: 50000, methodId: 7 }] },
     ]);
@@ -82,7 +89,7 @@ describe("TestRunnerClient.run", () => {
       if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
       return undefined;
     };
-    await new TestRunnerClient(fakeHubFactory(hub)).run(config, [{ id: 1 }], { debuggingContext: "conn-42" });
+    await new TestRunnerClient(fakeHubFactory(hub)).run(config, auth, [{ id: 1 }], { debuggingContext: "conn-42" });
     expect(hub.invoked("Initialize")[0]?.args).toEqual(["", "conn-42", 0]);
   });
 
@@ -97,7 +104,7 @@ describe("TestRunnerClient.run", () => {
       }
       return undefined;
     };
-    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(config, [{ id: 50100 }]);
+    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(config, auth, [{ id: 50100 }]);
     expect(result.results).toHaveLength(1);
     expect(result.runAborted).toBe(true);
     expect(result.abortReason).toContain("socket dropped");
@@ -109,7 +116,7 @@ describe("TestRunnerClient.run", () => {
       if (method === "RunTests") throw new Error("server exploded");
       return undefined;
     };
-    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(config, [{ id: 1 }]);
+    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(config, auth, [{ id: 1 }]);
     expect(result.runAborted).toBe(true);
     expect(result.abortReason).toContain("server exploded");
     expect(hub.stopped).toBe(true);

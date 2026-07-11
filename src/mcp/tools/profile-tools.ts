@@ -52,10 +52,10 @@ export function createProfileTools(
         webEndpoint: z.string().optional(),
       }),
       handler: async (params) => {
-        const { config } = resolve(params, deps);
+        const { config, authorization } = resolve(params, deps);
         const port = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
         try {
-          const md = await new SnapshotClient(deps.fetchFn, config, port).metadata();
+          const md = await new SnapshotClient(deps.fetchFn, config, port, authorization).metadata();
           const major = Number(md.webApiVersion.split(".")[0] ?? 0);
           return { reachable: true, snapshotApiVersion: md.webApiVersion, sampleProfilingSupported: major >= 3, webEndpoint: md.webEndpoint };
         } catch (err) {
@@ -85,13 +85,13 @@ export function createProfileTools(
       outputSchema: z.object({ debuggingContext: z.string(), attachKind: z.string(), hint: z.string(), converterAvailable: z.boolean().optional() }),
       handler: async (params) => {
         if (state.profile) throw new Error("Profile capture already active — call bcdev_profile_finish first");
-        const { config } = resolve(params, deps);
+        const { config, authorization } = resolve(params, deps);
         const snapshotPort = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
         const kind = (params["kind"] as "sampling" | "instrumentation" | undefined) ?? "sampling";
         const debuggingContext = randomUUID();
         // claim the slot before awaiting — blocks concurrent start (mirrors debug-tools.ts)
-        state.profile = { debuggingContext, affinityCookie: null, attachKind: "", snapshotPort, config, startedAt: new Date().toISOString(), kind };
-        const client = new SnapshotClient(deps.fetchFn, config, snapshotPort);
+        state.profile = { debuggingContext, affinityCookie: null, attachKind: "", snapshotPort, config, authorization, startedAt: new Date().toISOString(), kind };
+        const client = new SnapshotClient(deps.fetchFn, config, snapshotPort, authorization);
         try {
           const clientType = (params["clientType"] as never) ?? "WebClient";
           const userId = params["userId"] as string | undefined;
@@ -139,7 +139,7 @@ export function createProfileTools(
       outputSchema: z.object({ status: z.enum(["Failed", "Initialized", "Started", "Finished"]), ready: z.boolean() }),
       handler: async () => {
         const p = requireProfile(state);
-        const status = await new SnapshotClient(deps.fetchFn, p.config, p.snapshotPort).status(p.debuggingContext, p.affinityCookie);
+        const status = await new SnapshotClient(deps.fetchFn, p.config, p.snapshotPort, p.authorization).status(p.debuggingContext, p.affinityCookie);
         return { status, ready: status === "Started" };
       },
     },
@@ -167,7 +167,7 @@ export function createProfileTools(
       }),
       handler: async (params) => {
         const p = requireProfile(state);
-        const client = new SnapshotClient(deps.fetchFn, p.config, p.snapshotPort);
+        const client = new SnapshotClient(deps.fetchFn, p.config, p.snapshotPort, p.authorization);
         try {
           const fin = await client.finish(p.debuggingContext, p.affinityCookie);
           if (fin.empty) {

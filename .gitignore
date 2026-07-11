@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.exe
+/.codex/
 
 # Session scratch space — experiments, logs, captured profiles. Never ship.
 scratch/

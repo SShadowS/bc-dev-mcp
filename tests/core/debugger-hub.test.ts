@@ -1,20 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { DebuggerClient } from "../../src/core/hubs/debugger-hub";
+import { BasicAuthorizationProvider } from "../../src/core/authorization";
 import type { ConnectionConfig, DebuggerEvent } from "../../src/core/types";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 
 const config: ConnectionConfig = {
+  environmentType: "OnPrem",
+  authentication: "UserPassword",
   server: "http://localhost",
   serverInstance: "BC",
   username: "u",
   password: "p",
 };
+const auth = new BasicAuthorizationProvider("u", "p");
 
 async function connected(hub: FakeHub): Promise<{ client: DebuggerClient; events: DebuggerEvent[] }> {
   const client = new DebuggerClient(fakeHubFactory(hub));
   const events: DebuggerEvent[] = [];
   client.onEvent = (e) => events.push(e);
-  await client.connect(config, { breakOnError: true });
+  await client.connect(config, auth, { breakOnError: true });
   return { client, events };
 }
 
@@ -23,6 +27,7 @@ describe("DebuggerClient", () => {
     const hub = new FakeHub();
     const { client } = await connected(hub);
     expect(hub.url).toBe("http://localhost:7049/BC/dev/DebuggerHub");
+    expect(hub.opts?.queryParams["Authentication"]).toBe(hub.opts?.authHeader);
     expect(hub.invoked("Attach")[0]?.args[0]).toMatchObject({ BreakOnNextClient: 1, SessionId: -1 });
     expect(hub.invoked("DebugAdapterConfigurationDone")).toHaveLength(0);
 
@@ -174,7 +179,7 @@ describe("DebuggerClient", () => {
       return undefined;
     };
     const client = new DebuggerClient(fakeHubFactory(hub));
-    await expect(client.connect(config, {})).rejects.toThrow("attach denied");
+    await expect(client.connect(config, auth, {})).rejects.toThrow("attach denied");
     expect(hub.stopped).toBe(true);
     expect(client.connectionId).toBeNull();
   });
