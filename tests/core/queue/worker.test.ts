@@ -69,7 +69,7 @@ describe("workQueue: empty queue", () => {
       log: () => {},
     };
     const report = await workQueue(baseCfg(), deps);
-    expect(report).toEqual({ polled: 0, worked: [], failures: 0 });
+    expect(report).toEqual({ polled: 0, worked: [], failures: 0, claimErrors: 0 });
     expect(claimCalls.length).toBe(0);
     expect(cycleCalls).toBe(0);
   });
@@ -150,6 +150,81 @@ describe("workQueue: claim retention on delivery", () => {
       { id: 1, outcome: "shipped", released: false },
       { id: 2, outcome: "duplicate", released: false },
     ]);
+  });
+
+  test("dry-run outcome keeps the claim — no cancel call (a benign self-expiring claim beats identity churn)", async () => {
+    const rows = [row({ id: 1 })];
+    const { client, cancelCalls } = fakeClient({ rows });
+    const deps: WorkerDeps = {
+      client,
+      runCycle: async () => ({ kind: "dry-run", activityId: "a1", manifest: {}, gzippedBytes: 1, zipPath: "z", irPath: "i" }),
+      spawnWorkload: noopSpawn,
+      log: () => {},
+    };
+    const report = await workQueue(baseCfg(), deps);
+    expect(cancelCalls).toEqual([]);
+    expect(report.worked).toEqual([{ id: 1, outcome: "dry-run", released: false }]);
+  });
+});
+
+describe("workQueue: claim errors (CLI failure, distinct from a raced/gone claim)", () => {
+  test('reason "error" is recorded as claim-error, not claim-raced, and doesn\'t consume the budget', async () => {
+    const rows = [row({ id: 1 }), row({ id: 2 })];
+    const { client, claimCalls } = fakeClient({
+      rows,
+      claimResults: {
+        1: { ok: false, reason: "error", message: "captures claim failed (exit 127): command not found" },
+        2: { ok: true },
+      },
+    });
+    const cycleCalls: number[] = [];
+    const deps: WorkerDeps = {
+      client,
+      runCycle: async (r) => {
+        cycleCalls.push(r.id);
+        return { kind: "shipped", activityId: "a", gzippedBytes: 1 };
+      },
+      spawnWorkload: noopSpawn,
+      log: () => {},
+    };
+    const report = await workQueue(baseCfg({ max: 1 }), deps);
+    expect(claimCalls.map((c) => c.id)).toEqual([1, 2]);
+    expect(cycleCalls).toEqual([2]);
+    expect(report.worked).toEqual([
+      { id: 1, outcome: "claim-error", released: false },
+      { id: 2, outcome: "shipped", released: false },
+    ]);
+    expect(report.claimErrors).toBe(1);
+    expect(report.failures).toBe(0);
+  });
+
+  test("an all-claim-error queue reports claimErrors == polled and leaves failures at 0", async () => {
+    const rows = [row({ id: 1 }), row({ id: 2 }), row({ id: 3 })];
+    const { client } = fakeClient({
+      rows,
+      claimResults: {
+        1: { ok: false, reason: "error", message: "boom" },
+        2: { ok: false, reason: "error", message: "boom" },
+        3: { ok: false, reason: "error", message: "boom" },
+      },
+    });
+    let cycleCalls = 0;
+    const deps: WorkerDeps = {
+      client,
+      runCycle: async () => {
+        cycleCalls++;
+        return { kind: "shipped", activityId: "a", gzippedBytes: 1 };
+      },
+      spawnWorkload: noopSpawn,
+      log: () => {},
+    };
+    const report = await workQueue(baseCfg({ max: 3 }), deps);
+    expect(cycleCalls).toBe(0);
+    expect(report.polled).toBe(3);
+    expect(report.worked.every((w) => w.outcome === "claim-error")).toBe(true);
+    expect(report.claimErrors).toBe(3);
+    expect(report.claimErrors).toBe(report.polled);
+    expect(report.failures).toBe(0);
   });
 });
 

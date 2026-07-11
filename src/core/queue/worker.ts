@@ -23,14 +23,17 @@ export interface WorkerDeps {
 
 export interface WorkedRequest {
   id: number;
-  outcome: CycleOutcome["kind"] | "claim-raced";
+  outcome: CycleOutcome["kind"] | "claim-raced" | "claim-error";
   released: boolean; // cancelled after failure
 }
 
 export interface WorkerReport {
   polled: number;
   worked: WorkedRequest[];
-  failures: number; // outcomes of kind "error"
+  failures: number; // outcomes of kind "error" (a cycle ran and failed)
+  claimErrors: number; // outcomes of kind "claim-error" — the CLI itself failed to claim
+  // (bad --al-perf-cli, unreachable DB, etc.), distinct from "claim-raced" (a busy pool,
+  // expected in normal operation): this is the signal that something is broken, not busy.
 }
 
 const ARMED_LINE = /armed .* capture/;
@@ -52,6 +55,7 @@ export async function workQueue(cfg: WorkerConfig, deps: WorkerDeps): Promise<Wo
   const rows = await deps.client.listPending(cfg.tenant);
   const worked: WorkedRequest[] = [];
   let failures = 0;
+  let claimErrors = 0;
   let attempted = 0;
 
   for (const row of rows) {
@@ -59,10 +63,17 @@ export async function workQueue(cfg: WorkerConfig, deps: WorkerDeps): Promise<Wo
 
     const claimResult = await deps.client.claim(row.id, cfg.executor);
     if (!claimResult.ok) {
-      // Only "raced"/"gone" are documented here; a bare CLI "error" is treated the same
-      // way — we don't hold the claim either way, so there's nothing to run or release.
+      // "raced"/"gone" mean someone else is using the pool as intended — normal, expected
+      // traffic. "error" means the CLI call itself failed (bad prefix, unreachable DB, ...) —
+      // worth a distinct signal in the report so an operator can tell "busy" from "broken".
+      // Neither holds a claim, so neither has anything to run or release.
       deps.log(`claim for request #${row.id} did not succeed (${claimResult.reason}): ${claimResult.message}`);
-      worked.push({ id: row.id, outcome: "claim-raced", released: false });
+      if (claimResult.reason === "error") {
+        claimErrors++;
+        worked.push({ id: row.id, outcome: "claim-error", released: false });
+      } else {
+        worked.push({ id: row.id, outcome: "claim-raced", released: false });
+      }
       continue; // does not consume the max budget
     }
     attempted++;
@@ -102,7 +113,9 @@ export async function workQueue(cfg: WorkerConfig, deps: WorkerDeps): Promise<Wo
     if (kind === "error") failures++;
 
     let released: boolean;
-    if (kind === "shipped" || kind === "duplicate") {
+    if (kind === "shipped" || kind === "duplicate" || kind === "dry-run") {
+      // dry-run shipped nothing, but cancelling would free the identity for the next sync
+      // scan to re-file — churning ids for a no-op. A benign, self-expiring claim is cheaper.
       released = false;
     } else if (cfg.keepClaimOnFailure) {
       deps.log(`keeping claim on request #${row.id} despite a "${kind}" outcome (keepClaimOnFailure)`);
@@ -118,5 +131,5 @@ export async function workQueue(cfg: WorkerConfig, deps: WorkerDeps): Promise<Wo
     worked.push({ id: row.id, outcome: kind, released });
   }
 
-  return { polled: rows.length, worked, failures };
+  return { polled: rows.length, worked, failures, claimErrors };
 }
