@@ -52,6 +52,16 @@ function parseField(raw: string, def: FieldDef): Set<number> {
       throw new Error(`cron ${def.name} field: malformed term "${term}"`);
     }
     const [, base, rangeEnd, stepRaw] = m;
+    if (base !== "*" && rangeEnd === undefined && stepRaw !== undefined) {
+      // A bare "N/S" is outside the D2 grammar — silently accepting it would
+      // collapse to a single value (the step never gets anywhere to step
+      // through), under-scheduling the job with no error. Accepted step
+      // forms are "*/S" and "N-M/S" only.
+      throw new Error(
+        `cron ${def.name} field: a step ("/${stepRaw}") on a bare value is not allowed in "${term}" — ` +
+          `accepted forms are "*", "N", "N-M", "*/S", "N-M/S"; did you mean "${base}-${def.max}/${stepRaw}" or "*/${stepRaw}"?`,
+      );
+    }
     let start: number;
     let end: number;
     if (base === "*") {

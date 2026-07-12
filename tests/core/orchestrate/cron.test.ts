@@ -246,4 +246,14 @@ describe("parseCron: malformed input throws naming the field position", () => {
   test("an empty field (trailing comma) throws", () => {
     expect(() => parseCron("1, * * * *")).toThrow();
   });
+
+  test("a step attached to a bare value (N/S, no range) is rejected rather than silently collapsing to {N}", () => {
+    expect(() => parseCron("5/15 * * * *")).toThrow(/minute/i);
+    expect(() => parseCron("5/15 * * * *")).toThrow(/step/i);
+  });
+
+  test("'*/S' and 'N-M/S' remain valid — only the bare-value form is rejected", () => {
+    expect(() => parseCron("*/15 * * * *")).not.toThrow();
+    expect(() => parseCron("5-59/15 * * * *")).not.toThrow();
+  });
 });
