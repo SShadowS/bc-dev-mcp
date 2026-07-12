@@ -53,6 +53,18 @@ export interface Scheduler {
 }
 
 const DEFAULT_SHUTDOWN_GRACE_MS = 30_000;
+// Node/Bun's setTimeout (like the browser spec it follows) silently clamps any delay above a
+// signed 32-bit int of milliseconds to ~1ms — and on Bun 1.3.14/win32 also emits a
+// TimeoutOverflowWarning per call. A sparse schedule (monthly, quarterly, yearly, a Feb 29
+// job) routinely computes a true due-delay past this: an unclamped arm would fire almost
+// immediately, tick() would find nothing due, and rearmGlobalTimer() would re-arm the SAME
+// oversized delay — spinning at ~1000 ticks/sec (and flooding the log) for however many days
+// remain until the true gap shrinks under the limit. Clamping the delay actually PASSED to
+// setTimer (armedForTime below still tracks the true, unclamped due time) turns that spin into
+// a small, bounded number of full-length re-arms: tick() finding nothing due just calls
+// rearmGlobalTimer() again, which reclamps the now-smaller remaining delay. The job still
+// fires at its true due time either way — this only bounds how the wait gets there.
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1; // ~24.86 days
 
 interface JobRuntime {
   readonly job: JobConfig;
@@ -117,7 +129,7 @@ export function createScheduler(cfg: OrchestratorConfig, deps: SchedulerDeps): S
       deps.clearTimer(armedTimerId);
       armedTimerId = null;
     }
-    const delay = Math.max(0, min - deps.now());
+    const delay = Math.min(Math.max(0, min - deps.now()), MAX_TIMER_DELAY_MS);
     armedForTime = min;
     armedTimerId = deps.setTimer(delay, tick);
   }
@@ -140,7 +152,12 @@ export function createScheduler(cfg: OrchestratorConfig, deps: SchedulerDeps): S
 
     const classification: JobOutcome = !spawnFailed && result.timedOut ? "timeout" : "failed";
     const attemptsAllowed = rt.job.retry?.attempts ?? 0;
-    if (rt.attemptsUsed < attemptsAllowed) {
+    // `&& !stopped`: rearmGlobalTimer() is a no-op once stopped (see its own `if (stopped)
+    // return`), so a retry "scheduled" after stop() has already been called would never
+    // actually fire — logging "retrying in Xm" in that case would be a promise the log and
+    // the state file both make and then silently break. Fall through to the permanent-failure
+    // path instead so the recorded outcome matches what actually happens: no retry.
+    if (rt.attemptsUsed < attemptsAllowed && !stopped) {
       rt.attemptsUsed += 1;
       const delayMinutes = rt.job.retry?.delayMinutes ?? 0;
       rt.pendingRetryAt = deps.now() + delayMinutes * 60_000;
@@ -157,7 +174,14 @@ export function createScheduler(cfg: OrchestratorConfig, deps: SchedulerDeps): S
     rt.state.consecutiveFailures += 1;
     rt.running = false;
     persistState();
-    deps.log(`orchestrator: job "${rt.job.name}" failed permanently (${classification})`);
+    if (stopped && rt.attemptsUsed < attemptsAllowed) {
+      deps.log(
+        `orchestrator: job "${rt.job.name}" failed (${classification}) during shutdown — retry budget remained ` +
+          `(${rt.attemptsUsed}/${attemptsAllowed}) but the daemon is stopping, so it will not be attempted`,
+      );
+    } else {
+      deps.log(`orchestrator: job "${rt.job.name}" failed permanently (${classification})`);
+    }
   }
 
   function startAttempt(rt: JobRuntime, atTime: number): void {

@@ -240,6 +240,18 @@ describe("parseOrchestratorConfig: numeric validation (negative numerics, quoted
     expect(() => parseOrchestratorConfig({ jobs: [validJob({ jitterMinutes: 60 })] })).toThrow(/jitterMinutes/);
     expect(() => parseOrchestratorConfig({ jobs: [validJob({ jitterMinutes: 60 })] })).toThrow(/nightly-capture/);
   });
+
+  test("timeoutMinutes of 35791 is the accepted boundary (32-bit signed setTimeout ms limit); 35792 throws, naming the job and hinting at 0", () => {
+    const cfg = parseOrchestratorConfig({ jobs: [validJob({ timeoutMinutes: 35_791 })] });
+    expect(cfg.jobs[0]?.timeoutMinutes).toBe(35_791);
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ timeoutMinutes: 35_792 })] })).toThrow(/timeoutMinutes/);
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ timeoutMinutes: 35_792 })] })).toThrow(/nightly-capture/);
+    // An operator writing a huge number to mean "never time out" (e.g. 99999999 minutes, a
+    // ~166900-day setTimeout delay that Node/Bun would silently clamp to ~1ms at runtime,
+    // SIGTERM-ing every run at birth) needs to be pointed at the actual sentinel (0), not
+    // left to guess why their giant number silently broke the job.
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ timeoutMinutes: 99_999_999 })] })).toThrow(/use 0 for no timeout enforced/);
+  });
 });
 
 describe("parseOrchestratorConfig: retry validation", () => {
@@ -274,6 +286,26 @@ describe("parseOrchestratorConfig: retry validation", () => {
   test("retry with attempts=0 is valid (present but no extra tries)", () => {
     const cfg = parseOrchestratorConfig({ jobs: [validJob({ retry: { attempts: 0, delayMinutes: 5 } })] });
     expect(cfg.jobs[0]?.retry).toEqual({ attempts: 0, delayMinutes: 5 });
+  });
+
+  test("retry.delayMinutes of 35791 is the accepted boundary; 35792 throws, naming job and field", () => {
+    const cfg = parseOrchestratorConfig({ jobs: [validJob({ retry: { attempts: 1, delayMinutes: 35_791 } })] });
+    expect(cfg.jobs[0]?.retry).toEqual({ attempts: 1, delayMinutes: 35_791 });
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ retry: { attempts: 1, delayMinutes: 35_792 } })] })).toThrow(
+      /retry\.delayMinutes/,
+    );
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ retry: { attempts: 1, delayMinutes: 35_792 } })] })).toThrow(
+      /nightly-capture/,
+    );
+  });
+
+  test("a wildly oversized retry.delayMinutes is rejected rather than silently becoming an instant retry", () => {
+    // Node/Bun clamping an overflowed setTimeout to ~1ms would turn a huge delayMinutes into
+    // an INSTANT retry, not a long wait — the opposite of what an operator configuring a big
+    // backoff would expect. Fail closed at load instead.
+    expect(() =>
+      parseOrchestratorConfig({ jobs: [validJob({ retry: { attempts: 1, delayMinutes: 99_999_999 } })] }),
+    ).toThrow(/retry\.delayMinutes/);
   });
 });
 

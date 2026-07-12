@@ -103,8 +103,8 @@ the "must never wedge, but can't promise never crash" honest boundary.
 | `args` | string[] | no | `[]` | spawned verbatim as separate argv entries |
 | `env` | object&lt;string,string&gt; | no | `{}` | merged **over** the daemon's own `process.env` (a job can override an inherited var); keys must match `^[A-Za-z_][A-Za-z0-9_]*$` |
 | `jitterMinutes` | number ≥ 0 | no | 0 | **capped at 59** (`MAX_JITTER_MINUTES`) — an absolute backstop only, not a per-schedule guarantee. Deriving a cron expression's true minimum interval is expensive (irregular gaps, the dom/dow OR-rule below), so the loader only refuses jitter ≥ 1 hour outright. **You are responsible for keeping jitter comfortably below your own schedule's actual interval** — e.g. `*/5 * * * *` with `jitterMinutes: 55` can jitter an occurrence past the *next* grid slot and silently skip it. A good rule of thumb: jitter no more than ~10-20% of your shortest gap between occurrences. |
-| `timeoutMinutes` | number ≥ 0 | no | 60 | a job still running past this is SIGTERM'd, then SIGKILL'd after a short internal grace. **`0` means no timeout enforced** — an explicit opt-out, not an instant-kill; there's no other sane reading of a literal zero here |
-| `retry` | object | no | none (no retry) | `{ "attempts": <int ≥0>, "delayMinutes": <number ≥0> }` — on failure/timeout/spawn-error, re-run after `delayMinutes`, up to `attempts` extra tries; success mid-chain resets. Fixed-delay only — exponential backoff is a follow-up. |
+| `timeoutMinutes` | number ≥ 0 | no | 60 | a job still running past this is SIGTERM'd, then SIGKILL'd after a short internal grace. **`0` means no timeout enforced** — an explicit opt-out, not an instant-kill; there's no other sane reading of a literal zero here. **Capped at 35791** (`MAX_TIMER_MINUTES`, ≈ 24.86 days — the largest delay a Bun/Node `setTimeout` will actually honor; anything larger silently clamps to ~1ms at runtime, SIGTERM-ing the job at birth on every run) — write `0` for "never," not a huge number |
+| `retry` | object | no | none (no retry) | `{ "attempts": <int ≥0>, "delayMinutes": <number ≥0> }` — on failure/timeout/spawn-error, re-run after `delayMinutes`, up to `attempts` extra tries; success mid-chain resets. Fixed-delay only — exponential backoff is a follow-up. `delayMinutes` is **capped at 35791** too, same reason as `timeoutMinutes` above (an oversized value would clamp to an *instant* retry, not a long backoff). **Retries fire on any non-zero exit** — see the caveat about deterministic usage-error exits (e.g. capture-and-ship's exit 2) under [Overlap and retry semantics](#overlap-and-retry-semantics-d3d4) below. |
 
 Unknown top-level job keys are ignored (forward-compatible config files).
 
@@ -144,11 +144,36 @@ unsatisfiable schedule fails closed — exit 2, naming the job — identically
 under `--dry-run` and a real startup. It does not silently schedule nothing,
 and it does not surface later as an uncaught crash out of the scheduler.
 
+**Sparse schedules (monthly, quarterly, yearly, "next Feb 29th") are safe to
+use** — a genuinely rare occurrence can be months away, well past the ~24.86
+days a single `setTimeout` delay can actually span before Bun/Node silently
+clamps it to ~1ms. The scheduler caps the delay it actually arms and re-arms
+the remainder as needed, so a long wait costs a small, bounded number of
+timer re-arms instead of spinning at the clamped ~1ms interval — the job
+still fires exactly on time either way; this only changes how the wait to
+get there is implemented internally, and is not something a config author
+needs to think about.
+
 Cron times are evaluated in the **daemon process's local time zone** — the
 conventional interpretation (`cron(8)`, Windows Task Scheduler both mean
 "local wall clock" when you write `30 2 * * *`). DST transitions are a known,
 accepted cost of that choice: a spring-forward can skip a wall-clock minute a
 job was scheduled for; a fall-back can revisit one. Not specially handled.
+An NTP correction that jumps the clock sharply **forward** has a related
+effect: each tick only recomputes a job's *next single* occurrence from
+whichever one it just fired, so if the jump skipped past several of that
+job's occurrences at once, the daemon re-detects it as due again on the very
+next tick (armed at ~0ms) — repeatedly, in rapid succession, until its
+schedule finally catches up to the new "now." What that looks like in
+practice depends on how long the job takes to run:
+[no-overlap](#overlap-and-retry-semantics-d3d4) means a job that's still
+in flight from the first catch-up fire has every subsequent rapid re-tick
+counted as a skipped overlap, not a second concurrent spawn — but a job
+that finishes fast enough between ticks *can* be genuinely re-spawned
+several times in quick succession. Either way it's bounded (never more than
+one truly concurrent run of the same job) and self-resolving within a few
+ticks, not a sustained problem — but it's a real, if brief, burst either in
+spawn count or in `skippedOverlaps`, not the missed slots quietly vanishing.
 
 ## Overlap and retry semantics (D3/D4)
 
@@ -163,6 +188,19 @@ job was scheduled for; a fall-back can revisit one. Not specially handled.
   whole chain (including the gap between attempts) — an overlapping regular
   due tick during that gap is skipped like any other overlap, not queued
   behind the retry.
+  - **The daemon retries ANY non-zero exit — it has no idea which ones are
+    worth retrying.** capture-and-ship.ts and work-capture-queue.ts's own
+    exit-code conventions distinguish `1` (a real cycle failure — transient
+    network/BC issues, worth retrying) from `2` (bad usage — the config's
+    `args` themselves are wrong, e.g. a typo'd flag). Exit `2` is
+    deterministic: retrying the exact same `args` produces the exact same
+    usage error every time, so `retry` on such a job just delays discovering
+    a config mistake by `attempts × delayMinutes`, not un-sticks anything.
+    Exit `0` (shipped/duplicate/no-capture) is correctly recorded as
+    success regardless of which of those three sub-outcomes it was — see
+    each script's own troubleshooting table for what its exit codes mean.
+    If a job is misconfigured, fix the config; don't rely on `retry` to
+    paper over it.
 - **Drift-free scheduling.** A job's next regular occurrence is always
   computed from the time it was *due*, never from when it happened to
   finish — a slow or retried run does not shift the job's own cadence.

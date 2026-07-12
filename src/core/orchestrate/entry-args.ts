@@ -9,6 +9,12 @@ import { nextRun } from "./cron";
 
 const DEFAULT_STATE_FILENAME = "orchestrator.state.json";
 const DEFAULT_SHUTDOWN_GRACE_SECONDS = 30;
+// --shutdown-grace becomes a real setTimeout delay (scheduler.stop()'s grace timer, and the
+// SIGTERM->SIGKILL escalation in scripts/orchestrate.ts). Node/Bun silently clamps any delay
+// past a signed 32-bit int of milliseconds to ~1ms — floor((2**31-1)/1000) seconds is the
+// largest value that stays a real delay instead of an instant, "kill everything now" timer.
+// Mirrors config.ts's MAX_TIMER_MINUTES (same underlying platform limit, different unit).
+const MAX_SHUTDOWN_GRACE_SECONDS = 2_147_483;
 const DRY_RUN_FIRE_COUNT = 3;
 
 export interface EntryConfig {
@@ -77,6 +83,12 @@ export function resolveEntryArgs(argv: string[]): EntryResolveResult {
     const n = Number(graceRaw);
     if (!Number.isInteger(n) || n < 0) {
       errors.push(`--shutdown-grace must be a non-negative integer (seconds), got ${graceRaw}`);
+    } else if (n > MAX_SHUTDOWN_GRACE_SECONDS) {
+      errors.push(
+        `--shutdown-grace must be <= ${MAX_SHUTDOWN_GRACE_SECONDS} seconds — a Bun/Node timer armed for longer ` +
+          `than that silently clamps to ~1ms at runtime (killing running jobs instantly instead of granting a ` +
+          `grace period), got ${graceRaw}`,
+      );
     } else {
       shutdownGraceMs = n * 1000;
     }

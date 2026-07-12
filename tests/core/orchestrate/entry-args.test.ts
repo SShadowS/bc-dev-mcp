@@ -100,6 +100,20 @@ describe("resolveEntryArgs: --shutdown-grace", () => {
     expect(res.errors.join("\n")).toContain("--shutdown-grace");
   });
 
+  test("2147483 seconds is the accepted boundary (32-bit signed setTimeout ms limit)", () => {
+    const res = resolveEntryArgs(["--config", "cfg.json", "--shutdown-grace", "2147483"]);
+    expect(res.kind).toBe("config");
+    if (res.kind !== "config") throw new Error("expected config");
+    expect(res.config.shutdownGraceMs).toBe(2_147_483_000);
+  });
+
+  test("a value past the boundary (2147484 seconds) is a usage error naming --shutdown-grace, not silently accepted and later clamped by the platform", () => {
+    const res = resolveEntryArgs(["--config", "cfg.json", "--shutdown-grace", "2147484"]);
+    expect(res.kind).toBe("error");
+    if (res.kind !== "error") throw new Error("expected error");
+    expect(res.errors.join("\n")).toContain("--shutdown-grace");
+  });
+
   test("shutdownGraceExplicit is false when the flag is absent (default applied)", () => {
     const res = resolveEntryArgs(["--config", "cfg.json"]);
     expect(res.kind).toBe("config");

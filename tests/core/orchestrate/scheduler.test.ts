@@ -407,6 +407,75 @@ describe("createScheduler: D4 retry chain", () => {
     clock.advanceTo(T0 + 17 * 60_000);
     expect(spawner.calls).toHaveLength(2);
   });
+
+  test("a failed attempt with retry budget remaining during shutdown fails permanently and logs honestly (no promised retry that will never fire)", async () => {
+    const clock = createFakeClock(T0);
+    const spawner = createMockSpawner();
+    const { deps, writes, logs } = createTestDeps(clock, spawner);
+    const scheduler = createScheduler(cfg(retryJob({ schedule: "*/5 * * * *", retry: { attempts: 2, delayMinutes: 3 } })), deps);
+    scheduler.start();
+    clock.advanceTo(T0 + 5 * 60_000);
+    expect(spawner.calls).toHaveLength(1);
+
+    // stop() while the job is still running — it's captured in stop()'s "active" snapshot.
+    const stopPromise = scheduler.stop(10_000);
+
+    // the attempt now fails with retry budget remaining (attemptsUsed 0 < attempts 2) — but
+    // rearmGlobalTimer() is a no-op once stopped, so a "scheduled" retry would never fire.
+    spawner.instances[0]?.resolve({ code: 1, timedOut: false });
+    clock.advanceBy(1);
+    await stopPromise;
+
+    const state = writes.at(-1)?.jobs["a"];
+    expect(state?.lastOutcome).toBe("failed");
+    expect(state?.consecutiveFailures).toBe(1);
+    expect(logs.some((l) => l.includes("retrying in"))).toBe(false);
+    expect(logs.some((l) => l.includes("retry budget remained") && l.includes("will not be attempted"))).toBe(true);
+  });
+});
+
+describe("createScheduler: timer overflow safety (sparse schedules)", () => {
+  const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+  test("armed delay for a many-months-away occurrence is clamped to the 32-bit signed timer limit, and the job still fires on time via bounded re-arms", () => {
+    const clock = createFakeClock(T0);
+    const spawner = createMockSpawner();
+    const { deps } = createTestDeps(clock, spawner);
+    const setTimerCalls: number[] = [];
+    const realSetTimer = deps.setTimer;
+    deps.setTimer = (ms, fn) => {
+      setTimerCalls.push(ms);
+      return realSetTimer(ms, fn);
+    };
+
+    // "0 0 1 3 *" from T0 (2026-01-01 00:00:00 local) next fires 2026-03-01 00:00:00 local —
+    // 59 days away (2026 isn't a leap year: 31 + 28), comfortably past the 32-bit signed ms
+    // limit (~24.86 days). An unclamped arm would overflow setTimeout and spin.
+    const scheduler = createScheduler(cfg(job({ name: "quarterly", schedule: "0 0 1 3 *" })), deps);
+    scheduler.start();
+
+    expect(setTimerCalls.length).toBeGreaterThan(0);
+    for (const ms of setTimerCalls) {
+      expect(ms).toBeLessThanOrEqual(MAX_TIMER_DELAY_MS);
+    }
+
+    // Advance exactly to the first clamped wake — nothing is actually due yet (true due time
+    // is 59 days out), so the scheduler must re-arm the remainder (also clamped) rather than
+    // spin at the same oversized delay.
+    clock.advanceTo(T0 + MAX_TIMER_DELAY_MS);
+    expect(spawner.calls).toHaveLength(0);
+    expect(setTimerCalls.length).toBeGreaterThan(1);
+    for (const ms of setTimerCalls) {
+      expect(ms).toBeLessThanOrEqual(MAX_TIMER_DELAY_MS);
+    }
+
+    // Advancing the rest of the way still fires the job right on time — the fix only changes
+    // how many timer re-arms it takes to get there, never whether or when it fires.
+    const dueAt = T0 + 59 * 24 * 60 * 60 * 1000;
+    clock.advanceTo(dueAt);
+    expect(spawner.calls).toHaveLength(1);
+    expect(spawner.calls[0]?.name).toBe("quarterly");
+  });
 });
 
 describe("createScheduler: D5 persisted state", () => {

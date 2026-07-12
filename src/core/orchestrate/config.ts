@@ -28,7 +28,10 @@ export interface JobConfig {
   // interval of an arbitrary cron expression (irregular gaps, DOM/DOW OR-matches, etc.), so
   // it only enforces the absolute cap, not a per-schedule one.
   readonly jitterMinutes: number;
+  // A job still running past this is killed (0 = no timeout enforced). Capped at
+  // MAX_TIMER_MINUTES — see that constant's comment.
   readonly timeoutMinutes: number;
+  // retry.delayMinutes is capped at MAX_TIMER_MINUTES too — see that constant's comment.
   readonly retry?: RetryConfig;
 }
 
@@ -45,6 +48,15 @@ const DEFAULT_TIMEOUT_MINUTES = 60;
 // a >=hourly job jitter past its own next occurrence; document that risk at the call site
 // (D1/orchestrator-recipe.md) rather than pretend this check makes every schedule safe.
 const MAX_JITTER_MINUTES = 59;
+// Node/Bun's setTimeout silently clamps any delay past a signed 32-bit int of milliseconds
+// (2**31-1 = 2,147,483,647ms, ~24.86 days -> floor(.../60_000) = 35791 minutes) to ~1ms at
+// runtime — see scheduler.ts's own MAX_TIMER_DELAY_MS for the mechanism this guards against
+// on the scheduling-delay side. timeoutMinutes and retry.delayMinutes both become real
+// setTimeout delays in scripts/orchestrate.ts (job timeout enforcement) and scheduler.ts
+// (retry backoff) respectively — an operator writing something like 99999999 "to mean never"
+// would clamp to ~1ms and silently break the job forever (instant SIGTERM on every run /
+// instant retry), not fail loudly. Reject it at config load instead.
+const MAX_TIMER_MINUTES = 35_791;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -68,6 +80,18 @@ function requireJitterMinutes(value: unknown, label: string): number {
   return n;
 }
 
+function requireTimerMinutes(value: unknown, label: string, zeroMeaning?: string): number {
+  const n = requireNonNegativeNumber(value, label);
+  if (n > MAX_TIMER_MINUTES) {
+    const zeroHint = zeroMeaning ? ` (use 0 for ${zeroMeaning}, not a large number)` : "";
+    throw new Error(
+      `${label} must be <= ${MAX_TIMER_MINUTES} minutes — a Bun/Node timer armed for longer than that silently ` +
+        `clamps to ~1ms at runtime instead of the delay you asked for${zeroHint}, got ${n}`,
+    );
+  }
+  return n;
+}
+
 function parseRetry(raw: unknown, label: string): RetryConfig {
   if (!isPlainObject(raw)) {
     throw new Error(`${label}: "retry" must be an object with "attempts" and "delayMinutes"`);
@@ -76,7 +100,7 @@ function parseRetry(raw: unknown, label: string): RetryConfig {
   if (!Number.isInteger(attempts)) {
     throw new Error(`${label}: "retry.attempts" must be an integer, got ${attempts}`);
   }
-  const delayMinutes = requireNonNegativeNumber(raw["delayMinutes"], `${label}: "retry.delayMinutes"`);
+  const delayMinutes = requireTimerMinutes(raw["delayMinutes"], `${label}: "retry.delayMinutes"`);
   return { attempts, delayMinutes };
 }
 
@@ -148,7 +172,7 @@ function parseJob(raw: unknown, index: number): JobConfig {
     raw["jitterMinutes"] !== undefined ? requireJitterMinutes(raw["jitterMinutes"], `${label}: "jitterMinutes"`) : DEFAULT_JITTER_MINUTES;
   const timeoutMinutes =
     raw["timeoutMinutes"] !== undefined
-      ? requireNonNegativeNumber(raw["timeoutMinutes"], `${label}: "timeoutMinutes"`)
+      ? requireTimerMinutes(raw["timeoutMinutes"], `${label}: "timeoutMinutes"`, "no timeout enforced")
       : DEFAULT_TIMEOUT_MINUTES;
 
   const retry = raw["retry"] !== undefined ? parseRetry(raw["retry"], label) : undefined;
