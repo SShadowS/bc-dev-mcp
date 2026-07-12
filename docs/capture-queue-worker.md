@@ -199,6 +199,14 @@ intentionally does not grow a shell-quoting grammar.
 
 ## Scheduling
 
+Running several of these on one box? The [orchestrator daemon](orchestrator-recipe.md)
+supersedes per-job Task Scheduler entries — one long-running process reads a
+config file of jobs (this worker being one of them, alongside
+capture-and-ship and `lifecycle sync`/`pull-telemetry`) and schedules +
+supervises them all itself, with cron expressions, jitter, no-overlap, and
+retry built in. The per-job pattern below still works standalone; it's what
+the daemon's own config entries are built from.
+
 Mirrors [capture-ship-recipe.md's Windows Task Scheduler
 pattern](capture-ship-recipe.md#windows-task-scheduler) — wrap the invocation
 in a `.cmd` so secrets live in one ACL-protected file, not the task

@@ -122,6 +122,13 @@ Run it **off-peak**. Instrumentation is not free on the profiled server — it
 records every AL call in the bound session — and full-verbosity recordings are
 large. Prefer a couple of short scheduled windows over one long one.
 
+Running several of these on one box? The [orchestrator daemon](orchestrator-recipe.md)
+supersedes per-job Task Scheduler entries — one long-running process reads a
+config file of jobs (this script being one of them) and schedules + supervises
+them all itself, with cron expressions, jitter, no-overlap, and retry built
+in. The per-job patterns below still work standalone; they're what the
+daemon's own config entries are built from.
+
 ### Windows Task Scheduler
 
 Wrap the invocation in a `.cmd` so secrets live in one ACL-protected file, not
@@ -226,17 +233,22 @@ curl -sS -X POST "$AL_PERF_URL/api/ingest" \
   -F "profile=@<id>.ir.json.gz;type=application/octet-stream"
 ```
 
-## What the future daemon would add (and this recipe deliberately does not)
+## What the orchestrator daemon adds (and doesn't) over this recipe
 
-Per the platform umbrella spec, the daemon is built **when a named deployment
-needs it** — not before. It would add, over this recipe:
+The [orchestrator daemon](orchestrator-recipe.md) now exists and does
+internalize scheduling — one long-running process, no per-job cron/Task
+Scheduler entry required (see the cross-link above). It is a **generic job
+scheduler/supervisor**, not a capture-specific state machine, so it
+deliberately does NOT add:
 
-- capture/ship state persisted across restarts (resume an armed capture);
-- scheduling internalized (cron/Task Scheduler no longer required);
+- capture/ship state persisted mid-cycle (resume an armed capture across a
+  restart) — a restart just re-runs the job from scratch on its next due tick;
 - a retry queue across runs (an unreachable al-perf drains later instead of
-  waiting for the next scheduled slot);
-- concurrent capture jobs across environments from one config;
+  waiting for the next scheduled slot) — the daemon's retry re-runs the whole
+  job after a fixed delay, it doesn't resume a specific stuck POST;
 - adaptive capture windows based on prior runs' invocation counts.
 
-Everything else — the wire protocol, conversion, budgets, idempotency — is
-already exercised by this recipe and carries over unchanged.
+It does add concurrent jobs from one config (distinct jobs run concurrently;
+a job never overlaps itself). Everything else — the wire protocol,
+conversion, budgets, idempotency — is already exercised by this recipe and
+carries over unchanged, whether run standalone or as a daemon job.

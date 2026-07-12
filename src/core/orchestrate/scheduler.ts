@@ -56,8 +56,10 @@ const DEFAULT_SHUTDOWN_GRACE_MS = 30_000;
 
 interface JobRuntime {
   readonly job: JobConfig;
-  // exactly one of these is meaningful at a time: a job is either waiting for its next
-  // regular occurrence, or (while a retry chain occupies it) waiting for the next retry.
+  // Both fields can be live simultaneously: nextScheduledAt keeps advancing on its regular
+  // cadence even while a retry chain occupies the job (pendingRetryAt set), so an overlapping
+  // regular due tick during a retry backoff is still detected as D3 overlap-skip instead of
+  // silently stalling the schedule for the chain. See tick()/rearmGlobalTimer() below.
   nextScheduledAt: number;
   pendingRetryAt: number | null;
   running: boolean;
