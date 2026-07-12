@@ -149,6 +149,17 @@ describe("parseOrchestratorConfig: schedule validation", () => {
   test("an invalid cron expression throws, wrapping the cron parser's own error", () => {
     expect(() => parseOrchestratorConfig({ jobs: [validJob({ schedule: "0 0 * * * *" })] })).toThrow(/schedule/i);
   });
+
+  test("a syntactically valid but unsatisfiable schedule (Feb 31st) throws at LOAD time, naming the job and field", () => {
+    // "0 0 31 2 *" parses field-by-field fine (31 is a valid day-of-month value, 2 a valid
+    // month) but no year has a February 31st — nextRun would throw "unsatisfiable" the
+    // first time the scheduler actually tried to compute this job's next occurrence. That
+    // must fail closed at config load, not surface later as an uncaught throw out of
+    // scheduler.start() or a --dry-run that silently exits 0 past a bad config.
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ schedule: "0 0 31 2 *" })] })).toThrow(/nightly-capture/);
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ schedule: "0 0 31 2 *" })] })).toThrow(/schedule/i);
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ schedule: "0 0 31 2 *" })] })).toThrow(/unsatisfiable/i);
+  });
 });
 
 describe("parseOrchestratorConfig: command / args validation", () => {

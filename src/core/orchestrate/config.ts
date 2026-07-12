@@ -7,7 +7,7 @@
 // the config file on disk must be ACL-protected the same way the .cmd recipes
 // it supersedes are. This loader never logs env values, only keys.
 import { readFileSync } from "node:fs";
-import { parseCron } from "./cron";
+import { nextRun, parseCron } from "./cron";
 
 export interface RetryConfig {
   readonly attempts: number;
@@ -117,6 +117,19 @@ function parseJob(raw: unknown, index: number): JobConfig {
   } catch (err) {
     throw new Error(`${label}: "schedule" is invalid: ${err instanceof Error ? err.message : String(err)}`);
   }
+  // Syntax alone isn't enough: "0 0 31 2 *" (February 31st) parses fine field-by-field but
+  // never matches any real date. Confirm satisfiability at LOAD time — fail-closed here,
+  // not an uncaught throw out of the scheduler at first-scheduling time, and not a --dry-run
+  // that prints an inline error row yet still exits 0. The anchor date doesn't change the
+  // outcome for a genuinely (un)satisfiable expression: nextRun searches 4 years forward
+  // from wherever it starts, and a schedule that matches at all matches at least once a
+  // year (month/dom/dow constraints repeat annually), so "satisfiable from now" and
+  // "satisfiable from any other now" agree in every practical case.
+  try {
+    nextRun(schedule, new Date());
+  } catch (err) {
+    throw new Error(`${label}: "schedule" is unsatisfiable: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   const command = raw["command"];
   if (typeof command !== "string" || command.length === 0) {
@@ -143,7 +156,14 @@ function parseJob(raw: unknown, index: number): JobConfig {
   return { name, schedule, command, args, env, jitterMinutes, timeoutMinutes, retry };
 }
 
-/** Validates and normalizes an already-parsed JSON value into an OrchestratorConfig. Pure — no I/O. */
+/**
+ * Validates and normalizes an already-parsed JSON value into an OrchestratorConfig. No I/O —
+ * but not perfectly deterministic: each job's schedule is checked for satisfiability via
+ * `nextRun(schedule, new Date())`, so it reads the system clock (see parseJob). This never
+ * affects the OUTPUT shape (the returned config is the same regardless of when validation
+ * ran) — it only affects whether a genuinely-impossible schedule throws, and that answer
+ * doesn't depend on the anchor date in practice (see the comment at the nextRun call site).
+ */
 export function parseOrchestratorConfig(raw: unknown): OrchestratorConfig {
   if (!isPlainObject(raw)) {
     throw new Error("orchestrator config: must be a JSON object");

@@ -9,7 +9,7 @@
 // file must NEVER log a job's env VALUES — only names/counts of keys, if anything at all.
 // Every log() call below names only job.name/command/args; grep this file for `.env` before
 // adding a new one.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { loadOrchestratorConfig, type JobConfig } from "../src/core/orchestrate/config";
 import { createScheduler, type OrchestratorState, type SchedulerDeps, type SpawnResult } from "../src/core/orchestrate/scheduler";
@@ -149,6 +149,15 @@ function writeState(state: OrchestratorState): void {
     // "the daemon must never wedge") — log loudly and keep scheduling; the next successful
     // write catches state back up.
     log(`FAILED to write state file "${entry.statePath}": ${err instanceof Error ? err.message : String(err)}`);
+    // If writeFileSync succeeded but renameSync then threw (e.g. the target is momentarily
+    // locked by an antivirus scan on Windows), the tmp file would otherwise be orphaned —
+    // clean it up. Best-effort: if writeFileSync itself failed, tmpPath never existed and
+    // this is a harmless no-op; if unlink also fails there's nothing more useful to do.
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      // ignore — see comment above
+    }
   }
 }
 
@@ -166,6 +175,19 @@ const deps: SchedulerDeps = {
   log,
   random: Math.random,
 };
+
+// Verified (docs/orchestrator-recipe.md's Shutdown semantics): on Windows, an external
+// SIGINT/SIGTERM sent to this process (schtasks "End Task," taskkill, NSSM's default stop
+// method) does NOT invoke our signal handler below — the process is unconditionally
+// terminated. --shutdown-grace only actually applies on Linux/systemd or an interactive
+// Ctrl+C in a console this process shares. Warn once, at startup, only when an operator
+// explicitly set this flag (not on the silent default) — they relied on a promise this
+// platform doesn't keep under a service-manager stop.
+if (process.platform === "win32" && entry.shutdownGraceExplicit) {
+  log(
+    `WARNING: --shutdown-grace was set explicitly, but Windows does not reliably deliver an external stop signal to this process — the grace only applies to an interactive Ctrl+C sharing this console, not a service-manager stop (schtasks/NSSM default). See docs/orchestrator-recipe.md's Shutdown semantics section.`,
+  );
+}
 
 const scheduler = createScheduler(cfg, deps);
 log(`starting — ${cfg.jobs.length} job(s) from "${entry.configPath}", state at "${entry.statePath}"`);

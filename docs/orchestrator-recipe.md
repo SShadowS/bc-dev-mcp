@@ -35,9 +35,15 @@ hourly-queue-poll  0 * * * *   2026-07-12 11:00:00  |  2026-07-12 12:00:00  |  2
 Fire times are computed via the same pure `nextRun()` the scheduler itself
 uses, **without jitter** (jitter is randomized per occurrence at runtime —
 printing it here would just be noise, not something worth validating). A
-config that fails to parse prints the error (naming the job + field) and
-exits 2 — the same fail-closed path a real startup takes; `--dry-run` doesn't
-bypass validation, it stops one step short of scheduling.
+config that fails to load — a syntax error in any field, *or* a
+syntactically valid but unsatisfiable schedule like `0 0 31 2 *` (February
+31st never exists) — prints the error (naming the job + field) and **exits
+2**, identically whether that happens via `--dry-run` or a real startup;
+`--dry-run` doesn't bypass validation, it stops one step short of
+scheduling. Both checks run at config *load* time (`loadOrchestratorConfig`),
+not the first time the scheduler happens to compute that job's next
+occurrence — a bad schedule is caught before anything is ever armed, not as
+an uncaught crash partway through running.
 
 ## Prerequisites
 
@@ -131,8 +137,12 @@ only), there's no field syntax for it — filter in the job's own code, or
 accept the OR and note it in the job's `name`.
 
 `nextRun` searches up to 4 years ahead and throws "unsatisfiable" past that
-bound — `0 0 31 2 *` (February 31st) never matches and will throw at load
-time via `--dry-run`/startup validation, not silently schedule nothing.
+bound — `0 0 31 2 *` (February 31st) never matches. The config loader calls
+`nextRun` for every job's schedule at **load** time (not just at parse time,
+and not just the first time the scheduler would have tried to use it), so an
+unsatisfiable schedule fails closed — exit 2, naming the job — identically
+under `--dry-run` and a real startup. It does not silently schedule nothing,
+and it does not surface later as an uncaught crash out of the scheduler.
 
 Cron times are evaluated in the **daemon process's local time zone** — the
 conventional interpretation (`cron(8)`, Windows Task Scheduler both mean
@@ -194,6 +204,17 @@ execution-at-least-once semantics, that has to live in the underlying job
 (the way capture-and-ship's idempotency key already handles duplicate ships) —
 the daemon's job here is scheduling, not delivery guarantees.
 
+**There is no lock file or pidfile — nothing stops you from accidentally
+starting two daemon instances against the same `--config`.** State writes
+are safe either way (each instance's tmp file is pid-scoped,
+`<state>.tmp-<pid>`, so they never clobber each other mid-write), but D3's
+overlap-skip only serializes a job against *itself within one process* — two
+independent daemon processes have no idea about each other, so every job
+would actually **run twice**, once per instance, on every occurrence. If
+you're using a process supervisor (NSSM, systemd, schtasks), make sure its
+own configuration only ever starts one instance per config file; there's no
+daemon-side safety net for this.
+
 ## No hot reload (D6)
 
 The config is read **once**, at startup. Editing `orchestrator.config.json`
@@ -248,6 +269,17 @@ Windows, mostly no:**
     *completed* outcome was (state isn't updated for a run that never got to
     report in), and picks back up on the next due tick after restart, same
     as any other unclean stop.
+  - This is abrupt, not leaky: a review pass independently `taskkill`'d a
+    live daemon with a job in flight and confirmed Bun reaps its own spawned
+    children when the parent process dies — the abruptly-killed job's child
+    process does not survive as an orphan. The gap here is purely "no clean
+    drain / no grace," not "orphaned processes accumulate."
+  - The daemon prints a one-time startup warning
+    (`WARNING: --shutdown-grace was set explicitly, but Windows does not
+    reliably deliver...`) when `--shutdown-grace` was passed explicitly on
+    `win32` — so an operator who set it doesn't silently trust a promise this
+    platform breaks. It's silent on the *default* (nothing was explicitly
+    relied on) and silent on other platforms (nothing to warn about).
 - **A job's own `timeoutMinutes` kill (SIGTERM → SIGKILL) is unaffected by
   any of this** — that's the daemon killing a child it spawned, not the OS
   delivering an external signal to the daemon itself. On Windows the SIGTERM
@@ -382,6 +414,8 @@ replaces what was invoking them.
 | exit 2 at startup, names a job + field | fail-closed config validation (D1) | fix the named field; `--dry-run` catches this before it ever matters |
 | exit 2, names `--config` | `--config <path>` omitted | it's required — there's no env var fallback, unlike the ship/queue scripts |
 | exit 2, "cannot read" a path | typo, or the file doesn't exist yet | verify the path; relative paths resolve against the daemon's own working directory, not the config file's location |
+| exit 2, "schedule is unsatisfiable" | a syntactically valid cron expression that never matches any real date (e.g. `0 0 31 2 *` — Feb 31st) | fix the schedule; this is caught at config load (both `--dry-run` and real startup), never a silent no-op or a later crash |
+| a job runs twice on every occurrence | two daemon instances are running against the same `--config` — there's no lock file (see [State file](#state-file-and-no-backfill-d5)) | check your process supervisor isn't accidentally starting a second instance; kill the extra one |
 | `--dry-run` shows a job's fire times far later/earlier than expected | vixie dom/dow OR-rule (a restricted `dom` *and* `dow` fires on either match, not both) | see [Cron subset](#cron-subset-d2); rewrite as two config entries if you need a true AND |
 | a job never seems to fire even though `--dry-run` shows the right times | daemon process isn't actually running (crashed, or Windows abrupt-killed it — see Shutdown semantics) | check the log for a `starting —` line near when you expect it; on Windows confirm the service wrapper is actually still alive, not silently gone |
 | `skippedOverlaps` climbing on one job | that job's `timeoutMinutes` (or its natural runtime) is longer than its own schedule interval | raise the schedule interval, lower `timeoutMinutes`, or investigate why the job is slow — this is not a bug, it's D3 doing its job |

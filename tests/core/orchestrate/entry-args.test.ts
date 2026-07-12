@@ -99,6 +99,21 @@ describe("resolveEntryArgs: --shutdown-grace", () => {
     if (res.kind !== "error") throw new Error("expected error");
     expect(res.errors.join("\n")).toContain("--shutdown-grace");
   });
+
+  test("shutdownGraceExplicit is false when the flag is absent (default applied)", () => {
+    const res = resolveEntryArgs(["--config", "cfg.json"]);
+    expect(res.kind).toBe("config");
+    if (res.kind !== "config") throw new Error("expected config");
+    expect(res.config.shutdownGraceExplicit).toBe(false);
+  });
+
+  test("shutdownGraceExplicit is true when the flag is passed, even with the default's own value", () => {
+    const res = resolveEntryArgs(["--config", "cfg.json", "--shutdown-grace", "30"]);
+    expect(res.kind).toBe("config");
+    if (res.kind !== "config") throw new Error("expected config");
+    expect(res.config.shutdownGraceExplicit).toBe(true);
+    expect(res.config.shutdownGraceMs).toBe(30_000);
+  });
 });
 
 describe("resolveEntryArgs: --dry-run", () => {

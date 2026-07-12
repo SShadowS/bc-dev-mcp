@@ -15,6 +15,10 @@ export interface EntryConfig {
   readonly configPath: string;
   readonly statePath: string;
   readonly shutdownGraceMs: number;
+  // Whether --shutdown-grace was actually passed, vs. defaulted — lets the entry script warn
+  // once, at startup, only when an operator explicitly relied on a setting that Windows won't
+  // honor under an external stop (see docs/orchestrator-recipe.md's Shutdown semantics).
+  readonly shutdownGraceExplicit: boolean;
   readonly dryRun: boolean;
 }
 
@@ -84,7 +88,7 @@ export function resolveEntryArgs(argv: string[]): EntryResolveResult {
 
   return {
     kind: "config",
-    config: { configPath, statePath, shutdownGraceMs, dryRun },
+    config: { configPath, statePath, shutdownGraceMs, shutdownGraceExplicit: graceRaw !== undefined, dryRun },
   };
 }
 
