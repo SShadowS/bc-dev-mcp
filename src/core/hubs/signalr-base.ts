@@ -8,6 +8,7 @@
  */
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import type { ConnectionConfig } from "../types";
+import { redactAuthorization } from "../redaction";
 
 export interface HubProxy {
   start(): Promise<void>;
@@ -27,11 +28,9 @@ export type HubFactory = (url: string, opts: HubConnectOptions) => HubProxy;
 
 export function redactTransportError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error);
-  return new Error(
-    message
-      .replace(/([?&]Authentication=)[^&\s]*/gi, "$1[REDACTED]")
-      .replace(/(Authorization\s*[:=]\s*)\S+/gi, "$1[REDACTED]"),
-  );
+  // Deliberately return a plain Error instead of copying the original type/stack: either can
+  // embed the authenticated SignalR URL. Losing that diagnostic context is the safe tradeoff.
+  return new Error(redactAuthorization(message));
 }
 
 export function buildHubQuery(c: ConnectionConfig, authHeader: string, extra: Record<string, string> = {}): Record<string, string> {

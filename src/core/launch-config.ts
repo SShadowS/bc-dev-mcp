@@ -135,7 +135,10 @@ export function resolveConnection(
   if (environmentType !== undefined && environmentType !== "OnPrem") {
     throw new Error(`Unsupported Business Central environmentType: ${String(environmentType)}`);
   }
-  if (merged.authentication && merged.authentication !== "UserPassword") {
+  // Before auth modes were modeled, the server ignored launch.json authentication and used the
+  // Basic credentials from the environment. Preserve that on-prem upgrade path when both are
+  // present; without explicit Basic credentials, unsupported Windows/AAD modes still fail closed.
+  if (merged.authentication && merged.authentication !== "UserPassword" && !(merged.username && merged.password)) {
     throw new Error(`On-premises authentication ${merged.authentication} is not supported; select UserPassword explicitly`);
   }
   const missing: string[] = [];

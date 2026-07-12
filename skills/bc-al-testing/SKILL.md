@@ -30,8 +30,9 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
   an empty `method`.
 - The tests must already be published to the server (publish via the dev endpoint or
   VS Code AL extension); this server runs tests, it does not publish apps.
-- Connection defaults come from the project's `.vscode/launch.json`; credentials from
-  `BC_DEV_USER` / `BC_DEV_PASSWORD`. Auth failures name the env vars to check.
+- Connection defaults come from the project's `.vscode/launch.json`. On-premises UserPassword
+  credentials come from `BC_DEV_USER` / `BC_DEV_PASSWORD`; SaaS uses the current Azure CLI login.
+  Auth failures name the relevant env vars or Azure CLI/tenant settings to check.
 
 ## Debugging a failing test
 

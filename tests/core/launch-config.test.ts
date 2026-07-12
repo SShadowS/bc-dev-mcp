@@ -93,4 +93,21 @@ describe("resolveConnection", () => {
       tenant: "tenant-env",
     });
   });
+
+  test("preserves env-var Basic auth for legacy on-prem Windows/AAD launch settings", () => {
+    for (const authentication of ["Windows", "AAD"] as const) {
+      const dir = projectWith(`{"configurations":[{"type":"al","request":"launch","server":"http://a","serverInstance":"BC","authentication":"${authentication}"}]}`);
+      expect(resolveConnection({}, dir, { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" })).toMatchObject({
+        environmentType: "OnPrem",
+        authentication: "UserPassword",
+        username: "u",
+        password: "p",
+      });
+    }
+  });
+
+  test("rejects unsupported on-prem auth when Basic credentials are unavailable", () => {
+    const dir = projectWith(`{"configurations":[{"type":"al","request":"launch","server":"http://a","serverInstance":"BC","authentication":"Windows"}]}`);
+    expect(() => resolveConnection({}, dir, {})).toThrow(/Windows.*not supported/);
+  });
 });

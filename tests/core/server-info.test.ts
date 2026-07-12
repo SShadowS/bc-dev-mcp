@@ -43,7 +43,23 @@ describe("fetchServerInfo", () => {
 
   test("401 throws auth error", async () => {
     await expect(fetchServerInfo(config, auth, fakeFetch(401))).rejects.toThrow(DevEndpointError);
-    await expect(fetchServerInfo(config, auth, fakeFetch(401))).rejects.toMatchObject({ kind: "auth" });
+    await expect(fetchServerInfo(config, auth, fakeFetch(401))).rejects.toMatchObject({
+      kind: "auth",
+      message: expect.stringContaining("BC_DEV_USER and BC_DEV_PASSWORD"),
+    });
+  });
+
+  test("cloud auth errors point to Azure CLI and tenant settings", async () => {
+    const cloud: ConnectionConfig = {
+      environmentType: "Sandbox",
+      authentication: "EntraId",
+      environmentName: "Sandbox",
+      tenant: "tenant-id",
+    };
+    await expect(fetchServerInfo(cloud, auth, fakeFetch(403))).rejects.toMatchObject({
+      kind: "auth",
+      message: expect.stringContaining("Azure CLI login, tenant"),
+    });
   });
 
   test("network failure throws unreachable", async () => {

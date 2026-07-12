@@ -56,6 +56,19 @@ describe("SnapshotClient", () => {
     expect((await c.attachSampling({ debuggingContext: "ctx", clientType: "WebClient", samplingIntervalMs: 100, sessionId: -1 })).affinityCookie).toBeNull();
   });
 
+  test("attach errors retain redacted diagnostic response text", async () => {
+    const body = "denied Authorization: Bearer eyJSECRET.rest; check consent";
+    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => new Response(body, { status: 401 }) }]), cfg, 7083, auth);
+    const error = await c.attachSampling({ debuggingContext: "ctx", clientType: "WebClient", samplingIntervalMs: 100, sessionId: -1 })
+      .then(
+        () => { throw new Error("expected attach to fail"); },
+        (caught: unknown) => caught as Error,
+      );
+    expect(error.message).toContain("snapshot attach HTTP 401");
+    expect(error.message).toContain("check consent");
+    expect(error.message).not.toContain("eyJSECRET.rest");
+  });
+
   test("status parses the enum; affinity cookie is resent when present", async () => {
     // re-wrap to capture the request; simpler: use a capturing fake
     let sawCookie = "";

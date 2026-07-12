@@ -3,6 +3,8 @@ import {
   AzureCliAuthorizationProvider,
   BasicAuthorizationProvider,
   createAuthorizationProviderFactory,
+  createExecFileRunner,
+  type ExecFileLike,
   type ProcessRunner,
 } from "../../src/core/authorization";
 
@@ -36,12 +38,37 @@ describe("authorization providers", () => {
     });
   });
 
+  test("uses a command shell for the Azure CLI .cmd wrapper only on Windows", async () => {
+    const shells: boolean[] = [];
+    const fakeExecFile: ExecFileLike = (_executable, _args, options, callback) => {
+      shells.push(options.shell);
+      callback(null, "ok", "");
+    };
+    await createExecFileRunner("win32", fakeExecFile)("az", ["--version"]);
+    await createExecFileRunner("linux", fakeExecFile)("az", ["--version"]);
+    expect(shells).toEqual([true, false]);
+  });
+
   test("accepts documented expiresOn compatibility value", async () => {
+    const localExpiry = new Date(NOW + 60 * 60 * 1000);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const expiresOn = `${localExpiry.getFullYear()}-${pad(localExpiry.getMonth() + 1)}-${pad(localExpiry.getDate())} ${pad(localExpiry.getHours())}:${pad(localExpiry.getMinutes())}:${pad(localExpiry.getSeconds())}`;
     const runner: ProcessRunner = async () => ({
-      stdout: JSON.stringify({ accessToken: "legacy", expiresOn: "2026-07-10 21:00:00.000000" }),
+      stdout: JSON.stringify({ accessToken: "legacy", expiresOn }),
       stderr: "",
     });
     expect(await new AzureCliAuthorizationProvider("tenant", runner, () => NOW).getAuthorizationHeader()).toBe("Bearer legacy");
+  });
+
+  test("rejects unsafe tenant values before invoking Azure CLI", async () => {
+    let called = false;
+    const runner: ProcessRunner = async () => {
+      called = true;
+      return { stdout: response(), stderr: "" };
+    };
+    await expect(new AzureCliAuthorizationProvider("tenant & whoami", runner, () => NOW).getAuthorizationHeader())
+      .rejects.toThrow(/GUID or domain name/);
+    expect(called).toBe(false);
   });
 
   test("reuses a cached token outside the refresh window", async () => {

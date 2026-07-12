@@ -49,9 +49,10 @@ describe("normalizeKeys", () => {
 
 test("SignalR transport errors redact authenticated query strings and headers", () => {
   const error = redactTransportError(
-    "failed https://host/hub?tenant=t&Authentication=Bearer+secret-token&x=1 Authorization: Bearer-secret",
+    "failed https://host/hub?tenant=t&Authentication=Bearer+secret-token&x=1 Authorization: Bearer eyJSECRET.rest",
   );
   expect(error.message).not.toContain("secret-token");
-  expect(error.message).not.toContain("Bearer-secret");
+  expect(error.message).not.toContain("eyJSECRET.rest");
   expect(error.message).toContain("Authentication=[REDACTED]");
+  expect(error.message).toContain("Authorization: [REDACTED]");
 });

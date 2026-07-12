@@ -8,6 +8,7 @@
  */
 import type { ConnectionConfig } from "../types";
 import type { AuthorizationProvider } from "../authorization";
+import { redactAuthorization } from "../redaction";
 import { snapshotUrl } from "../urls";
 import {
   buildInstrumentationAttachBody,
@@ -57,11 +58,16 @@ export class SnapshotClient {
     return q;
   }
 
+  private async responseError(operation: string, res: Response): Promise<Error> {
+    const diagnostic = redactAuthorization((await res.text()).trim()).slice(0, 2000);
+    return new Error(`${operation} HTTP ${res.status}${diagnostic ? `: ${diagnostic}` : ""}`);
+  }
+
   async metadata(): Promise<SnapshotMetadata> {
     const res = await this.fetchFn(snapshotUrl(this.config, "snapshotendpointmetadata", this.snapshotPort), {
       headers: { Authorization: await this.authorization.getAuthorizationHeader() },
     });
-    if (!res.ok) throw new Error(`snapshot metadata HTTP ${res.status}`);
+    if (!res.ok) throw await this.responseError("snapshot metadata", res);
     return (await res.json()) as SnapshotMetadata;
   }
 
@@ -72,7 +78,7 @@ export class SnapshotClient {
       headers: await this.headers(null, true),
       body: JSON.stringify(buildSamplingAttachBody(p)),
     });
-    if (!res.ok) throw new Error(`snapshot attach HTTP ${res.status}`);
+    if (!res.ok) throw await this.responseError("snapshot attach", res);
     const affinityCookie = this.readAffinityCookie(res);
     const attachKind = (await res.text()).trim().replace(/^"|"$/g, "");
     return { attachKind, affinityCookie };
@@ -85,7 +91,7 @@ export class SnapshotClient {
       headers: await this.headers(null, true),
       body: JSON.stringify(buildInstrumentationAttachBody(p)),
     });
-    if (!res.ok) throw new Error(`snapshot attach HTTP ${res.status}`);
+    if (!res.ok) throw await this.responseError("snapshot attach", res);
     const affinityCookie = this.readAffinityCookie(res);
     const attachKind = (await res.text()).trim().replace(/^"|"$/g, "");
     return { attachKind, affinityCookie };
@@ -106,7 +112,7 @@ export class SnapshotClient {
       headers: await this.headers(affinityCookie, true),
       body: JSON.stringify({ DebuggingContext: debuggingContext }),
     });
-    if (!res.ok) throw new Error(`snapshot status HTTP ${res.status}`);
+    if (!res.ok) throw await this.responseError("snapshot status", res);
     return parseStatus(await res.text());
   }
 
@@ -117,7 +123,7 @@ export class SnapshotClient {
       headers: await this.headers(affinityCookie, true),
       body: JSON.stringify({ DebuggingContext: debuggingContext }),
     });
-    if (!res.ok) throw new Error(`snapshot finish HTTP ${res.status}`);
+    if (!res.ok) throw await this.responseError("snapshot finish", res);
     const buf = new Uint8Array(await res.arrayBuffer());
     const etag = res.headers.get("etag")?.trim().replace(/^"|"$/g, "") ?? null;
     return { empty: buf.length === 0, etag, body: buf };

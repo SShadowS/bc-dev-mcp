@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTools, type ToolDeps } from "../../src/mcp/tools";
-import { createAuthorizationProvider } from "../../src/core/authorization";
+import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 
@@ -25,7 +25,7 @@ function setup(hub: FakeHub, fetchFn?: typeof fetch) {
   const state = new ServerState();
   const deps: ToolDeps = {
     hubFactory: fakeHubFactory(hub),
-    authorizationFactory: createAuthorizationProvider,
+    authorizationFactory: createAuthorizationProviderFactory(),
     fetchFn: fetchFn ?? ((async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch),
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: makeProject(),

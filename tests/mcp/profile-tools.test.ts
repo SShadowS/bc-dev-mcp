@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ServerState } from "../../src/mcp/state";
 import { createProfileTools } from "../../src/mcp/tools/profile-tools";
-import { createAuthorizationProvider } from "../../src/core/authorization";
+import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import type { ToolDeps } from "../../src/mcp/tools/shared";
 
 // Reuse the zip fixture builder from the core zip test (copy the two helpers here).
@@ -26,7 +26,7 @@ const profileJson = JSON.stringify({
 });
 
 function deps(fetchFn: typeof fetch): ToolDeps {
-  return { hubFactory: (() => { throw new Error("no hub in profile tests"); }) as never, authorizationFactory: createAuthorizationProvider, fetchFn, env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" }, cwd: mkdtempSync(join(tmpdir(), "bcprof-")) };
+  return { hubFactory: (() => { throw new Error("no hub in profile tests"); }) as never, authorizationFactory: createAuthorizationProviderFactory(), fetchFn, env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" }, cwd: mkdtempSync(join(tmpdir(), "bcprof-")) };
 }
 const conn = { server: "http://bc", serverInstance: "BC", tenant: "default" };
 

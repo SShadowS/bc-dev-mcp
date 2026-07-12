@@ -46,7 +46,10 @@ export async function fetchServerInfo(
     );
   }
   if (response.status === 401 || response.status === 403) {
-    throw new DevEndpointError("Dev endpoint rejected authentication; verify the selected mode, tenant, and account access", "auth");
+    const hint = c.authentication === "UserPassword"
+      ? "verify BC_DEV_USER and BC_DEV_PASSWORD"
+      : "verify the Azure CLI login, tenant, and Business Central account access";
+    throw new DevEndpointError(`Dev endpoint rejected authentication; ${hint}`, "auth");
   }
   if (response.status === 404) {
     // Pre-metadata servers are dev API 1.0 (dep-decomp ServerInfoApiClient.TryGetLegacyServerInfo)

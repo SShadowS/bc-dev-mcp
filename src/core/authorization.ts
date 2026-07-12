@@ -26,20 +26,41 @@ export type ProcessRunner = (executable: string, args: string[]) => Promise<Proc
 export type Clock = () => number;
 export type AuthorizationProviderFactory = (config: ConnectionConfig) => AuthorizationProvider;
 
+export type ExecFileLike = (
+  executable: string,
+  args: string[],
+  options: { encoding: "utf8"; windowsHide: true; maxBuffer: number; shell: boolean },
+  callback: (error: Error | null, stdout: string, stderr: string) => void,
+) => void;
+
 const RESOURCE = "https://api.businesscentral.dynamics.com";
 const REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
-export const execFileRunner: ProcessRunner = async (executable, args) =>
-  await new Promise((resolve, reject) => {
-    execFile(executable, args, { encoding: "utf8", windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        Object.assign(error, { capturedStderr: stderr });
-        reject(error);
-        return;
-      }
-      resolve({ stdout, stderr });
+export function createExecFileRunner(
+  platform: NodeJS.Platform = process.platform,
+  run: ExecFileLike = execFile as ExecFileLike,
+): ProcessRunner {
+  return async (executable, args) =>
+    await new Promise((resolve, reject) => {
+      run(executable, args, {
+        encoding: "utf8",
+        windowsHide: true,
+        maxBuffer: 1024 * 1024,
+        // Azure CLI is installed as az.cmd on Windows. Node's post-CVE hardening requires a
+        // command shell for .cmd wrappers; all non-constant arguments are validated below.
+        shell: platform === "win32",
+      }, (error, stdout, stderr) => {
+        if (error) {
+          Object.assign(error, { capturedStderr: stderr });
+          reject(error);
+          return;
+        }
+        resolve({ stdout, stderr });
+      });
     });
-  });
+}
+
+const execFileRunner = createExecFileRunner();
 
 export class BasicAuthorizationProvider implements AuthorizationProvider {
   private readonly header: string;
@@ -87,6 +108,12 @@ export class AzureCliAuthorizationProvider implements AuthorizationProvider {
   }
 
   private async acquire(): Promise<CachedToken> {
+    // On Windows the CLI runs through cmd.exe, so the launch.json/env tenant must be a single,
+    // inert argument. This permits tenant GUIDs and verified domain names while rejecting shell
+    // metacharacters, whitespace, paths, and quoting on every platform.
+    if (!/^[A-Za-z0-9._-]+$/.test(this.tenant)) {
+      throw new Error("Business Central Entra tenant must be a GUID or domain name");
+    }
     let result: ProcessResult;
     try {
       result = await this.runner("az", [
@@ -150,12 +177,6 @@ export class AzureCliAuthorizationProvider implements AuthorizationProvider {
     }
     return new Error("Azure CLI failed to acquire a Business Central access token; verify `az login`, tenant access, and Business Central consent");
   }
-}
-
-export function createAuthorizationProvider(config: ConnectionConfig): AuthorizationProvider {
-  return config.authentication === "UserPassword"
-    ? new BasicAuthorizationProvider(config.username, config.password)
-    : new AzureCliAuthorizationProvider(config.tenant);
 }
 
 export function createAuthorizationProviderFactory(
