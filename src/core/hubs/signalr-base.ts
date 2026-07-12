@@ -1,6 +1,14 @@
+/**
+ * Shared Business Central SignalR transport contract for UserPassword and Entra modes.
+ * Authorization providers own credentials and Azure CLI caching; this file only carries an
+ * already acquired value. SECURITY: never log the URL because BC requires the authorization
+ * value in its query string. WIRE: BC duplicates the same value in the HTTP Authorization header
+ * and `Authentication` query parameter; live SaaS negotiation reconfirmed this on 2026-07-10.
+ * This deliberately does not use SignalR accessTokenFactory or acquire/refresh tokens itself.
+ */
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import type { ConnectionConfig } from "../types";
-import { basicAuthHeader } from "../urls";
+import { redactAuthorization } from "../redaction";
 
 export interface HubProxy {
   start(): Promise<void>;
@@ -18,10 +26,17 @@ export interface HubConnectOptions {
 
 export type HubFactory = (url: string, opts: HubConnectOptions) => HubProxy;
 
-export function buildHubQuery(c: ConnectionConfig, extra: Record<string, string> = {}): Record<string, string> {
+export function redactTransportError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  // Deliberately return a plain Error instead of copying the original type/stack: either can
+  // embed the authenticated SignalR URL. Losing that diagnostic context is the safe tradeoff.
+  return new Error(redactAuthorization(message));
+}
+
+export function buildHubQuery(c: ConnectionConfig, authHeader: string, extra: Record<string, string> = {}): Record<string, string> {
   const query: Record<string, string> = {
     // WIRE: auth value duplicated as `Authentication` query param (lmt-decomp HubBasedTestRunnerService.OpenConnectionAsync)
-    Authentication: basicAuthHeader(c),
+    Authentication: authHeader,
     ...extra,
   };
   // WIRE: hub negotiate 401s without a tenant param even on single-tenant servers (live E2E 2026-07-03); BC's default tenant name is "default"
@@ -36,11 +51,12 @@ export const signalrHubFactory: HubFactory = (url, opts) => {
     .configureLogging(LogLevel.None)
     .build();
   return {
-    start: () => connection.start(),
+    start: () => connection.start().catch((error) => { throw redactTransportError(error); }),
     stop: () => connection.stop(),
-    invoke: <T>(method: string, ...args: unknown[]) => connection.invoke<T>(method, ...args),
+    invoke: <T>(method: string, ...args: unknown[]) =>
+      connection.invoke<T>(method, ...args).catch((error) => { throw redactTransportError(error); }),
     on: (method, cb) => connection.on(method, cb),
-    onclose: (cb) => connection.onclose(cb),
+    onclose: (cb) => connection.onclose((error) => cb(error ? redactTransportError(error) : undefined)),
     get connectionId() {
       return connection.connectionId;
     },

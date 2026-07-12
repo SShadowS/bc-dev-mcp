@@ -4,6 +4,7 @@
 // Thin I/O shell; all logic lives in src/core/ship/ (typechecked + unit-tested).
 // Recipe doc: docs/capture-ship-recipe.md
 import { randomUUID } from "node:crypto";
+import { createAuthorizationProviderFactory } from "../src/core/authorization";
 import { spawnRunner } from "../src/core/snapshot/converter";
 import { resolveShipConfig, SHIP_USAGE } from "../src/core/ship/args";
 import { runCaptureShipCycle } from "../src/core/ship/capture-cycle";
@@ -21,6 +22,7 @@ if (res.kind === "error") {
 
 const outcome = await runCaptureShipCycle(res.config, res.connection, {
   fetchFn: fetch,
+  authorizationFactory: createAuthorizationProviderFactory(),
   runConverter: spawnRunner,
   now: Date.now,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),

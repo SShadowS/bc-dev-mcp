@@ -38,7 +38,7 @@ One scheduled cycle: arm BC instrumentation capture -> wait -> finish ->
 bc-mdc-converter --format ir-json -> gzip -> POST to al-perf /api/ingest.
 "0 sessions captured" exits 0 without shipping (a normal outcome).
 
-BC connection (or --project <dir> with .vscode/launch.json; credentials via BC_DEV_USER / BC_DEV_PASSWORD):
+BC connection (or --project <dir> with .vscode/launch.json; SaaS uses Azure CLI, OnPrem uses BC_DEV_USER / BC_DEV_PASSWORD):
   --server <url>             BC server URL, e.g. http://localhost
   --instance <name>          server instance, e.g. BC
   --bc-tenant <id>           BC tenant (default "default")

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { SnapshotClient } from "../../../src/core/snapshot/snapshot-client";
+import { BasicAuthorizationProvider } from "../../../src/core/authorization";
 
-const cfg = { server: "http://bc", serverInstance: "BC", tenant: "default", username: "u", password: "p" };
+const cfg = { environmentType: "OnPrem", authentication: "UserPassword", server: "http://bc", serverInstance: "BC", tenant: "default", username: "u", password: "p" } as const;
+const auth = new BasicAuthorizationProvider("u", "p");
 
 function fakeFetch(routes: Array<{ match: RegExp; res: () => Response }>): typeof fetch {
   return (async (input: RequestInfo | URL) => {
@@ -13,10 +15,28 @@ function fakeFetch(routes: Array<{ match: RegExp; res: () => Response }>): typeo
 }
 
 describe("SnapshotClient", () => {
+  test("uses the injected authorization provider for HTTP requests", async () => {
+    let calls = 0;
+    let sent = "";
+    const authorization = { getAuthorizationHeader: async () => { calls++; return "Bearer fake"; } };
+    const c = new SnapshotClient(
+      (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        sent = (init?.headers as Record<string, string>)["Authorization"]!;
+        return new Response(JSON.stringify({ runtimeVersion: "17.0", webApiVersion: "3.0" }));
+      }) as unknown as typeof fetch,
+      cfg,
+      7083,
+      authorization,
+    );
+    await c.metadata();
+    expect(sent).toBe("Bearer fake");
+    expect(calls).toBe(1);
+  });
+
   test("metadata parses ServerInfo", async () => {
     const c = new SnapshotClient(
       fakeFetch([{ match: /snapshotendpointmetadata/, res: () => new Response(JSON.stringify({ runtimeVersion: "17.0", webApiVersion: "3.0", webEndpoint: "http://bc/BC/" })) }]),
-      cfg, 7083,
+      cfg, 7083, auth,
     );
     expect(await c.metadata()).toMatchObject({ webApiVersion: "3.0" });
   });
@@ -24,7 +44,7 @@ describe("SnapshotClient", () => {
   test("attach returns kind and captures Set-Cookie affinity", async () => {
     const c = new SnapshotClient(
       fakeFetch([{ match: /attach/, res: () => new Response('"NextSessionOnTenant"', { headers: { "Set-Cookie": "ApplicationGatewayAffinity=abc123; path=/" } }) }]),
-      cfg, 7083,
+      cfg, 7083, auth,
     );
     const r = await c.attachSampling({ debuggingContext: "ctx", clientType: "WebClient", samplingIntervalMs: 100, sessionId: -1 });
     expect(r.attachKind).toBe("NextSessionOnTenant");
@@ -32,8 +52,21 @@ describe("SnapshotClient", () => {
   });
 
   test("attach tolerates a missing affinity cookie (single-node)", async () => {
-    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => new Response('"NextSessionOnTenant"') }]), cfg, 7083);
+    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => new Response('"NextSessionOnTenant"') }]), cfg, 7083, auth);
     expect((await c.attachSampling({ debuggingContext: "ctx", clientType: "WebClient", samplingIntervalMs: 100, sessionId: -1 })).affinityCookie).toBeNull();
+  });
+
+  test("attach errors retain redacted diagnostic response text", async () => {
+    const body = "denied Authorization: Bearer eyJSECRET.rest; check consent";
+    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => new Response(body, { status: 401 }) }]), cfg, 7083, auth);
+    const error = await c.attachSampling({ debuggingContext: "ctx", clientType: "WebClient", samplingIntervalMs: 100, sessionId: -1 })
+      .then(
+        () => { throw new Error("expected attach to fail"); },
+        (caught: unknown) => caught as Error,
+      );
+    expect(error.message).toContain("snapshot attach HTTP 401");
+    expect(error.message).toContain("check consent");
+    expect(error.message).not.toContain("eyJSECRET.rest");
   });
 
   test("status parses the enum; affinity cookie is resent when present", async () => {
@@ -46,7 +79,7 @@ describe("SnapshotClient", () => {
         sawQuery = input.toString();
         return new Response('"Started"');
       }) as unknown as typeof fetch,
-      cfg, 7083,
+      cfg, 7083, auth,
     );
     expect(await capturing.status("ctx", "abc123")).toBe("Started");
     expect(sawCookie).toBe("ApplicationGatewayAffinity=abc123");
@@ -54,13 +87,13 @@ describe("SnapshotClient", () => {
   });
 
   test("finish returns empty flag on zero-length body", async () => {
-    const c = new SnapshotClient(fakeFetch([{ match: /finish/, res: () => new Response(null, { headers: { "Content-Length": "0" } }) }]), cfg, 7083);
+    const c = new SnapshotClient(fakeFetch([{ match: /finish/, res: () => new Response(null, { headers: { "Content-Length": "0" } }) }]), cfg, 7083, auth);
     expect((await c.finish("ctx", null)).empty).toBe(true);
   });
 
   test("finish returns etag + bytes for a sampling body", async () => {
     const bytes = new Uint8Array([0x50, 0x4b, 3, 4]);
-    const c = new SnapshotClient(fakeFetch([{ match: /finish/, res: () => new Response(bytes, { headers: { ETag: '"Sampling"' } }) }]), cfg, 7083);
+    const c = new SnapshotClient(fakeFetch([{ match: /finish/, res: () => new Response(bytes, { headers: { ETag: '"Sampling"' } }) }]), cfg, 7083, auth);
     const r = await c.finish("ctx", null);
     expect(r.empty).toBe(false);
     expect(r.etag).toBe("Sampling");
@@ -76,7 +109,7 @@ describe("SnapshotClient", () => {
         sawQuery = input.toString();
         return new Response(new Uint8Array([0x50, 0x4b, 3, 4]), { headers: { ETag: '"Sampling"' } });
       }) as unknown as typeof fetch,
-      cfg, 7083,
+      cfg, 7083, auth,
     );
     const r = await capturing.finish("ctx", "abc123");
     expect(r.empty).toBe(false);
@@ -96,7 +129,7 @@ describe("SnapshotClient", () => {
       },
       text: async () => '"NextSessionOnTenant"',
     } as unknown as Response;
-    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => fakeRes }]), cfg, 7083);
+    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => fakeRes }]), cfg, 7083, auth);
     const r = await c.attachSampling({ debuggingContext: "ctx", clientType: "WebClient", samplingIntervalMs: 100, sessionId: -1 });
     expect(r.affinityCookie).toBe("xyz");
   });
@@ -105,7 +138,7 @@ describe("SnapshotClient", () => {
     let sentBody = "";
     const c = new SnapshotClient(
       (async (u: RequestInfo | URL, init?: RequestInit) => { if (u.toString().includes("attach")) { sentBody = String(init?.body); return new Response('"NextSessionOnTenant"'); } return new Response("{}"); }) as unknown as typeof fetch,
-      { server: "http://bc", serverInstance: "BC", tenant: "default", username: "u", password: "p" }, 7083,
+      cfg, 7083, auth,
     );
     const r = await c.attachInstrumentation({ debuggingContext: "ctx", clientType: "WebClient", sessionId: -1 });
     expect(r.attachKind).toBe("NextSessionOnTenant");
@@ -115,14 +148,14 @@ describe("SnapshotClient", () => {
   test("attachInstrumentation captures Set-Cookie affinity like attachSampling", async () => {
     const c = new SnapshotClient(
       fakeFetch([{ match: /attach/, res: () => new Response('"NextSessionOnTenant"', { headers: { "Set-Cookie": "ApplicationGatewayAffinity=abc123; path=/" } }) }]),
-      cfg, 7083,
+      cfg, 7083, auth,
     );
     const r = await c.attachInstrumentation({ debuggingContext: "ctx", clientType: "WebClient", sessionId: -1 });
     expect(r.affinityCookie).toBe("abc123");
   });
 
   test("attachInstrumentation tolerates a missing affinity cookie (single-node)", async () => {
-    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => new Response('"NextSessionOnTenant"') }]), cfg, 7083);
+    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => new Response('"NextSessionOnTenant"') }]), cfg, 7083, auth);
     expect((await c.attachInstrumentation({ debuggingContext: "ctx", clientType: "WebClient", sessionId: -1 })).affinityCookie).toBeNull();
   });
 
@@ -136,7 +169,7 @@ describe("SnapshotClient", () => {
     ];
     for (const { name, verb, call } of cases) {
       test(`${name} rejects on HTTP 500`, async () => {
-        const c = new SnapshotClient(fakeFetch([{ match: verb, res: () => new Response(null, { status: 500 }) }]), cfg, 7083);
+        const c = new SnapshotClient(fakeFetch([{ match: verb, res: () => new Response(null, { status: 500 }) }]), cfg, 7083, auth);
         await expect(call(c)).rejects.toThrow(/500/);
       });
     }

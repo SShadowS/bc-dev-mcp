@@ -1,5 +1,15 @@
+/**
+ * HTTP client for Business Central snapshot debugging and profiling in UserPassword and Entra
+ * modes. The injected authorization provider owns Azure CLI acquisition and in-memory caching;
+ * this client asks for a header immediately before each request and never persists or logs it.
+ * SECURITY: errors contain only operation/status, never authenticated URLs or headers.
+ * WIRE: SaaS uses /v2.0/<environment>/snapshotdebugger and on-prem uses the dedicated snapshot
+ * port; affinity cookie behavior is shared. This file does not select auth modes or refresh tokens.
+ */
 import type { ConnectionConfig } from "../types";
-import { basicAuthHeader, snapshotUrl } from "../urls";
+import type { AuthorizationProvider } from "../authorization";
+import { redactAuthorization } from "../redaction";
+import { snapshotUrl } from "../urls";
 import {
   buildInstrumentationAttachBody,
   buildSamplingAttachBody,
@@ -31,10 +41,11 @@ export class SnapshotClient {
     private fetchFn: typeof fetch,
     private config: ConnectionConfig,
     private snapshotPort: number,
+    private authorization: AuthorizationProvider,
   ) {}
 
-  private headers(affinityCookie: string | null, json: boolean): Record<string, string> {
-    const h: Record<string, string> = { Authorization: basicAuthHeader(this.config) };
+  private async headers(affinityCookie: string | null, json: boolean): Promise<Record<string, string>> {
+    const h: Record<string, string> = { Authorization: await this.authorization.getAuthorizationHeader() };
     if (json) h["Content-Type"] = "application/json";
     // WIRE: resend the affinity cookie on status/finish (dep-decomp SnapshotDebuggerClient). No-op when absent (single-node).
     if (affinityCookie) h["Cookie"] = `${AFFINITY}=${affinityCookie}`;
@@ -47,11 +58,16 @@ export class SnapshotClient {
     return q;
   }
 
+  private async responseError(operation: string, res: Response): Promise<Error> {
+    const diagnostic = redactAuthorization((await res.text()).trim()).slice(0, 2000);
+    return new Error(`${operation} HTTP ${res.status}${diagnostic ? `: ${diagnostic}` : ""}`);
+  }
+
   async metadata(): Promise<SnapshotMetadata> {
     const res = await this.fetchFn(snapshotUrl(this.config, "snapshotendpointmetadata", this.snapshotPort), {
-      headers: { Authorization: basicAuthHeader(this.config) },
+      headers: { Authorization: await this.authorization.getAuthorizationHeader() },
     });
-    if (!res.ok) throw new Error(`snapshot metadata HTTP ${res.status}`);
+    if (!res.ok) throw await this.responseError("snapshot metadata", res);
     return (await res.json()) as SnapshotMetadata;
   }
 
@@ -59,10 +75,10 @@ export class SnapshotClient {
     const url = snapshotUrl(this.config, "attach", this.snapshotPort, { debuggingcontext: p.debuggingContext });
     const res = await this.fetchFn(url, {
       method: "POST",
-      headers: this.headers(null, true),
+      headers: await this.headers(null, true),
       body: JSON.stringify(buildSamplingAttachBody(p)),
     });
-    if (!res.ok) throw new Error(`snapshot attach HTTP ${res.status}: ${await res.text().catch(() => "")}`);
+    if (!res.ok) throw await this.responseError("snapshot attach", res);
     const affinityCookie = this.readAffinityCookie(res);
     const attachKind = (await res.text()).trim().replace(/^"|"$/g, "");
     return { attachKind, affinityCookie };
@@ -72,10 +88,10 @@ export class SnapshotClient {
     const url = snapshotUrl(this.config, "attach", this.snapshotPort, { debuggingcontext: p.debuggingContext });
     const res = await this.fetchFn(url, {
       method: "POST",
-      headers: this.headers(null, true),
+      headers: await this.headers(null, true),
       body: JSON.stringify(buildInstrumentationAttachBody(p)),
     });
-    if (!res.ok) throw new Error(`snapshot attach HTTP ${res.status}: ${await res.text().catch(() => "")}`);
+    if (!res.ok) throw await this.responseError("snapshot attach", res);
     const affinityCookie = this.readAffinityCookie(res);
     const attachKind = (await res.text()).trim().replace(/^"|"$/g, "");
     return { attachKind, affinityCookie };
@@ -93,10 +109,10 @@ export class SnapshotClient {
     const url = snapshotUrl(this.config, "status", this.snapshotPort, this.query(debuggingContext, affinityCookie));
     const res = await this.fetchFn(url, {
       method: "POST",
-      headers: this.headers(affinityCookie, true),
+      headers: await this.headers(affinityCookie, true),
       body: JSON.stringify({ DebuggingContext: debuggingContext }),
     });
-    if (!res.ok) throw new Error(`snapshot status HTTP ${res.status}`);
+    if (!res.ok) throw await this.responseError("snapshot status", res);
     return parseStatus(await res.text());
   }
 
@@ -104,10 +120,10 @@ export class SnapshotClient {
     const url = snapshotUrl(this.config, "finish", this.snapshotPort, this.query(debuggingContext, affinityCookie));
     const res = await this.fetchFn(url, {
       method: "POST",
-      headers: this.headers(affinityCookie, true),
+      headers: await this.headers(affinityCookie, true),
       body: JSON.stringify({ DebuggingContext: debuggingContext }),
     });
-    if (!res.ok) throw new Error(`snapshot finish HTTP ${res.status}`);
+    if (!res.ok) throw await this.responseError("snapshot finish", res);
     const buf = new Uint8Array(await res.arrayBuffer());
     const etag = res.headers.get("etag")?.trim().replace(/^"|"$/g, "") ?? null;
     return { empty: buf.length === 0, etag, body: buf };

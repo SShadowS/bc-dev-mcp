@@ -49,14 +49,14 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       }),
       handler: async (params) => {
         if (state.debug) throw new Error("Debug session already active — call bcdev_debug_detach first");
-        const { config, project } = resolve(params, deps);
+        const { config, authorization, project } = resolve(params, deps);
         const client = new DebuggerClient(deps.hubFactory);
         const index = await AlObjectIndex.build(project);
         const session = new DebugSession(client, index);
         state.debug = session; // claim the slot before awaiting — blocks concurrent attach
         client.onEvent = (e) => session.push(e);
         try {
-          await client.connect(config, {
+          await client.connect(config, authorization, {
             breakOnNext: params["breakOnNext"] as never,
             breakOnError: params["breakOnError"] as boolean | undefined,
             breakOnRecordWrite: params["breakOnRecordWrite"] as boolean | undefined,
@@ -89,11 +89,11 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       handler: async (params) => {
         const session = requireSession(state);
         if (state.testRunActive) throw new Error("A test run is already running — wait for it to finish");
-        const { config } = resolve(params, deps);
+        const { config, authorization } = resolve(params, deps);
         const debuggingContext = session.client.connectionId ?? "";
         state.testRunActive = true;
         void new TestRunnerClient(deps.hubFactory)
-          .run(config, params["codeunits"] as Array<{ id: number; methods?: string[] }>, {
+          .run(config, authorization, params["codeunits"] as Array<{ id: number; methods?: string[] }>, {
             company: params["company"] as string | undefined,
             debuggingContext,
           })

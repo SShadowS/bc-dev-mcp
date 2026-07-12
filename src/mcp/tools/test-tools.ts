@@ -21,8 +21,8 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
         supportsCoreSignalR: z.boolean(),
       }),
       handler: async (params) => {
-        const { config } = resolve(params, deps);
-        return await fetchServerInfo(config, deps.fetchFn);
+        const { config, authorization } = resolve(params, deps);
+        return await fetchServerInfo(config, authorization, deps.fetchFn);
       },
     },
     {
@@ -63,11 +63,12 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
       },
       handler: async (params) => {
         if (state.testRunActive) throw new Error("A test run is already running — wait for it to finish");
-        const { config, project } = resolve(params, deps);
+        const { config, authorization, project } = resolve(params, deps);
         state.testRunActive = true;
         try {
           const result = await new TestRunnerClient(deps.hubFactory).run(
             config,
+            authorization,
             params["codeunits"] as Array<{ id: number; methods?: string[] }>,
             { company: params["company"] as string | undefined, coverage: params["coverage"] as CoverageMode | undefined },
           );

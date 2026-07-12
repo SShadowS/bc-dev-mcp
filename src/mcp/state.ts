@@ -1,4 +1,5 @@
 import type { AlObjectIndex } from "../core/al-objects";
+import type { AuthorizationProvider } from "../core/authorization";
 import type { DebuggerClient } from "../core/hubs/debugger-hub";
 import type { BreakpointSpec, ConnectionConfig, DebuggerEvent, RunTestsResult } from "../core/types";
 
@@ -10,6 +11,7 @@ export interface ProfileHandle {
   attachKind: string;
   snapshotPort: number;
   config: ConnectionConfig;
+  authorization: AuthorizationProvider;
   startedAt: string;
   kind: "sampling" | "instrumentation";
 }

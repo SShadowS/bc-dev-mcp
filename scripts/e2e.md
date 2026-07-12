@@ -21,6 +21,15 @@ with its working directory set to the AL project.
 - [x] bcdev_debug_eval: GetWatchNode(frameId, expression, watchOption 0) returns a LocalNode; note casing. <!-- 2026-07-03 round 2: validated at-break; out-of-scope expression returns a graceful LocalNode (summary "<Out Of Scope>"); dual casing as mismatch #7 -->
 - [ ] Observe BreakOnRecordWriteBehaviour semantics for breakOnRecordWrite true/false. <!-- not validated 2026-07-03 round 4: options delivery now works (BreakOnError proven effective both ways), but record-write break semantics themselves were not exercised — needs a test that writes records under breakOnRecordWrite:true -->
 
+### SaaS / Entra wire assumptions
+
+Run these once per AL major against a Business Central SaaS Sandbox while signed in with Azure CLI.
+Never record access tokens, Authorization headers, authenticated URLs, or unredacted CLI output.
+
+- [x] The cloud developer-service base is `https://api.businesscentral.dynamics.com/v2.0/<environment>/dev`, with the environment path segment URL-encoded and `tenant` on metadata/query requests. <!-- 2026-07-10: confirmed against a live SaaS Sandbox; sensitive transcript was not retained -->
+- [x] The SaaS snapshot-debugger base is `https://api.businesscentral.dynamics.com/v2.0/<environment>/snapshotdebugger` on the standard HTTPS origin, not the on-prem snapshot port. <!-- 2026-07-10: snapshot metadata confirmed against a live SaaS Sandbox; sensitive transcript was not retained -->
+- [x] SaaS SignalR negotiation accepts the same authorization value in the HTTP `Authorization` header and the `Authentication` query parameter. <!-- 2026-07-10: live negotiation confirmed against a SaaS Sandbox; token and authenticated URL were intentionally not retained -->
+
 ## Scenarios
 
 - [x] bcdev_status against stopped server → "unreachable" message. <!-- 2026-07-03: confirmed against port 7099 (nothing listening) on Cronus28 -->
