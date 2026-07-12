@@ -377,6 +377,36 @@ describe("createScheduler: D4 retry chain", () => {
     expect(state?.lastOutcome).toBe("timeout");
     expect(state?.consecutiveFailures).toBe(1);
   });
+
+  test("D3×D4: a regular occurrence due mid-retry-backoff is an overlap skip, not a second concurrent spawn", async () => {
+    const clock = createFakeClock(T0);
+    const spawner = createMockSpawner();
+    const { deps, writes } = createTestDeps(clock, spawner);
+    // delayMinutes (12) deliberately longer than the schedule interval (5) so the job's
+    // regular cadence ticks at least once while the retry chain is still waiting to fire.
+    const scheduler = createScheduler(cfg(retryJob({ schedule: "*/5 * * * *", retry: { attempts: 1, delayMinutes: 12 } })), deps);
+    scheduler.start();
+
+    clock.advanceTo(T0 + 5 * 60_000); // first attempt
+    expect(spawner.calls).toHaveLength(1);
+    spawner.instances[0]?.resolve({ code: 1, timedOut: false });
+    await flush(); // fails -> retry scheduled for T0+17m; chain occupies the job (running stays true)
+
+    // the job's own regular cadence still ticks at +10m while the retry backoff is waiting —
+    // this must be counted as an overlap, never a second concurrent spawn.
+    clock.advanceTo(T0 + 10 * 60_000);
+    expect(spawner.calls).toHaveLength(1);
+    expect(writes.at(-1)?.jobs["a"]?.skippedOverlaps).toBe(1);
+
+    // a second regular tick at +15m (still before the +17m retry) is skipped too
+    clock.advanceTo(T0 + 15 * 60_000);
+    expect(spawner.calls).toHaveLength(1);
+    expect(writes.at(-1)?.jobs["a"]?.skippedOverlaps).toBe(2);
+
+    // the retry itself still fires on schedule once its own delay elapses
+    clock.advanceTo(T0 + 17 * 60_000);
+    expect(spawner.calls).toHaveLength(2);
+  });
 });
 
 describe("createScheduler: D5 persisted state", () => {

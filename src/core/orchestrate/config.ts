@@ -20,6 +20,13 @@ export interface JobConfig {
   readonly command: string;
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
+  // Jitter added to this job's cron-computed due time, capped at MAX_JITTER_MINUTES (an
+  // absolute backstop only — see the constant's comment). Operators are responsible for
+  // keeping jitter comfortably below their OWN schedule's actual interval; a schedule of
+  // "*/5 * * * *" with jitterMinutes near the cap can still jitter an occurrence past the
+  // next grid slot and silently skip it. The loader cannot cheaply derive the true minimum
+  // interval of an arbitrary cron expression (irregular gaps, DOM/DOW OR-matches, etc.), so
+  // it only enforces the absolute cap, not a per-schedule one.
   readonly jitterMinutes: number;
   readonly timeoutMinutes: number;
   readonly retry?: RetryConfig;
@@ -32,6 +39,12 @@ export interface OrchestratorConfig {
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_JITTER_MINUTES = 0;
 const DEFAULT_TIMEOUT_MINUTES = 60;
+// Absolute backstop, not a per-schedule guarantee: deriving a cron expression's true minimum
+// interval is expensive to do correctly (irregular gaps, DOM/DOW OR-matches — see cron.ts),
+// so instead of computing it we just refuse jitter at or beyond a full hour. This still lets
+// a >=hourly job jitter past its own next occurrence; document that risk at the call site
+// (D1/orchestrator-recipe.md) rather than pretend this check makes every schedule safe.
+const MAX_JITTER_MINUTES = 59;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -45,6 +58,14 @@ function requireNonNegativeNumber(value: unknown, label: string): number {
     throw new Error(`${label} must be >= 0, got ${value}`);
   }
   return value;
+}
+
+function requireJitterMinutes(value: unknown, label: string): number {
+  const n = requireNonNegativeNumber(value, label);
+  if (n > MAX_JITTER_MINUTES) {
+    throw new Error(`${label} must be <= ${MAX_JITTER_MINUTES} (an hour or more of jitter risks skipping this job's own occurrences), got ${n}`);
+  }
+  return n;
 }
 
 function parseRetry(raw: unknown, label: string): RetryConfig {
@@ -111,9 +132,7 @@ function parseJob(raw: unknown, index: number): JobConfig {
   const env = parseEnv(raw["env"] ?? {}, label);
 
   const jitterMinutes =
-    raw["jitterMinutes"] !== undefined
-      ? requireNonNegativeNumber(raw["jitterMinutes"], `${label}: "jitterMinutes"`)
-      : DEFAULT_JITTER_MINUTES;
+    raw["jitterMinutes"] !== undefined ? requireJitterMinutes(raw["jitterMinutes"], `${label}: "jitterMinutes"`) : DEFAULT_JITTER_MINUTES;
   const timeoutMinutes =
     raw["timeoutMinutes"] !== undefined
       ? requireNonNegativeNumber(raw["timeoutMinutes"], `${label}: "timeoutMinutes"`)

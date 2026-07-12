@@ -222,6 +222,13 @@ describe("parseOrchestratorConfig: numeric validation (negative numerics, quoted
     expect(cfg.jobs[0]?.jitterMinutes).toBe(0);
     expect(cfg.jobs[0]?.timeoutMinutes).toBe(0);
   });
+
+  test("jitterMinutes of 59 is the accepted boundary; 60 throws (absolute cap, not schedule-derived)", () => {
+    const cfg = parseOrchestratorConfig({ jobs: [validJob({ jitterMinutes: 59 })] });
+    expect(cfg.jobs[0]?.jitterMinutes).toBe(59);
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ jitterMinutes: 60 })] })).toThrow(/jitterMinutes/);
+    expect(() => parseOrchestratorConfig({ jobs: [validJob({ jitterMinutes: 60 })] })).toThrow(/nightly-capture/);
+  });
 });
 
 describe("parseOrchestratorConfig: retry validation", () => {

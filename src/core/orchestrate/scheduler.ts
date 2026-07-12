@@ -101,8 +101,13 @@ export function createScheduler(cfg: OrchestratorConfig, deps: SchedulerDeps): S
     if (stopped) return;
     let min: number | null = null;
     for (const rt of jobs.values()) {
-      const candidate = rt.pendingRetryAt ?? rt.nextScheduledAt;
-      if (min === null || candidate < min) min = candidate;
+      // A pending retry does NOT suspend the job's regular cadence — nextScheduledAt keeps
+      // advancing and must stay armed so an overlap during the retry backoff is still
+      // detected (D3), not silently missed because "something else" is due for this job.
+      const candidates = rt.pendingRetryAt !== null ? [rt.pendingRetryAt, rt.nextScheduledAt] : [rt.nextScheduledAt];
+      for (const candidate of candidates) {
+        if (min === null || candidate < min) min = candidate;
+      }
     }
     if (min === null) return; // no jobs configured
     if (min === armedForTime && armedTimerId !== null) return; // already armed correctly
@@ -185,9 +190,13 @@ export function createScheduler(cfg: OrchestratorConfig, deps: SchedulerDeps): S
     const dueScheduled: JobRuntime[] = [];
     const dueRetries: JobRuntime[] = [];
     for (const rt of jobs.values()) {
-      if (rt.pendingRetryAt !== null) {
-        if (rt.pendingRetryAt <= now) dueRetries.push(rt);
-      } else if (rt.nextScheduledAt <= now) {
+      // Independent checks, not mutually exclusive: a pending retry and the job's regular
+      // cadence can both be due (the regular cadence keeps ticking during a retry backoff so
+      // D3 overlap-skip still fires instead of the schedule silently stalling for the chain).
+      if (rt.pendingRetryAt !== null && rt.pendingRetryAt <= now) {
+        dueRetries.push(rt);
+      }
+      if (rt.nextScheduledAt <= now) {
         dueScheduled.push(rt);
       }
     }
