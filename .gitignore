@@ -1,8 +1,6 @@
 node_modules/
 dist/
 *.exe
-/.codex/
-/pr-response-001
 
 # Session scratch space — experiments, logs, captured profiles. Never ship.
 scratch/
