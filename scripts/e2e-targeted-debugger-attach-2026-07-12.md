@@ -3,7 +3,7 @@
 ## Build under test
 
 - Repository base: `origin/main` at `365b4e6d3fc2b95d36811f731082a0c2044d1bd6`
-- Feature revision: pending local implementation commit
+- Feature revision: local commit `c8ab42f` (not pushed before interactive acceptance)
 - Target: Business Central Sandbox (never Production)
 - Business Central/dev API version: runtime 17.0 / dev API 7.0
 - Identity availability: one account; live negative cross-user isolation is out of scope and remains unit-tested
@@ -32,6 +32,7 @@ These checks used the Sandbox and printed only booleans/mode labels. No identity
 | Same-account `userId` WebClient arm | `Attach` accepted; detached immediately | PASS |
 | Deliberately unavailable positive `sessionId` | Sandbox emitted fatal during `Attach` immediately before invocation resolution | DISCOVERY |
 | Unavailable exact-session rollback after fix | Attach rejected through rollback with actionable, token-safe output | PASS |
+| Read-only standard API session lifecycle | API returned 200; `sessionBound` warning followed the short-lived session's detach and debugging cleanup remained usable | PASS — nonfatal warning path |
 
 ## Live setup
 
