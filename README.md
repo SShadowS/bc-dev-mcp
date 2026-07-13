@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-415%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-431%20passing-green)]()
 
 ## Overview
 
@@ -25,7 +25,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | **Structured test runs** | Per-method pass/fail/skip with duration and failure output — every tool returns `structuredContent` validated by a published `outputSchema` |
 | **Code coverage** | `procedure` mode, mapped back to local source files (`line` mode exists but is unproven against real BC) |
 | **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
-| **Interactive debugging** | Attach, file/line breakpoints, break-on-error, stack + variables + watch, stepping |
+| **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break-on-error, stack + variables + watch, stepping |
 | **Debug-a-test** | Test run bound to the debug session — breakpoints fire during test execution |
 | **Config auto-discovery** | Server/instance/tenant read from the AL project's `.vscode/launch.json` |
 | **Preflight diagnostics** | `bcdev_status` distinguishes unreachable / bad credentials / unsupported dev API |
@@ -69,7 +69,9 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 1. `bcdev_status` — verify reachability, auth, and that test running is supported.
 2. `bcdev_test_discover` — list test codeunits and `[Test]` methods from local `.al` files.
 3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results.
-4. `bcdev_debug_attach { breakOnError: true }` → `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }` → `bcdev_debug_wait` → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`.
+4. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
+
+Debugger attach returns as soon as Business Central accepts the request; binding is asynchronous. With no selector it binds the next session of the `breakOnNext` client type. Pass `userId` to filter that next session by Business Central user, or pass a known positive `sessionId` to attach to an existing NST session. `sessionId` and `userId` are mutually exclusive; exact `sessionId` targeting takes precedence over `breakOnNext`. `bcdev_debug_wait` reports `{ kind: "sessionBound", sessionId, hostId }` after binding. If identity lookup fails, it reports a nonfatal warning-form `sessionBound` event and debugging remains active.
 
 ## Configuration
 
@@ -127,9 +129,9 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_status` | Preflight: reachability, auth, dev API version, feature gates |
 | `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files |
 | `bcdev_test_run` | Run tests, structured results, optional coverage |
-| `bcdev_debug_attach` | Attach debugger, set file/line breakpoints |
+| `bcdev_debug_attach` | Arm next-session/user-filtered attach or target an existing NST session; optionally set breakpoints |
 | `bcdev_debug_run_tests` | Run tests with breakpoints live |
-| `bcdev_debug_wait` | Long-poll for break / run-finished events |
+| `bcdev_debug_wait` | Long-poll for session-bound / break / run-finished lifecycle events |
 | `bcdev_debug_continue` | continue / stepOver / stepInto / stepOut |
 | `bcdev_debug_variables` | Inspect locals, globals, expand records |
 | `bcdev_debug_eval` | Evaluate watch expression |
@@ -200,7 +202,7 @@ Sources live in `skills/`; `bun run embed-skills` regenerates `src/mcp/skills.ge
 Ordered by intent, not commitment:
 
 1. **Agent-grade responses** — structured run summaries, parsed call stacks mapped to source lines, verified breakpoint locations, changed-variable flags, structured errors, and next-step hints on every tool. Designed, wire-validated.
-2. **Debugger power controls** — SQL cost per frame at a break, targeted attach to a specific session/user, break on unhandled errors only, abort a hung operation, read source for objects not on local disk. Designed, wire-validated against a live BC28.
+2. **Debugger power controls** — SQL cost per frame at a break, break on unhandled errors only, abort a hung operation, read source for objects not on local disk. Designed, wire-validated against a live BC28.
 3. **CPU profiling** (`bcdev_profile_*`) — **shipped.** Capture a sampling CPU profile (`.alcpuprofile`, V8 format) of a live session and get back a ranked AL-hotspot summary, not just a blob. Four tools (status/start/poll/finish), validated end-to-end against a live BC28 — a real profile with AL call frames captured through the tools (`scripts/e2e-profile-results-2026-07-04.md`). (Full snapshot recording for VS Code replay shares the same core and stays deferred.)
 4. **Entra ID auth** — **shipped.** Azure CLI-backed cloud sandbox/production access alongside explicit on-prem UserPassword.
 5. **Coverage gap analysis** — cross procedure coverage with `git diff`: which changed procedures have no test coverage.

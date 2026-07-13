@@ -40,6 +40,19 @@ Never record access tokens, Authorization headers, authenticated URLs, or unreda
 - [x] bcdev_debug_detach mid-break: BC session released (check server). <!-- 2026-07-03 round 2: raw StopDebugging+disconnect while held at a break released the session immediately; test completed as failed with "The debugger stopped the current activity."; Get-NAVServerSession shows no leftovers -->
 - [ ] tools/list shows title/annotations/outputSchema for all 15 tools; resources/list shows the three skill:// resources.
 
+## Targeted debugger attach (Sandbox)
+
+Run only against a Business Central Sandbox, using two WebClient sessions A and B for the available account. Production is out of scope. With only one Sandbox identity, negative cross-user isolation remains unit-tested rather than claimed live. Record redacted results in `scripts/e2e-targeted-debugger-attach-2026-07-12.md`.
+
+- [ ] Default WebClient attach binds deliberately triggered session A and reports a successful `sessionBound` identity.
+- [ ] Reattach with A's positive `sessionId`; the same breakpoint/error operation in B produces no `break` during the documented wait window.
+- [ ] The operation in A then produces a `break`, proving exact-session targeting.
+- [ ] The exact attach's `sessionBound.sessionId` equals the ID captured for A.
+- [ ] `userId` targeting for the available account binds a matching WebClient and produces a break.
+- [ ] Detach completes after each scenario and no debugger remains active.
+
+Never record tenant, environment, user, host, session, connection, token, authorization header, or authenticated URL values. Use stable role labels such as `SESSION_A` and `[REDACTED]`, not reversible hashes.
+
 ## Profiling (snapshot Sampling)
 
 Runs against the **snapshot-debugger port** (`DEFAULT_SNAPSHOT_PORT = 7083`), separate from the dev

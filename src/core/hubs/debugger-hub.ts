@@ -1,11 +1,14 @@
 import type { ConnectionConfig, DebuggerEvent, StackFrameInfo } from "../types";
 import type { AuthorizationProvider } from "../authorization";
+import { redactAuthorization } from "../redaction";
 import { hubUrl } from "../urls";
 import type { HubFactory, HubProxy } from "./signalr-base";
 import { buildHubQuery, normalizeKeys } from "./signalr-base";
 
 export interface DebugAttachOptions {
   breakOnNext?: "WebClient" | "WebServiceClient" | "Background";
+  sessionId?: number;
+  userId?: string;
   breakOnError?: boolean;
   breakOnRecordWrite?: boolean;
   skipSystemTriggers?: boolean;
@@ -43,6 +46,55 @@ interface WireStackFrame {
   statementSpan?: { from?: { line: number; column: number } };
 }
 
+interface WireNstSessionInfo {
+  sessionId?: unknown;
+  hostId?: unknown;
+}
+
+export interface NstSessionInfo {
+  sessionId: number;
+  hostId: string;
+}
+
+interface WireAttachTarget {
+  SessionId: number;
+  UserId: string | null;
+}
+
+function normalizeAttachTarget(opts: DebugAttachOptions): WireAttachTarget {
+  if (opts.sessionId !== undefined && opts.userId !== undefined) {
+    throw new Error("sessionId and userId are mutually exclusive");
+  }
+  if (opts.sessionId !== undefined) {
+    if (typeof opts.sessionId !== "number" || !Number.isInteger(opts.sessionId) || opts.sessionId <= 0) {
+      throw new Error("sessionId must be a positive integer");
+    }
+    return { SessionId: opts.sessionId, UserId: null };
+  }
+  if (opts.userId !== undefined) {
+    if (typeof opts.userId !== "string" || opts.userId.trim() === "") {
+      throw new Error("userId must be a nonblank string");
+    }
+    return { SessionId: -1, UserId: opts.userId.trim() };
+  }
+  return { SessionId: -1, UserId: null };
+}
+
+function normalizeNstSessionInfo(value: unknown): NstSessionInfo {
+  const info = normalizeKeys<WireNstSessionInfo>(value ?? {});
+  if (typeof info.sessionId !== "number" || !Number.isInteger(info.sessionId) || info.sessionId <= 0) {
+    throw new Error("Business Central returned an invalid NST session id");
+  }
+  if (typeof info.hostId !== "string" || info.hostId.trim() === "") {
+    throw new Error("Business Central returned an invalid NST host id");
+  }
+  return { sessionId: info.sessionId, hostId: info.hostId.trim() };
+}
+
+function errorDetail(error: unknown): string {
+  return redactAuthorization(error instanceof Error ? error.message : String(error));
+}
+
 function toVariableNode(n: WireLocalNode): VariableNode {
   return {
     name: n.name,
@@ -56,6 +108,7 @@ function toVariableNode(n: WireLocalNode): VariableNode {
 export class DebuggerClient {
   private hub: HubProxy | null = null;
   private pendingDebugOptions: Record<string, unknown> | null = null;
+  private bindingHandled = false;
   onEvent?: (e: DebuggerEvent) => void;
 
   constructor(private factory: HubFactory) {}
@@ -65,12 +118,32 @@ export class DebuggerClient {
   }
 
   async connect(config: ConnectionConfig, authorization: AuthorizationProvider, opts: DebugAttachOptions = {}): Promise<void> {
+    const target = normalizeAttachTarget(opts);
     const authHeader = await authorization.getAuthorizationHeader();
     const hub = this.factory(hubUrl(config, "DebuggerHub"), {
       authHeader,
       queryParams: buildHubQuery(config, authHeader),
     });
     this.hub = hub;
+    this.bindingHandled = false;
+    let attachInFlight = false;
+    let exactAttachFatal: string | null = null;
+    // Set before Attach: an exact live session can bind before the Attach invocation resolves.
+    this.pendingDebugOptions = {
+      // WIRE: DebugAdapterConfigurationDone(DebugOptions) (esp-decomp HubBasedDebuggerService.ConfigurationDoneAsync / DebugOptions.cs)
+      // BreakOnErrorBehaviour: Unspecified=0, None=1, All=2, ExcludeTry=3
+      // BreakOnRecordWriteBehaviour: Unspecified=0, None=1, All=2, ExcludeTemporary=3
+      // (esp-decomp BreakOnRecordWriteBehaviour.cs)
+      BreakOnError: opts.breakOnError ?? true,
+      BreakOnErrorBehaviour: (opts.breakOnError ?? true) ? 2 : 1,
+      BreakOnRecordWrite: opts.breakOnRecordWrite ?? false,
+      BreakOnRecordWriteBehaviour: (opts.breakOnRecordWrite ?? false) ? 2 : 1,
+      SkipSystemTriggers: opts.skipSystemTriggers ?? true,
+      EnableSqlInformationDebugger: false,
+      EnableLongRunningSqlStatements: false,
+      LongRunningSqlStatementsThreshold: 0,
+      NumberOfSqlStatements: 0,
+    };
 
     hub.on("IsAlive", () => {
       void hub.invoke("AcknowledgeIsAlive").catch(() => {});
@@ -100,7 +173,15 @@ export class DebuggerClient {
       this.onEvent?.({ kind: "detached", terminateSession: Boolean(args[0]) });
     });
     hub.on("OnFatalDebuggerException", (...args) => {
-      this.onEvent?.({ kind: "fatal", message: String(args[0] ?? "") });
+      const message = String(args[0] ?? "");
+      // Live Sandbox BC28 can signal an unavailable exact session here immediately before the
+      // Attach invocation resolves. Capture that synchronous attach outcome so the caller's
+      // existing rollback path runs; later fatal events remain normal lifecycle events.
+      if (attachInFlight && opts.sessionId !== undefined) {
+        exactAttachFatal = message;
+        return;
+      }
+      this.onEvent?.({ kind: "fatal", message });
     });
     hub.onclose((err) => {
       if (this.hub === hub) this.hub = null;
@@ -115,35 +196,40 @@ export class DebuggerClient {
     // bind is build-dependent: BC28 live fires HubConnected, not OnAttachedToConnection (round 3,
     // 2026-07-03), even though OnAttachedToConnection is the callback named in the decompiled
     // contract. Handle both, first one wins.
-    hub.on("HubConnected", () => this.sendPendingDebugOptions());
-    hub.on("OnAttachedToConnection", () => this.sendPendingDebugOptions());
+    hub.on("HubConnected", () => this.handleSessionBound(hub));
+    hub.on("OnAttachedToConnection", () => this.handleSessionBound(hub));
 
     try {
       await hub.start();
       // WIRE: Attach(AttachOptions{BreakOnNextClient, SessionId, UserId}) (esp-decomp HubBasedDebuggerService.Attach / AttachOptions.cs)
       // WIRE: SessionId -1 = break-on-next, no specific session (esp-decomp InitializeDebugAdapterRequest.cs AttachOptions()); 0 is rejected by the server (live E2E 2026-07-03)
-      await hub.invoke("Attach", {
-        BreakOnNextClient: BREAK_ON_NEXT_WIRE[opts.breakOnNext ?? "WebClient"],
-        SessionId: -1,
-        UserId: null,
-      });
-      // WIRE: DebugAdapterConfigurationDone(DebugOptions) (esp-decomp HubBasedDebuggerService.ConfigurationDoneAsync / DebugOptions.cs)
-      // BreakOnErrorBehaviour: Unspecified=0, None=1, All=2, ExcludeTry=3
-      // BreakOnRecordWriteBehaviour: Unspecified=0, None=1, All=2, ExcludeTemporary=3
-      // (esp-decomp BreakOnRecordWriteBehaviour.cs)
-      this.pendingDebugOptions = {
-        BreakOnError: opts.breakOnError ?? true,
-        BreakOnErrorBehaviour: (opts.breakOnError ?? true) ? 2 : 1,
-        BreakOnRecordWrite: opts.breakOnRecordWrite ?? false,
-        BreakOnRecordWriteBehaviour: (opts.breakOnRecordWrite ?? false) ? 2 : 1,
-        SkipSystemTriggers: opts.skipSystemTriggers ?? true,
-        EnableSqlInformationDebugger: false,
-        EnableLongRunningSqlStatements: false,
-        LongRunningSqlStatementsThreshold: 0,
-        NumberOfSqlStatements: 0,
-      };
+      // WIRE: UserId null = no user filter. With SessionId -1, a non-null UserId filters the next matching session.
+      // WIRE: A positive SessionId selects an existing NST session and takes precedence over BreakOnNextClient.
+      try {
+        attachInFlight = true;
+        await hub.invoke("Attach", {
+          BreakOnNextClient: BREAK_ON_NEXT_WIRE[opts.breakOnNext ?? "WebClient"],
+          ...target,
+        });
+      } catch (error) {
+        if (opts.sessionId !== undefined) {
+          throw new Error(
+            `Unable to attach to NST session ${opts.sessionId}. Verify that the session is active and accessible to the current account. Business Central: ${errorDetail(error)}`,
+            { cause: error },
+          );
+        }
+        throw error;
+      } finally {
+        attachInFlight = false;
+      }
+      if (exactAttachFatal !== null) {
+        throw new Error(
+          `Unable to attach to NST session ${opts.sessionId}. Verify that the session is active and accessible to the current account. Business Central: ${errorDetail(exactAttachFatal)}`,
+        );
+      }
     } catch (err) {
       this.hub = null;
+      this.pendingDebugOptions = null;
       await hub.stop().catch(() => {});
       throw err;
     }
@@ -154,14 +240,34 @@ export class DebuggerClient {
     return this.hub;
   }
 
-  private sendPendingDebugOptions(): void {
+  private handleSessionBound(hub: HubProxy): void {
+    if (this.hub !== hub || this.bindingHandled) return;
+    this.bindingHandled = true;
     const options = this.pendingDebugOptions;
-    if (!options || !this.hub) return;
     this.pendingDebugOptions = null;
     // WIRE: session bind is signalled by HubConnected on BC28 (live E2E 2026-07-03);
     // OnAttachedToConnection exists in the decompiled contract but was never observed live —
     // handle both, first one wins.
-    void this.hub.invoke("DebugAdapterConfigurationDone", options).catch(() => {});
+    void this.finishSessionBinding(hub, options);
+  }
+
+  private async finishSessionBinding(hub: HubProxy, options: Record<string, unknown> | null): Promise<void> {
+    if (options) await hub.invoke("DebugAdapterConfigurationDone", options).catch(() => {});
+    if (this.hub !== hub) return;
+    try {
+      // WIRE: GetNstSessionInfo() -> {SessionId, HostId} (live BC28 wire probe 2026-07-04).
+      const info = normalizeNstSessionInfo(await hub.invoke<unknown>("GetNstSessionInfo"));
+      if (this.hub === hub) this.onEvent?.({ kind: "sessionBound", ...info });
+    } catch (error) {
+      if (this.hub === hub) {
+        this.onEvent?.({
+          kind: "sessionBound",
+          sessionId: null,
+          hostId: null,
+          warning: `Debugger bound, but NST session identity could not be read: ${errorDetail(error)}`,
+        });
+      }
+    }
   }
 
   async addBreakpoint(objectType: number, objectId: number, line: number, condition?: string): Promise<number> {
@@ -216,6 +322,7 @@ export class DebuggerClient {
   async stop(): Promise<void> {
     const hub = this.hub;
     this.hub = null;
+    this.pendingDebugOptions = null;
     if (hub) {
       await hub.invoke("StopDebugging").catch(() => {});
       await hub.stop().catch(() => {});

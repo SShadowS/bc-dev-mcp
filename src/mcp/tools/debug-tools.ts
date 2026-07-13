@@ -19,12 +19,39 @@ import {
   variableNodeSchema,
 } from "./shared";
 
+interface DebugTarget {
+  sessionId?: number;
+  userId?: string;
+}
+
+function normalizeDebugTarget(params: Record<string, unknown>): DebugTarget {
+  const sessionId = params["sessionId"];
+  const userId = params["userId"];
+  if (sessionId !== undefined && userId !== undefined) {
+    throw new Error("sessionId and userId are mutually exclusive");
+  }
+  if (sessionId !== undefined) {
+    if (typeof sessionId !== "number" || !Number.isInteger(sessionId) || sessionId <= 0) {
+      throw new Error("sessionId must be a positive integer");
+    }
+    return { sessionId };
+  }
+  if (userId !== undefined) {
+    if (typeof userId !== "string" || userId.trim() === "") {
+      throw new Error("userId must be a nonblank string");
+    }
+    return { userId: userId.trim() };
+  }
+  return {};
+}
+
 export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefinition[] {
   return [
     {
       name: "bcdev_debug_attach",
       title: "Attach AL debugger",
-      description: "Attach the AL debugger to the BC server. One session at a time. Follow with bcdev_debug_run_tests, then bcdev_debug_wait.",
+      description:
+        "Attach the AL debugger to the BC server. By default it binds the next client; sessionId selects an existing NST session and userId filters the next client. Attach returns before binding — use bcdev_debug_wait for sessionBound and later events. One debugger session at a time.",
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       schema: {
         ...connectionShape,
@@ -37,7 +64,19 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         breakOnNext: z
           .enum(["WebClient", "WebServiceClient", "Background"])
           .optional()
-          .describe("Which client session type the debugger binds to (default WebClient)"),
+          .describe("Client type for default/user-filtered next-session attach (default WebClient); an exact sessionId takes precedence"),
+        sessionId: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Positive NST session ID to attach to an existing session; mutually exclusive with userId and takes precedence over breakOnNext"),
+        userId: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("Business Central user ID whose next matching session should bind; mutually exclusive with sessionId and filtered by breakOnNext client type"),
         breakOnError: z.boolean().optional().describe("Pause when an AL runtime error occurs (default true)"),
         breakOnRecordWrite: z.boolean().optional().describe("Pause on record writes (default false)"),
         skipSystemTriggers: z.boolean().optional().describe("Skip breaks inside system triggers (default true)"),
@@ -48,6 +87,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         breakpoints: z.array(addedBreakpointSchema),
       }),
       handler: async (params) => {
+        const target = normalizeDebugTarget(params);
         if (state.debug) throw new Error("Debug session already active — call bcdev_debug_detach first");
         const { config, authorization, project } = resolve(params, deps);
         const client = new DebuggerClient(deps.hubFactory);
@@ -58,6 +98,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         try {
           await client.connect(config, authorization, {
             breakOnNext: params["breakOnNext"] as never,
+            ...target,
             breakOnError: params["breakOnError"] as boolean | undefined,
             breakOnRecordWrite: params["breakOnRecordWrite"] as boolean | undefined,
             skipSystemTriggers: params["skipSystemTriggers"] as boolean | undefined,
@@ -117,13 +158,16 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       name: "bcdev_debug_wait",
       title: "Wait for debugger event",
       description:
-        "Wait for the next debugger event (break, testRunFinished, detached, fatal). Timing out is a normal result — call again to keep waiting. Events queue up to 100 between calls; beyond that the oldest are discarded and droppedEvents reports how many.",
+        "Wait for the next debugger event (sessionBound, break, testRunFinished, detached, fatal). Timing out is a normal result — call again to keep waiting. Events queue up to 100 between calls; beyond that the oldest are discarded and droppedEvents reports how many.",
       annotations: { readOnlyHint: true, openWorldHint: true },
       schema: { timeoutMs: z.number().min(1).max(300000).optional().describe("Max wait in milliseconds (default 30000, max 300000)") },
       // single loose object, NOT a union (SDK 1.29 drops non-object outputSchema)
       outputSchema: z.looseObject({
         timedOut: z.boolean().optional().describe("true = no event within timeoutMs; normal — call again"),
-        kind: z.enum(["break", "testRunFinished", "detached", "fatal"]).optional(),
+        kind: z.enum(["sessionBound", "break", "testRunFinished", "detached", "fatal"]).optional(),
+        sessionId: z.number().nullable().optional().describe("Bound NST session ID on kind=sessionBound; null when identity lookup failed"),
+        hostId: z.string().nullable().optional().describe("Bound NST host ID on kind=sessionBound; null when identity lookup failed"),
+        warning: z.string().optional().describe("Nonfatal NST identity lookup detail on a warning-form sessionBound event"),
         objectType: z.number().optional(),
         objectId: z.number().optional(),
         file: z.string().optional().describe("Local source file of the break, when mappable"),
