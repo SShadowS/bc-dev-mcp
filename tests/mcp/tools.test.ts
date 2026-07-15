@@ -358,6 +358,20 @@ describe("tools", () => {
     expect(hub.stopped).toBe(true);
   });
 
+  test("bcdev_debug_attach rolls back and stops debugging when a user fatal arrives during Attach", async () => {
+    const { state, tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "Attach") {
+        hub.emit("OnFatalDebuggerException", "The user specified in your launch.json file cannot be found on the tenant.");
+      }
+      return undefined;
+    };
+    await expect(tools.get("bcdev_debug_attach")!.handler({ userId: "ghost-user" })).rejects.toThrow(/user-filtered session/);
+    expect(state.debug).toBeNull();
+    expect(hub.invoked("StopDebugging")).toHaveLength(1);
+    expect(hub.stopped).toBe(true);
+  });
+
   test("bcdev_debug_attach surfaces a user-filter fatal and suppresses binding", async () => {
     const { state, tools } = setup(hub);
     await tools.get("bcdev_debug_attach")!.handler({ userId: "ghost-user" });

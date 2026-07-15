@@ -191,14 +191,16 @@ describe("DebuggerClient", () => {
     expect(hub.invoked("SetBreakpointResponse")).toHaveLength(1);
   });
 
-  test("preserves a valid session id when the optional host id is absent", async () => {
-    const hub = new FakeHub();
-    hub.onInvoke = (method) => (method === "GetNstSessionInfo" ? { SessionId: 43210, HostId: null } : undefined);
-    const { events } = await connected(hub);
-    hub.emit("HubConnected");
-    await Bun.sleep(0);
-    expect(events).toEqual([{ kind: "sessionBound", sessionId: 43210, hostId: null }]);
-  });
+  for (const hostId of [null, "   "]) {
+    test(`preserves a valid session id when the optional host id is ${hostId === null ? "null" : "blank"}`, async () => {
+      const hub = new FakeHub();
+      hub.onInvoke = (method) => (method === "GetNstSessionInfo" ? { SessionId: 43210, HostId: hostId } : undefined);
+      const { events } = await connected(hub);
+      hub.emit("HubConnected");
+      await Bun.sleep(0);
+      expect(events).toEqual([{ kind: "sessionBound", sessionId: 43210, hostId: null }]);
+    });
+  }
 
   test("an unknown user fatal before binding tears down without session or break events", async () => {
     const hub = new FakeHub();
@@ -216,6 +218,31 @@ describe("DebuggerClient", () => {
       },
     ]);
     expect(events.some((event) => event.kind === "sessionBound" || event.kind === "break")).toBe(false);
+    expect(hub.invoked("StopDebugging")).toHaveLength(1);
+    expect(hub.stopped).toBe(true);
+    expect(client.connectionId).toBeNull();
+    hub.close(new Error("close after rollback"));
+    expect(events).toHaveLength(1);
+  });
+
+  test("a user fatal during Attach invokes StopDebugging and rejects the attach", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "Attach") {
+        hub.emit("OnFatalDebuggerException", "The requested user does not exist?Authentication=Bearer%20secret-token");
+      }
+      return undefined;
+    };
+    const client = new DebuggerClient(fakeHubFactory(hub));
+    let message = "";
+    try {
+      await client.connect(config, auth, { userId: "ghost-user" });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toContain("Unable to bind the requested user-filtered session");
+    expect(message).toContain("[REDACTED]");
+    expect(message).not.toContain("secret-token");
     expect(hub.invoked("StopDebugging")).toHaveLength(1);
     expect(hub.stopped).toBe(true);
     expect(client.connectionId).toBeNull();

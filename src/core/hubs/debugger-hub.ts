@@ -200,7 +200,8 @@ export class DebuggerClient {
       this.onEvent?.({ kind: "fatal", message });
     });
     hub.onclose((err) => {
-      if (this.hub === hub) this.hub = null;
+      if (this.hub !== hub) return;
+      this.hub = null;
       if (err) this.onEvent?.({ kind: "fatal", message: `Hub connection closed: ${String(err)}` });
     });
     // Server-invoked notifications we don't consume — registered to keep the connection log clean (live E2E 2026-07-03).
@@ -245,6 +246,9 @@ export class DebuggerClient {
       }
       if (this.userAttachFatal !== null) throw this.userAttachError(this.userAttachFatal);
     } catch (err) {
+      if (opts.userId !== undefined && this.userAttachFatal !== null) {
+        await hub.invoke("StopDebugging").catch(() => {});
+      }
       this.hub = null;
       this.pendingDebugOptions = null;
       await hub.stop().catch(() => {});

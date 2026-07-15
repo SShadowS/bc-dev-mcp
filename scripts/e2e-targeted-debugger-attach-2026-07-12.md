@@ -66,4 +66,6 @@ The default attach was exercised first and reported a successful identity before
 
 ## Review follow-up — 2026-07-14
 
-The SaaS negative user-filter case was rerun with a deliberately unavailable user value. The server emitted a fatal during `Attach`; the client returned an actionable, redacted error, performed rollback, and left no debugger state. No `sessionBound` or `break` event was delivered. Tenant, user, session, host, token, and authenticated URL values were not retained.
+The SaaS negative user-filter case was rerun with a deliberately unavailable user value. The server emitted a fatal during `Attach`; the client returned an actionable, redacted error, invoked best-effort `StopDebugging`, closed the hub, and left no debugger state. No `sessionBound` or `break` event was delivered. Tenant, user, session, host, token, and authenticated URL values were not retained.
+
+After the review fixes were rebased onto the current `main`, the full suite passed with 437 tests and 1,255 assertions. Typecheck, production build, embedded-skill regeneration/drift, and `git diff --check` also passed.
