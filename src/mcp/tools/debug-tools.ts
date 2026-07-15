@@ -87,8 +87,8 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         breakpoints: z.array(addedBreakpointSchema),
       }),
       handler: async (params) => {
-        const target = normalizeDebugTarget(params);
         if (state.debug) throw new Error("Debug session already active — call bcdev_debug_detach first");
+        const target = normalizeDebugTarget(params);
         const { config, authorization, project } = resolve(params, deps);
         const client = new DebuggerClient(deps.hubFactory);
         const index = await AlObjectIndex.build(project);

@@ -191,6 +191,36 @@ describe("DebuggerClient", () => {
     expect(hub.invoked("SetBreakpointResponse")).toHaveLength(1);
   });
 
+  test("preserves a valid session id when the optional host id is absent", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => (method === "GetNstSessionInfo" ? { SessionId: 43210, HostId: null } : undefined);
+    const { events } = await connected(hub);
+    hub.emit("HubConnected");
+    await Bun.sleep(0);
+    expect(events).toEqual([{ kind: "sessionBound", sessionId: 43210, hostId: null }]);
+  });
+
+  test("an unknown user fatal before binding tears down without session or break events", async () => {
+    const hub = new FakeHub();
+    const { client, events } = await connected(hub, { userId: "ghost-user" });
+    hub.emit("OnFatalDebuggerException", "The user specified in your launch.json file cannot be found on the tenant.");
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+    hub.emit("HubConnected");
+    hub.emit("Break", { ObjectType: 5, ObjectNumber: 50100 }, [], "should not be delivered");
+    await Bun.sleep(0);
+    expect(events).toEqual([
+      {
+        kind: "fatal",
+        message: expect.stringContaining("user-filtered session"),
+      },
+    ]);
+    expect(events.some((event) => event.kind === "sessionBound" || event.kind === "break")).toBe(false);
+    expect(hub.invoked("StopDebugging")).toHaveLength(1);
+    expect(hub.stopped).toBe(true);
+    expect(client.connectionId).toBeNull();
+  });
+
   test("auto-acks IsAlive", async () => {
     const hub = new FakeHub();
     await connected(hub);

@@ -276,6 +276,7 @@ describe("tools", () => {
   test("guards: double attach, run while running, wait without session", async () => {
     const { state, tools } = setup(hub);
     await tools.get("bcdev_debug_attach")!.handler({});
+    await expect(tools.get("bcdev_debug_attach")!.handler({ sessionId: 0 })).rejects.toThrow(/active/);
     await expect(tools.get("bcdev_debug_attach")!.handler({})).rejects.toThrow(/active/);
     state.testRunActive = true;
     await expect(tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 1 }] })).rejects.toThrow(/already running/);
@@ -355,5 +356,22 @@ describe("tools", () => {
     await expect(tools.get("bcdev_debug_attach")!.handler({ sessionId: 43210 })).rejects.toThrow(/active and accessible/);
     expect(state.debug).toBeNull();
     expect(hub.stopped).toBe(true);
+  });
+
+  test("bcdev_debug_attach surfaces a user-filter fatal and suppresses binding", async () => {
+    const { state, tools } = setup(hub);
+    await tools.get("bcdev_debug_attach")!.handler({ userId: "ghost-user" });
+    hub.emit("OnFatalDebuggerException", "The user specified in your launch.json file cannot be found on the tenant.");
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+    hub.emit("HubConnected");
+    const event = (await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 200 })) as Record<string, unknown>;
+    expect(event["kind"]).toBe("fatal");
+    expect(String(event["message"])).toContain("user-filtered session");
+    expect(state.debug).not.toBeNull();
+    expect(hub.invoked("StopDebugging")).toHaveLength(1);
+    expect(hub.stopped).toBe(true);
+    await tools.get("bcdev_debug_detach")!.handler({});
+    expect(state.debug).toBeNull();
   });
 });

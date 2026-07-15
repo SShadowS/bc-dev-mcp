@@ -63,3 +63,7 @@ The default attach was exercised first and reported a successful identity before
 - Only one Sandbox identity is available, so cross-user negative isolation is covered by unit validation rather than a live two-user scenario.
 - Production testing is intentionally excluded.
 - The Sandbox retires the NST request that was being debugged when `StopDebugging` runs, so a captured-then-detached WebClient request ID is no longer a valid positive exact target. Exact isolation was proven against a separately active WebClient session instead.
+
+## Review follow-up — 2026-07-14
+
+The SaaS negative user-filter case was rerun with a deliberately unavailable user value. The server emitted a fatal during `Attach`; the client returned an actionable, redacted error, performed rollback, and left no debugger state. No `sessionBound` or `break` event was delivered. Tenant, user, session, host, token, and authenticated URL values were not retained.

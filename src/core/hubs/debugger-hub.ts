@@ -53,7 +53,7 @@ interface WireNstSessionInfo {
 
 export interface NstSessionInfo {
   sessionId: number;
-  hostId: string;
+  hostId: string | null;
 }
 
 interface WireAttachTarget {
@@ -85,10 +85,10 @@ function normalizeNstSessionInfo(value: unknown): NstSessionInfo {
   if (typeof info.sessionId !== "number" || !Number.isInteger(info.sessionId) || info.sessionId <= 0) {
     throw new Error("Business Central returned an invalid NST session id");
   }
-  if (typeof info.hostId !== "string" || info.hostId.trim() === "") {
+  if (info.hostId !== undefined && info.hostId !== null && typeof info.hostId !== "string") {
     throw new Error("Business Central returned an invalid NST host id");
   }
-  return { sessionId: info.sessionId, hostId: info.hostId.trim() };
+  return { sessionId: info.sessionId, hostId: typeof info.hostId === "string" && info.hostId.trim() !== "" ? info.hostId.trim() : null };
 }
 
 function errorDetail(error: unknown): string {
@@ -109,6 +109,9 @@ export class DebuggerClient {
   private hub: HubProxy | null = null;
   private pendingDebugOptions: Record<string, unknown> | null = null;
   private bindingHandled = false;
+  private userAttachFatal: string | null = null;
+  private userAttachFailed = false;
+  private sessionBoundReported = false;
   onEvent?: (e: DebuggerEvent) => void;
 
   constructor(private factory: HubFactory) {}
@@ -128,6 +131,9 @@ export class DebuggerClient {
     this.bindingHandled = false;
     let attachInFlight = false;
     let exactAttachFatal: string | null = null;
+    this.userAttachFatal = null;
+    this.userAttachFailed = false;
+    this.sessionBoundReported = false;
     // Set before Attach: an exact live session can bind before the Attach invocation resolves.
     this.pendingDebugOptions = {
       // WIRE: DebugAdapterConfigurationDone(DebugOptions) (esp-decomp HubBasedDebuggerService.ConfigurationDoneAsync / DebugOptions.cs)
@@ -150,6 +156,7 @@ export class DebuggerClient {
     });
     hub.on("Break", (...args) => {
       const objectId = normalizeKeys<{ objectType: number; objectNumber: number }>(args[0]);
+      if (this.userAttachFailed) return;
       const frames = normalizeKeys<WireStackFrame[]>(args[1] ?? []);
       const errorMessage = (args[2] as string | null) || undefined;
       // WIRE: server lines are 0-based (live BC28 2026-07-03: wire line 9 = editor line 10); tool surface is 1-based (editor convention), converted here.
@@ -170,7 +177,7 @@ export class DebuggerClient {
       });
     });
     hub.on("OnDetachedFromConnection", (...args) => {
-      this.onEvent?.({ kind: "detached", terminateSession: Boolean(args[0]) });
+      if (this.hub === hub) this.onEvent?.({ kind: "detached", terminateSession: Boolean(args[0]) });
     });
     hub.on("OnFatalDebuggerException", (...args) => {
       const message = String(args[0] ?? "");
@@ -181,6 +188,15 @@ export class DebuggerClient {
         exactAttachFatal = message;
         return;
       }
+      if (attachInFlight && opts.userId !== undefined) {
+        this.userAttachFatal = message;
+        return;
+      }
+      if (opts.userId !== undefined && !this.sessionBoundReported && !this.userAttachFailed) {
+        void this.failUserAttach(hub, message);
+        return;
+      }
+      if (this.userAttachFailed) return;
       this.onEvent?.({ kind: "fatal", message });
     });
     hub.onclose((err) => {
@@ -227,12 +243,29 @@ export class DebuggerClient {
           `Unable to attach to NST session ${opts.sessionId}. Verify that the session is active and accessible to the current account. Business Central: ${errorDetail(exactAttachFatal)}`,
         );
       }
+      if (this.userAttachFatal !== null) throw this.userAttachError(this.userAttachFatal);
     } catch (err) {
       this.hub = null;
       this.pendingDebugOptions = null;
       await hub.stop().catch(() => {});
       throw err;
     }
+  }
+
+  private userAttachError(message: string): Error {
+    return new Error(
+      `Unable to bind the requested user-filtered session. Verify that the user exists and is accessible to the current account. Business Central: ${errorDetail(message)}`,
+    );
+  }
+
+  private async failUserAttach(hub: HubProxy, message: string): Promise<void> {
+    if (this.userAttachFailed) return;
+    this.userAttachFailed = true;
+    this.pendingDebugOptions = null;
+    if (this.hub === hub) this.hub = null;
+    await hub.invoke("StopDebugging").catch(() => {});
+    await hub.stop().catch(() => {});
+    this.onEvent?.({ kind: "fatal", message: this.userAttachError(message).message });
   }
 
   private requireHub(): HubProxy {
@@ -254,10 +287,19 @@ export class DebuggerClient {
   private async finishSessionBinding(hub: HubProxy, options: Record<string, unknown> | null): Promise<void> {
     if (options) await hub.invoke("DebugAdapterConfigurationDone", options).catch(() => {});
     if (this.hub !== hub) return;
+    if (this.userAttachFatal !== null || this.userAttachFailed) {
+      if (this.userAttachFatal !== null) await this.failUserAttach(hub, this.userAttachFatal);
+      return;
+    }
     try {
       // WIRE: GetNstSessionInfo() -> {SessionId, HostId} (live BC28 wire probe 2026-07-04).
       const info = normalizeNstSessionInfo(await hub.invoke<unknown>("GetNstSessionInfo"));
-      if (this.hub === hub) this.onEvent?.({ kind: "sessionBound", ...info });
+      if (this.userAttachFatal !== null || this.userAttachFailed) {
+        if (this.userAttachFatal !== null) await this.failUserAttach(hub, this.userAttachFatal);
+      } else if (this.hub === hub) {
+        this.sessionBoundReported = true;
+        this.onEvent?.({ kind: "sessionBound", ...info });
+      }
     } catch (error) {
       if (this.hub === hub) {
         this.onEvent?.({
@@ -323,6 +365,9 @@ export class DebuggerClient {
     const hub = this.hub;
     this.hub = null;
     this.pendingDebugOptions = null;
+    this.userAttachFatal = null;
+    this.userAttachFailed = false;
+    this.sessionBoundReported = false;
     if (hub) {
       await hub.invoke("StopDebugging").catch(() => {});
       await hub.stop().catch(() => {});

@@ -50,6 +50,7 @@ Run only against a Business Central Sandbox, using two WebClient sessions A and 
 - [x] The exact attach's `sessionBound.sessionId` equals the selected active A ID. <!-- 2026-07-12: equality asserted in memory; neither ID nor host value retained -->
 - [x] `userId` targeting for the available account binds a matching WebClient and produces a break. <!-- 2026-07-12: successful identity + Item-write break with same Sandbox account -->
 - [x] Detach completes after each scenario and no debugger remains active. <!-- 2026-07-12: harness detached and exited cleanly -->
+- [x] Unknown `userId` on SaaS emits a fatal before `sessionBound`, tears down the debugger, and produces no break. <!-- 2026-07-14 SaaS Sandbox: rejected during Attach with redacted actionable error; no sessionBound/break and debugger state was clean. See scripts/e2e-targeted-debugger-attach-2026-07-12.md -->
 
 Never record tenant, environment, user, host, session, connection, token, authorization header, or authenticated URL values. Use stable role labels such as `SESSION_A` and `[REDACTED]`, not reversible hashes.
 
