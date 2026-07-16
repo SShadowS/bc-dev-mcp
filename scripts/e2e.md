@@ -40,6 +40,20 @@ Never record access tokens, Authorization headers, authenticated URLs, or unreda
 - [x] bcdev_debug_detach mid-break: BC session released (check server). <!-- 2026-07-03 round 2: raw StopDebugging+disconnect while held at a break released the session immediately; test completed as failed with "The debugger stopped the current activity."; Get-NAVServerSession shows no leftovers -->
 - [ ] tools/list shows title/annotations/outputSchema for all 15 tools; resources/list shows the three skill:// resources.
 
+## Targeted debugger attach (Sandbox)
+
+Run only against a Business Central Sandbox, using two WebClient sessions A and B for the available account. Production is out of scope. With only one Sandbox identity, negative cross-user isolation remains unit-tested rather than claimed live. Record redacted results in `scripts/e2e-targeted-debugger-attach-2026-07-12.md`.
+
+- [x] Default WebClient attach binds deliberately triggered session A and reports a successful `sessionBound` identity. <!-- 2026-07-12 SaaS Sandbox: successful identity + Item-write break; see scripts/e2e-targeted-debugger-attach-2026-07-12.md -->
+- [x] Exact attach to an independently active A session; the same Item-write operation in B produces no `break` during the documented wait window. <!-- 2026-07-12: 15-second negative window passed. StopDebugging retires the previously debugged WebClient NST request on this build, so the positive target was selected read-only from active Sandbox sessions; no enumeration was added to the feature. -->
+- [x] The operation in A then produces a `break`, proving exact-session targeting. <!-- 2026-07-12: positive break observed after B's negative window; one duplicate record-write stop continued -->
+- [x] The exact attach's `sessionBound.sessionId` equals the selected active A ID. <!-- 2026-07-12: equality asserted in memory; neither ID nor host value retained -->
+- [x] `userId` targeting for the available account binds a matching WebClient and produces a break. <!-- 2026-07-12: successful identity + Item-write break with same Sandbox account -->
+- [x] Detach completes after each scenario and no debugger remains active. <!-- 2026-07-12: harness detached and exited cleanly -->
+- [x] Unknown `userId` on SaaS emits a fatal before `sessionBound`, tears down the debugger, and produces no break. <!-- 2026-07-14 SaaS Sandbox: rejected during Attach with redacted actionable error; no sessionBound/break and debugger state was clean. See scripts/e2e-targeted-debugger-attach-2026-07-12.md -->
+
+Never record tenant, environment, user, host, session, connection, token, authorization header, or authenticated URL values. Use stable role labels such as `SESSION_A` and `[REDACTED]`, not reversible hashes.
+
 ## Profiling (snapshot Sampling)
 
 Runs against the **snapshot-debugger port** (`DEFAULT_SNAPSHOT_PORT = 7083`), separate from the dev
@@ -85,6 +99,7 @@ recorded, not periodically sampled. `grep // WIRE:` in `src/core/snapshot/snapsh
 - AddBreakpoint / DebugAdapterConfigurationDone fail with "tenant '' was not found" until the debug session has paused at least once — attach with breakOnError, let the first break bring the session live, then register breakpoints (live E2E 2026-07-03).
 - Wire line numbers are 0-based; the tools convert to/from 1-based editor lines (live E2E 2026-07-03).
 - bcdev_debug_eval resolves simple identifier/member paths only; compound expressions return <Out Of Scope> and leave a synthetic empty-method entry in the test-run summary (live E2E 2026-07-03).
+- `StopDebugging` retires the WebClient NST request that was being debugged on the validated SaaS Sandbox; its captured ID is unavailable for a later exact attach. Validate exact targeting with a separate session that is still active (live E2E 2026-07-12).
 - Snapshot sampling needs a live WebClient session as the bind target; an idle headless container yields no profile (`Initialized` never advances to `Started`). A `business-central-mcp` WebClient session running AL is a valid target; dev-hub test runs and OData are not (live E2E 2026-07-04).
 - `finish` returns a ZIP (magic `50 4b 03 04`) when `ETag=="Sampling"`, NOT the raw `.alcpuprofile` — the profile is the single `<ctx>.alcpuprofile` member inside; unzip, don't rename the body (live E2E 2026-07-04).
 - On a lightly-loaded session the top self-time hotspot is `IdleTime` (`al-preview://allang/Undefined:-1`); real AL frames rank below it — expected, not a capture defect (live E2E 2026-07-04).

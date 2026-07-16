@@ -182,12 +182,87 @@ describe("tools", () => {
     expect(state.debug).not.toBeNull();
   });
 
+  test("bcdev_debug_attach forwards exact-session and trimmed user targeting", async () => {
+    const exactHub = new FakeHub();
+    const exact = setup(exactHub);
+    await exact.tools.get("bcdev_debug_attach")!.handler({ sessionId: 43210, breakOnNext: "Background" });
+    expect(exactHub.invoked("Attach")[0]?.args[0]).toEqual({
+      BreakOnNextClient: 2,
+      SessionId: 43210,
+      UserId: null,
+    });
+
+    const userHub = new FakeHub();
+    const user = setup(userHub);
+    await user.tools.get("bcdev_debug_attach")!.handler({ userId: "  alice@example.com  ", breakOnNext: "WebServiceClient" });
+    expect(userHub.invoked("Attach")[0]?.args[0]).toEqual({
+      BreakOnNextClient: 0,
+      SessionId: -1,
+      UserId: "alice@example.com",
+    });
+  });
+
+  test("bcdev_debug_attach rejects invalid targeting before claiming state or starting a hub", async () => {
+    const invalid: Array<Record<string, unknown>> = [
+      { sessionId: 1, userId: "alice" },
+      { sessionId: 0 },
+      { sessionId: -1 },
+      { sessionId: 1.5 },
+      { sessionId: "1" },
+      { userId: "   " },
+      { userId: 42 },
+    ];
+    for (const params of invalid) {
+      const invalidHub = new FakeHub();
+      const { state, tools } = setup(invalidHub);
+      await expect(tools.get("bcdev_debug_attach")!.handler(params)).rejects.toThrow(/mutually exclusive|positive integer|nonblank/);
+      expect(state.debug).toBeNull();
+      expect(invalidHub.started).toBe(false);
+      expect(invalidHub.invoked("Attach")).toHaveLength(0);
+    }
+  });
+
   test("bcdev_debug_wait drains events pushed by client", async () => {
     const { state, tools } = setup(hub);
     await tools.get("bcdev_debug_attach")!.handler({});
     hub.emit("Break", { ObjectType: 5, ObjectNumber: 50100 }, [], "");
     const event = (await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 100 })) as Record<string, unknown>;
     expect(event["kind"]).toBe("break");
+  });
+
+  test("bcdev_debug_wait returns a schema-valid sessionBound identity event", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) =>
+      method === "GetNstSessionInfo"
+        ? { SessionId: 43210, HostId: "11111111-1111-1111-1111-111111111111" }
+        : undefined;
+    await tools.get("bcdev_debug_attach")!.handler({});
+    hub.emit("HubConnected");
+    const event = await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 100 });
+    expect(event).toEqual({
+      kind: "sessionBound",
+      sessionId: 43210,
+      hostId: "11111111-1111-1111-1111-111111111111",
+    });
+    expect(() => tools.get("bcdev_debug_wait")!.outputSchema.parse(event)).not.toThrow();
+  });
+
+  test("bcdev_debug_wait returns one schema-valid nonfatal sessionBound warning", async () => {
+    const { state, tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "GetNstSessionInfo") throw new Error("identity unavailable");
+      return undefined;
+    };
+    await tools.get("bcdev_debug_attach")!.handler({});
+    hub.emit("OnAttachedToConnection");
+    hub.emit("HubConnected");
+    const event = await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 100 });
+    expect(event).toMatchObject({ kind: "sessionBound", sessionId: null, hostId: null });
+    expect(() => tools.get("bcdev_debug_wait")!.outputSchema.parse(event)).not.toThrow();
+    const timedOut = await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 5 });
+    expect(timedOut).toEqual({ timedOut: true });
+    expect(state.debug).not.toBeNull();
+    expect(hub.invoked("GetNstSessionInfo")).toHaveLength(1);
   });
 
   test("bcdev_debug_wait reports droppedEvents once the queue has overflowed", async () => {
@@ -201,6 +276,7 @@ describe("tools", () => {
   test("guards: double attach, run while running, wait without session", async () => {
     const { state, tools } = setup(hub);
     await tools.get("bcdev_debug_attach")!.handler({});
+    await expect(tools.get("bcdev_debug_attach")!.handler({ sessionId: 0 })).rejects.toThrow(/active/);
     await expect(tools.get("bcdev_debug_attach")!.handler({})).rejects.toThrow(/active/);
     state.testRunActive = true;
     await expect(tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 1 }] })).rejects.toThrow(/already running/);
@@ -244,5 +320,72 @@ describe("tools", () => {
     expect(hub.stopped).toBe(true);
     const attach = (await tools.get("bcdev_debug_attach")!.handler({})) as Record<string, unknown>;
     expect(attach["attached"]).toBe(true);
+  });
+
+  test("bcdev_debug_attach rolls back an unavailable exact session and allows retry", async () => {
+    const { state, tools } = setup(hub);
+    let rejectExact = true;
+    hub.onInvoke = (method) => {
+      if (method === "Attach" && rejectExact) {
+        throw new Error("not found?Authentication=Bearer%20secret-token&tenant=default");
+      }
+      return undefined;
+    };
+    let message = "";
+    try {
+      await tools.get("bcdev_debug_attach")!.handler({ sessionId: 43210 });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toContain("Unable to attach to NST session 43210");
+    expect(message).not.toContain("secret-token");
+    expect(state.debug).toBeNull();
+    expect(hub.stopped).toBe(true);
+
+    rejectExact = false;
+    const attach = (await tools.get("bcdev_debug_attach")!.handler({})) as Record<string, unknown>;
+    expect(attach["attached"]).toBe(true);
+  });
+
+  test("bcdev_debug_attach rolls back when the server signals fatal during exact Attach", async () => {
+    const { state, tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "Attach") hub.emit("OnFatalDebuggerException", "The requested session is unavailable");
+      return undefined;
+    };
+    await expect(tools.get("bcdev_debug_attach")!.handler({ sessionId: 43210 })).rejects.toThrow(/active and accessible/);
+    expect(state.debug).toBeNull();
+    expect(hub.stopped).toBe(true);
+  });
+
+  test("bcdev_debug_attach rolls back and stops debugging when a user fatal arrives during Attach", async () => {
+    const { state, tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "Attach") {
+        hub.emit("OnFatalDebuggerException", "The user specified in your launch.json file cannot be found on the tenant.");
+      }
+      return undefined;
+    };
+    await expect(tools.get("bcdev_debug_attach")!.handler({ userId: "ghost-user" })).rejects.toThrow(/user-filtered session/);
+    expect(state.debug).toBeNull();
+    expect(hub.invoked("StopDebugging")).toHaveLength(1);
+    expect(hub.stopped).toBe(true);
+  });
+
+  test("bcdev_debug_attach surfaces a user-filter fatal and suppresses binding", async () => {
+    const { state, tools } = setup(hub);
+    await tools.get("bcdev_debug_attach")!.handler({ userId: "ghost-user" });
+    hub.emit("OnFatalDebuggerException", "The user specified in your launch.json file cannot be found on the tenant.");
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+    hub.emit("HubConnected");
+    const event = (await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 200 })) as Record<string, unknown>;
+    expect(event["kind"]).toBe("fatal");
+    expect(String(event["message"])).toContain("user-filtered session");
+    expect(state.debug).not.toBeNull();
+    expect(hub.invoked("StopDebugging")).toHaveLength(1);
+    expect(hub.stopped).toBe(true);
+    await tools.get("bcdev_debug_detach")!.handler({});
+    expect(state.debug).toBeNull();
   });
 });

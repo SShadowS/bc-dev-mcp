@@ -88,6 +88,8 @@ export interface StackFrameInfo {
 
 export type DebuggerEvent =
   | { kind: "break"; objectType: number; objectId: number; file?: string; line?: number; errorMessage?: string; stack: StackFrameInfo[] }
+  | { kind: "sessionBound"; sessionId: number; hostId: string | null }
+  | { kind: "sessionBound"; sessionId: null; hostId: null; warning: string }
   | { kind: "testRunFinished" }
   | { kind: "detached"; terminateSession: boolean }
   | { kind: "fatal"; message: string };
