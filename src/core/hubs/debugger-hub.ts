@@ -386,8 +386,11 @@ export class DebuggerClient {
   }
 
   async evalWatch(frameId: number, expression: string): Promise<VariableNode | null> {
-    // WIRE: GetWatchNode(frameId, expression, WatchOption None=0) (esp-decomp HubBasedDebuggerService.GetWatchNodeAsync)
-    const node = await this.requireHub().invoke<unknown>("GetWatchNode", frameId, expression, 0);
+    // WIRE: GetWatchNode(frameId, expression, WatchOption) — 3-arg overload needs DebuggerVersion >= 4,
+    // which our supported floor (BC28) satisfies and live E2E validated with the 3-arg form.
+    // WatchOption.AllowLargeStrings=1 returns un-truncated string values (esp-decomp
+    // HubBasedDebuggerService.GetWatchNodeAsync / WatchOption.cs).
+    const node = await this.requireHub().invoke<unknown>("GetWatchNode", frameId, expression, 1);
     return node ? toVariableNode(normalizeKeys<WireLocalNode>(node)) : null;
   }
 

@@ -286,6 +286,14 @@ describe("DebuggerClient", () => {
     }
   });
 
+  test("evalWatch requests un-truncated strings via WatchOption.AllowLargeStrings", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => (method === "GetWatchNode" ? { Name: "S", TypeName: "Text", Summary: "long...", HasChildren: false } : undefined);
+    const { client } = await connected(hub);
+    await client.evalWatch(0, "S");
+    expect(hub.invoked("GetWatchNode")[0]?.args).toEqual([0, "S", 1]);
+  });
+
   test("step maps release and abort to the unreached wire codes", async () => {
     const hub = new FakeHub();
     const { client } = await connected(hub);

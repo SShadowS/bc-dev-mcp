@@ -78,6 +78,7 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 - [ ] bcdev_debug_sql parses at least one SQLn child into {statement, executionTime, durationMs, approxRowsRead}.
 - [ ] longRunningSqlThresholdMs — long-running list populates when a statement exceeds the threshold.
 - [ ] sqlInsight overhead: measure a test run with/without; note in the tool description if material.
+- [ ] bcdev_debug_eval with WatchOption AllowLargeStrings=1 returns a >1KB string un-truncated (BC28; was truncated with 0).
 
 ## Profiling (snapshot Sampling)
 
