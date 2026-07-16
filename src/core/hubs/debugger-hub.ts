@@ -9,9 +9,18 @@ export interface DebugAttachOptions {
   breakOnNext?: "WebClient" | "WebServiceClient" | "Background";
   sessionId?: number;
   userId?: string;
-  breakOnError?: boolean;
-  breakOnRecordWrite?: boolean;
+  breakOnError?: boolean | "all" | "unhandled";
+  breakOnRecordWrite?: boolean | "all" | "nonTemporary";
   skipSystemTriggers?: boolean;
+}
+
+// WIRE: BreakOnErrorBehaviour / BreakOnRecordWriteBehaviour (esp-decomp BreakOnErrorBehaviour.cs,
+// BreakOnRecordWriteBehaviour.cs): Unspecified=0, None=1, All=2, ExcludeTry|ExcludeTemporary=3.
+// "unhandled" = ExcludeTry (skip try-function-caught errors); "nonTemporary" = ExcludeTemporary.
+function breakBehaviour(mode: boolean | "all" | "unhandled" | "nonTemporary"): { on: boolean; behaviour: number } {
+  if (mode === false) return { on: false, behaviour: 1 };
+  if (mode === "unhandled" || mode === "nonTemporary") return { on: true, behaviour: 3 };
+  return { on: true, behaviour: 2 };
 }
 
 // WIRE: BreakOnNext enum order (esp-decomp BreakOnNext.cs): WebServiceClient=0, WebClient=1, Background=2
@@ -140,10 +149,10 @@ export class DebuggerClient {
       // BreakOnErrorBehaviour: Unspecified=0, None=1, All=2, ExcludeTry=3
       // BreakOnRecordWriteBehaviour: Unspecified=0, None=1, All=2, ExcludeTemporary=3
       // (esp-decomp BreakOnRecordWriteBehaviour.cs)
-      BreakOnError: opts.breakOnError ?? true,
-      BreakOnErrorBehaviour: (opts.breakOnError ?? true) ? 2 : 1,
-      BreakOnRecordWrite: opts.breakOnRecordWrite ?? false,
-      BreakOnRecordWriteBehaviour: (opts.breakOnRecordWrite ?? false) ? 2 : 1,
+      BreakOnError: breakBehaviour(opts.breakOnError ?? true).on,
+      BreakOnErrorBehaviour: breakBehaviour(opts.breakOnError ?? true).behaviour,
+      BreakOnRecordWrite: breakBehaviour(opts.breakOnRecordWrite ?? false).on,
+      BreakOnRecordWriteBehaviour: breakBehaviour(opts.breakOnRecordWrite ?? false).behaviour,
       SkipSystemTriggers: opts.skipSystemTriggers ?? true,
       EnableSqlInformationDebugger: false,
       EnableLongRunningSqlStatements: false,

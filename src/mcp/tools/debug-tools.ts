@@ -77,8 +77,14 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
           .min(1)
           .optional()
           .describe("Business Central user ID whose next matching session should bind; mutually exclusive with sessionId and filtered by breakOnNext client type"),
-        breakOnError: z.boolean().optional().describe("Pause when an AL runtime error occurs (default true)"),
-        breakOnRecordWrite: z.boolean().optional().describe("Pause on record writes (default false)"),
+        breakOnError: z
+          .union([z.boolean(), z.enum(["all", "unhandled"])])
+          .optional()
+          .describe("Pause on AL runtime errors: true/'all' = every error, 'unhandled' = skip errors caught by a try function, false = never (default true)"),
+        breakOnRecordWrite: z
+          .union([z.boolean(), z.enum(["all", "nonTemporary"])])
+          .optional()
+          .describe("Pause on record writes: true/'all' = every write, 'nonTemporary' = skip temporary-record writes, false = never (default false)"),
         skipSystemTriggers: z.boolean().optional().describe("Skip breaks inside system triggers (default true)"),
       },
       outputSchema: z.object({
@@ -99,8 +105,8 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
           await client.connect(config, authorization, {
             breakOnNext: params["breakOnNext"] as never,
             ...target,
-            breakOnError: params["breakOnError"] as boolean | undefined,
-            breakOnRecordWrite: params["breakOnRecordWrite"] as boolean | undefined,
+            breakOnError: params["breakOnError"] as boolean | "all" | "unhandled" | undefined,
+            breakOnRecordWrite: params["breakOnRecordWrite"] as boolean | "all" | "nonTemporary" | undefined,
             skipSystemTriggers: params["skipSystemTriggers"] as boolean | undefined,
           });
           const breakpoints = await mapBreakpoints(

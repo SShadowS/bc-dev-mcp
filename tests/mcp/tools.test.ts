@@ -202,6 +202,20 @@ describe("tools", () => {
     });
   });
 
+  test("bcdev_debug_attach forwards precision break modes to the wire enums", async () => {
+    const precisionHub = new FakeHub();
+    const { tools } = setup(precisionHub);
+    await tools.get("bcdev_debug_attach")!.handler({ breakOnError: "unhandled", breakOnRecordWrite: "nonTemporary" });
+    precisionHub.emit("HubConnected");
+    await Bun.sleep(0);
+    expect(precisionHub.invoked("DebugAdapterConfigurationDone")[0]?.args[0]).toMatchObject({
+      BreakOnError: true,
+      BreakOnErrorBehaviour: 3,
+      BreakOnRecordWrite: true,
+      BreakOnRecordWriteBehaviour: 3,
+    });
+  });
+
   test("bcdev_debug_attach rejects invalid targeting before claiming state or starting a hub", async () => {
     const invalid: Array<Record<string, unknown>> = [
       { sessionId: 1, userId: "alice" },

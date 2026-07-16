@@ -46,6 +46,28 @@ describe("DebuggerClient", () => {
     expect(hub.invoked("DebugAdapterConfigurationDone")).toHaveLength(1);
   });
 
+  test("break behaviour matrix maps booleans and precision modes to wire enums", async () => {
+    const cases: Array<[DebugAttachOptions, { BreakOnError: boolean; BreakOnErrorBehaviour: number; BreakOnRecordWrite: boolean; BreakOnRecordWriteBehaviour: number }]> = [
+      // WIRE enums: Unspecified=0, None=1, All=2, ExcludeTry|ExcludeTemporary=3
+      [{}, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnError: true }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnError: "all" }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnError: "unhandled" }, { BreakOnError: true, BreakOnErrorBehaviour: 3, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnError: false }, { BreakOnError: false, BreakOnErrorBehaviour: 1, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnRecordWrite: true }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: true, BreakOnRecordWriteBehaviour: 2 }],
+      [{ breakOnRecordWrite: "all" }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: true, BreakOnRecordWriteBehaviour: 2 }],
+      [{ breakOnRecordWrite: "nonTemporary" }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: true, BreakOnRecordWriteBehaviour: 3 }],
+      [{ breakOnRecordWrite: false }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+    ];
+    for (const [opts, expected] of cases) {
+      const hub = new FakeHub();
+      await connected(hub, opts);
+      hub.emit("HubConnected");
+      await Bun.sleep(0);
+      expect(hub.invoked("DebugAdapterConfigurationDone")[0]?.args[0], JSON.stringify(opts)).toMatchObject(expected);
+    }
+  });
+
   test("user targeting trims UserId and keeps break-on-next client selection", async () => {
     const hub = new FakeHub();
     await connected(hub, { userId: "  alice@example.com  ", breakOnNext: "Background" });

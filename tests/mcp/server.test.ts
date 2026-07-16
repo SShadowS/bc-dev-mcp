@@ -54,6 +54,8 @@ describe("server wiring", () => {
     const attachProperties = (attach.inputSchema as { properties: Record<string, Record<string, unknown>> }).properties;
     expect(attachProperties["sessionId"]).toMatchObject({ type: "integer", exclusiveMinimum: 0 });
     expect(attachProperties["userId"]).toMatchObject({ type: "string", minLength: 1 });
+    expect(JSON.stringify(attachProperties["breakOnError"])).toContain("unhandled");
+    expect(JSON.stringify(attachProperties["breakOnRecordWrite"])).toContain("nonTemporary");
     const wait = tools.find((t) => t.name === "bcdev_debug_wait")!;
     expect(JSON.stringify(wait.outputSchema)).toContain("sessionBound");
     for (const t of tools) expect(t.outputSchema, `${t.name} outputSchema`).toBeDefined();

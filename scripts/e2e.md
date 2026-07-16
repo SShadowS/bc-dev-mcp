@@ -63,6 +63,11 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 - [x] `userId` targeting for the correct account binds a matching WebClient and breaks. <!-- 2026-07-13 BC28 -->
 - [x] Unknown `userId` throws an actionable redacted attach error and produces no `sessionBound`/`break`. On BC28 the "user cannot be found" fatal arrives AFTER `Attach` resolves (during bind), not during the invocation as on SaaS — verifying the post-Attach `failUserAttach` teardown path specifically. <!-- 2026-07-15 BC28: PR #4 fix reverified; deterministic across repeated rounds, no leak into another user's session -->
 
+## Debugger power controls v2
+
+- [ ] breakOnError:"unhandled" does not break on a [TryFunction]-caught error and still breaks on an uncaught one (BC28 + Sandbox).
+- [ ] breakOnRecordWrite:"nonTemporary" skips temporary-record writes and still breaks on real-table writes.
+
 ## Profiling (snapshot Sampling)
 
 Runs against the **snapshot-debugger port** (`DEFAULT_SNAPSHOT_PORT = 7083`), separate from the dev
