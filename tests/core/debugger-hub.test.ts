@@ -270,6 +270,22 @@ describe("DebuggerClient", () => {
     expect(client.connectionId).toBeNull();
   });
 
+  test("sqlInsight and long-running threshold populate the SQL debug options", async () => {
+    const cases: Array<[DebugAttachOptions, Record<string, unknown>]> = [
+      [{}, { EnableSqlInformationDebugger: false, EnableLongRunningSqlStatements: false, LongRunningSqlStatementsThreshold: 0, NumberOfSqlStatements: 0 }],
+      [{ sqlInsight: true }, { EnableSqlInformationDebugger: true, EnableLongRunningSqlStatements: false, LongRunningSqlStatementsThreshold: 0, NumberOfSqlStatements: 10 }],
+      [{ longRunningSqlThresholdMs: 500 }, { EnableSqlInformationDebugger: true, EnableLongRunningSqlStatements: true, LongRunningSqlStatementsThreshold: 500, NumberOfSqlStatements: 10 }],
+      [{ sqlInsight: true, longRunningSqlThresholdMs: 250 }, { EnableSqlInformationDebugger: true, EnableLongRunningSqlStatements: true, LongRunningSqlStatementsThreshold: 250, NumberOfSqlStatements: 10 }],
+    ];
+    for (const [opts, expected] of cases) {
+      const hub = new FakeHub();
+      await connected(hub, opts);
+      hub.emit("HubConnected");
+      await Bun.sleep(0);
+      expect(hub.invoked("DebugAdapterConfigurationDone")[0]?.args[0], JSON.stringify(opts)).toMatchObject(expected);
+    }
+  });
+
   test("step maps release and abort to the unreached wire codes", async () => {
     const hub = new FakeHub();
     const { client } = await connected(hub);

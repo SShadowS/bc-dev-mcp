@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AlObjectIndex } from "../../core/al-objects";
 import { DebuggerClient, type StepAction } from "../../core/hubs/debugger-hub";
+import { parseDatabaseStatistics } from "../../core/sql-insight";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { DebugSession, type ServerState } from "../state";
 import {
@@ -18,6 +19,13 @@ import {
   type ToolDeps,
   variableNodeSchema,
 } from "./shared";
+
+const sqlStatementSchema = z.object({
+  statement: z.string(),
+  executionTime: z.string().nullable(),
+  durationMs: z.number().nullable(),
+  approxRowsRead: z.number().nullable(),
+});
 
 interface DebugTarget {
   sessionId?: number;
@@ -86,6 +94,13 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
           .optional()
           .describe("Pause on record writes: true/'all' = every write, 'nonTemporary' = skip temporary-record writes, false = never (default false)"),
         skipSystemTriggers: z.boolean().optional().describe("Skip breaks inside system triggers (default true)"),
+        sqlInsight: z.boolean().optional().describe("Collect live SQL statistics for bcdev_debug_sql at each break (default false)"),
+        longRunningSqlThresholdMs: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Also track SQL statements slower than this many milliseconds (implies sqlInsight)"),
       },
       outputSchema: z.object({
         attached: z.literal(true),
@@ -108,6 +123,8 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
             breakOnError: params["breakOnError"] as boolean | "all" | "unhandled" | undefined,
             breakOnRecordWrite: params["breakOnRecordWrite"] as boolean | "all" | "nonTemporary" | undefined,
             skipSystemTriggers: params["skipSystemTriggers"] as boolean | undefined,
+            sqlInsight: params["sqlInsight"] as boolean | undefined,
+            longRunningSqlThresholdMs: params["longRunningSqlThresholdMs"] as number | undefined,
           });
           const breakpoints = await mapBreakpoints(
             session,
@@ -253,6 +270,32 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       handler: async (params) => {
         const node = await requireSession(state).client.evalWatch(params["frameId"] as number, params["expression"] as string);
         return { result: node ?? null };
+      },
+    },
+    {
+      name: "bcdev_debug_sql",
+      title: "SQL statistics at a break",
+      description:
+        "Read live SQL cost at a break: current latency, execute count, and the last (and long-running) SQL statements. Requires attaching with sqlInsight: true.",
+      annotations: { readOnlyHint: true, openWorldHint: true },
+      schema: {
+        frameId: z.number().optional().describe("Stack frame index from the break event (default 0 = innermost frame)"),
+      },
+      outputSchema: z.object({
+        currentLatencyMs: z.number().nullable(),
+        sqlExecutes: z.number().nullable(),
+        lastStatements: z.array(sqlStatementSchema),
+        lastLongRunning: z.array(sqlStatementSchema).describe("Statements slower than longRunningSqlThresholdMs, when that was set"),
+      }),
+      handler: async (params) => {
+        const client = requireSession(state).client;
+        const frameId = (params["frameId"] as number | undefined) ?? 0;
+        const insight = await parseDatabaseStatistics(
+          await client.getVariables(frameId),
+          (path) => client.expandNode(frameId, path),
+        );
+        if (!insight) throw new Error("SQL insight is off — re-attach with sqlInsight: true (bcdev_debug_attach)");
+        return insight;
       },
     },
     {

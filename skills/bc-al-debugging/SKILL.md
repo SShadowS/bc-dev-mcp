@@ -57,3 +57,7 @@ description: Interactively debug AL code on a Business Central server with the b
 - **A break frame with no local `file`** (third-party extension, generated object) is readable
   anyway: `bcdev_source { objectType, objectId }` fetches the server's deployed source. Empty
   content with `isAlContent: false` means the object ships without source (base application).
+- **SQL triage:** attach with `sqlInsight: true` (optionally `longRunningSqlThresholdMs`), then
+  at each break `bcdev_debug_sql` returns current latency, execute count, and the last SQL
+  statements with duration and approximate rows read. It errors if insight was not enabled at
+  attach — the option cannot be turned on mid-session.

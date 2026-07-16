@@ -74,6 +74,10 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 - [ ] abort (SetBreakpointResponse 5) mid-debug-bound-test-run: record which events fire and whether the run reports runAborted.
 - [ ] release (SetBreakpointResponse 4): released session runs unbroken afterward; record the debugger slot state (idle? re-armed? detached?).
 - [ ] release: is the released session still a valid exact sessionId target afterward, or retired like SaaS StopDebugging?
+- [ ] sqlInsight:true — `<Database Statistics>` node present in GetVariables at a break; absent with the option off (BC28).
+- [ ] bcdev_debug_sql parses at least one SQLn child into {statement, executionTime, durationMs, approxRowsRead}.
+- [ ] longRunningSqlThresholdMs — long-running list populates when a statement exceeds the threshold.
+- [ ] sqlInsight overhead: measure a test run with/without; note in the tool description if material.
 
 ## Profiling (snapshot Sampling)
 

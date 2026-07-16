@@ -12,7 +12,14 @@ export interface DebugAttachOptions {
   breakOnError?: boolean | "all" | "unhandled";
   breakOnRecordWrite?: boolean | "all" | "nonTemporary";
   skipSystemTriggers?: boolean;
+  sqlInsight?: boolean;
+  longRunningSqlThresholdMs?: number;
 }
+
+// WIRE: SQL DebugOptions fields (esp-decomp DebugOptions.cs), validated live 2026-07-04: enabling
+// EnableSqlInformationDebugger grows a `<Database Statistics>` node in GetVariables at a break.
+// Statement cap 10 matches the AL extension's launch.json default (no server-side default in decomp).
+const SQL_STATEMENT_CAP = 10;
 
 // WIRE: BreakOnErrorBehaviour / BreakOnRecordWriteBehaviour (esp-decomp BreakOnErrorBehaviour.cs,
 // BreakOnRecordWriteBehaviour.cs): Unspecified=0, None=1, All=2, ExcludeTry|ExcludeTemporary=3.
@@ -155,10 +162,10 @@ export class DebuggerClient {
       BreakOnRecordWrite: breakBehaviour(opts.breakOnRecordWrite ?? false).on,
       BreakOnRecordWriteBehaviour: breakBehaviour(opts.breakOnRecordWrite ?? false).behaviour,
       SkipSystemTriggers: opts.skipSystemTriggers ?? true,
-      EnableSqlInformationDebugger: false,
-      EnableLongRunningSqlStatements: false,
-      LongRunningSqlStatementsThreshold: 0,
-      NumberOfSqlStatements: 0,
+      EnableSqlInformationDebugger: (opts.sqlInsight ?? false) || opts.longRunningSqlThresholdMs !== undefined,
+      EnableLongRunningSqlStatements: opts.longRunningSqlThresholdMs !== undefined,
+      LongRunningSqlStatementsThreshold: opts.longRunningSqlThresholdMs ?? 0,
+      NumberOfSqlStatements: (opts.sqlInsight ?? false) || opts.longRunningSqlThresholdMs !== undefined ? SQL_STATEMENT_CAP : 0,
     };
 
     hub.on("IsAlive", () => {

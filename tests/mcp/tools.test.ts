@@ -40,7 +40,7 @@ describe("tools", () => {
     hub = new FakeHub();
   });
 
-  test("registers all 16 tools", () => {
+  test("registers all 17 tools", () => {
     const { tools } = setup(hub);
     expect([...tools.keys()].sort()).toEqual([
       "bcdev_debug_attach",
@@ -49,6 +49,7 @@ describe("tools", () => {
       "bcdev_debug_detach",
       "bcdev_debug_eval",
       "bcdev_debug_run_tests",
+      "bcdev_debug_sql",
       "bcdev_debug_variables",
       "bcdev_debug_wait",
       "bcdev_profile_finish",
@@ -201,6 +202,31 @@ describe("tools", () => {
       SessionId: -1,
       UserId: "alice@example.com",
     });
+  });
+
+  test("bcdev_debug_sql structures the statistics scope and fails actionably when insight is off", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method, args) => {
+      if (method === "GetVariables") {
+        return [{ name: "<Database Statistics>", typeName: "", summary: "", hasChildren: true }];
+      }
+      if (method === "ExpandNode" && args[1] === "<Database Statistics>") {
+        return [
+          { name: "Current SQL Latency (ms)", typeName: "", summary: "0.5", hasChildren: false },
+          { name: "Number of SQL Executes", typeName: "", summary: "3", hasChildren: false },
+          { name: "<Last SQL Statements>", typeName: "", summary: "", hasChildren: false },
+          { name: "<Last Long Running SQL Statements>", typeName: "", summary: "", hasChildren: false },
+        ];
+      }
+      return undefined;
+    };
+    await tools.get("bcdev_debug_attach")!.handler({ sqlInsight: true });
+    const insight = (await tools.get("bcdev_debug_sql")!.handler({})) as Record<string, unknown>;
+    expect(insight).toEqual({ currentLatencyMs: 0.5, sqlExecutes: 3, lastStatements: [], lastLongRunning: [] });
+    expect(() => tools.get("bcdev_debug_sql")!.outputSchema.parse(insight)).not.toThrow();
+
+    hub.onInvoke = (method) => (method === "GetVariables" ? [] : undefined);
+    await expect(tools.get("bcdev_debug_sql")!.handler({})).rejects.toThrow(/sqlInsight: true/);
   });
 
   test("bcdev_source uses the REST endpoint and reports empty base-app content as a message", async () => {
