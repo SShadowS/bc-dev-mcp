@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildServer } from "../../src/mcp/server";
+import { buildServer, toToolResponse } from "../../src/mcp/server";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
@@ -117,5 +117,21 @@ describe("server wiring", () => {
     expect(tools).toHaveLength(15);
     const start = tools.find((t) => t.name === "bcdev_profile_start")!;
     expect(JSON.stringify(start.inputSchema)).toContain("instrumentation");
+  });
+});
+
+describe("toToolResponse", () => {
+  test("object results carry structuredContent", () => {
+    const r = toToolResponse({ a: 1 });
+    expect(r.structuredContent).toEqual({ a: 1 });
+    expect(r.content[0]?.text).toContain('"a"');
+  });
+
+  test("non-object results omit structuredContent but keep text content", () => {
+    for (const value of ["plain text", 42, true, undefined, null]) {
+      const r = toToolResponse(value);
+      expect(r.structuredContent, String(value)).toBeUndefined();
+      expect(r.content[0]?.type).toBe("text");
+    }
   });
 });
