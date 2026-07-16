@@ -270,6 +270,14 @@ describe("DebuggerClient", () => {
     expect(client.connectionId).toBeNull();
   });
 
+  test("step maps release and abort to the unreached wire codes", async () => {
+    const hub = new FakeHub();
+    const { client } = await connected(hub);
+    await client.step("release");
+    await client.step("abort");
+    expect(hub.invoked("SetBreakpointResponse").map((i) => i.args[0])).toEqual([4, 5]);
+  });
+
   test("getSourceContent sends the object wrapper and normalizes the response", async () => {
     const hub = new FakeHub();
     hub.onInvoke = (method) => (method === "GetSourceContent" ? { Content: "codeunit 50130 X {}", IsALContent: true } : undefined);

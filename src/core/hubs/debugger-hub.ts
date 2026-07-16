@@ -26,9 +26,10 @@ function breakBehaviour(mode: boolean | "all" | "unhandled" | "nonTemporary"): {
 // WIRE: BreakOnNext enum order (esp-decomp BreakOnNext.cs): WebServiceClient=0, WebClient=1, Background=2
 const BREAK_ON_NEXT_WIRE = { WebServiceClient: 0, WebClient: 1, Background: 2 } as const;
 
-export type StepAction = "continue" | "stepOver" | "stepInto" | "stepOut";
-// WIRE: BreakpointResponse enum (tw-decomp BreakpointResponse.cs): Continue=0, StepOver=1, StepIn=2, StepOut=3
-const STEP_WIRE: Record<StepAction, number> = { continue: 0, stepOver: 1, stepInto: 2, stepOut: 3 };
+export type StepAction = "continue" | "stepOver" | "stepInto" | "stepOut" | "release" | "abort";
+// WIRE: BreakpointResponse enum (tw-decomp BreakpointResponse.cs):
+// Continue=0, StepOver=1, StepIn=2, StepOut=3, ReleaseConnection=4, AbortActivity=5
+const STEP_WIRE: Record<StepAction, number> = { continue: 0, stepOver: 1, stepInto: 2, stepOut: 3, release: 4, abort: 5 };
 
 export interface VariableNode {
   name: string;

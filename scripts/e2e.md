@@ -71,6 +71,9 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 - [ ] bcdev_source (REST) for a base-app object (codeunit 1) returns empty content + isAlContent:false, not an error.
 - [ ] bcdev_source cloud route works on the v2.0 base URL (Sandbox).
 - [ ] bcdev_source hub fallback (GetSourceContent) returns source at a live break when REST is unavailable.
+- [ ] abort (SetBreakpointResponse 5) mid-debug-bound-test-run: record which events fire and whether the run reports runAborted.
+- [ ] release (SetBreakpointResponse 4): released session runs unbroken afterward; record the debugger slot state (idle? re-armed? detached?).
+- [ ] release: is the released session still a valid exact sessionId target afterward, or retired like SaaS StopDebugging?
 
 ## Profiling (snapshot Sampling)
 

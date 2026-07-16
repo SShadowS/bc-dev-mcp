@@ -200,12 +200,13 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
     {
       name: "bcdev_debug_continue",
       title: "Continue / step",
-      description: "Resume from a break: continue, stepOver, stepInto, or stepOut. Then bcdev_debug_wait for the next event.",
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      description:
+        "Resume from a break: continue, stepOver, stepInto, or stepOut — then bcdev_debug_wait for the next event. release lets the paused session run undebugged; abort kills the paused operation.",
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       schema: {
         action: z
-          .enum(["continue", "stepOver", "stepInto", "stepOut"])
-          .describe("continue resumes; the step actions advance one statement (over/into/out of calls)"),
+          .enum(["continue", "stepOver", "stepInto", "stepOut", "release", "abort"])
+          .describe("continue resumes; step actions advance one statement (over/into/out of calls); release detaches this paused session and lets it run undebugged; abort terminates the paused operation"),
       },
       outputSchema: z.object({ ok: z.literal(true) }),
       handler: async (params) => {
