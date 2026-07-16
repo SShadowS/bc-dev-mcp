@@ -40,7 +40,7 @@ describe("tools", () => {
     hub = new FakeHub();
   });
 
-  test("registers all 15 tools", () => {
+  test("registers all 16 tools", () => {
     const { tools } = setup(hub);
     expect([...tools.keys()].sort()).toEqual([
       "bcdev_debug_attach",
@@ -55,6 +55,7 @@ describe("tools", () => {
       "bcdev_profile_poll",
       "bcdev_profile_start",
       "bcdev_profile_status",
+      "bcdev_source",
       "bcdev_status",
       "bcdev_test_discover",
       "bcdev_test_run",
@@ -200,6 +201,37 @@ describe("tools", () => {
       SessionId: -1,
       UserId: "alice@example.com",
     });
+  });
+
+  test("bcdev_source uses the REST endpoint and reports empty base-app content as a message", async () => {
+    const restFetch = (async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("dev/sourcecontent")) {
+        const id = new URL(url).searchParams.get("id");
+        return new Response(JSON.stringify(id === "1" ? { Content: "", IsALContent: false } : { Content: "codeunit 50130 X {}", IsALContent: true }));
+      }
+      return new Response(JSON.stringify({ WebApiVersion: "7.0" }));
+    }) as unknown as typeof fetch;
+    const { tools } = setup(hub, restFetch);
+    const published = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })) as Record<string, unknown>;
+    expect(published).toMatchObject({ content: "codeunit 50130 X {}", isAlContent: true, source: "rest" });
+    expect(published["message"]).toBeUndefined();
+    const baseApp = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 1 })) as Record<string, unknown>;
+    expect(baseApp).toMatchObject({ content: "", isAlContent: false, source: "rest" });
+    expect(baseApp["message"]).toContain("No deployed source");
+    expect(hub.invoked("GetSourceContent")).toHaveLength(0);
+  });
+
+  test("bcdev_source falls back to the hub only when unsupported REST meets a live session", async () => {
+    const notFoundFetch = (async (input: RequestInfo | URL) =>
+      new Response(null, { status: input.toString().includes("sourcecontent") ? 404 : 200 })) as unknown as typeof fetch;
+    const { tools } = setup(hub, notFoundFetch);
+    await expect(tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })).rejects.toThrow(/no debug session/);
+
+    hub.onInvoke = (method) => (method === "GetSourceContent" ? { Content: "from hub", IsALContent: true } : undefined);
+    await tools.get("bcdev_debug_attach")!.handler({});
+    const viaHub = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })) as Record<string, unknown>;
+    expect(viaHub).toMatchObject({ content: "from hub", source: "hub" });
   });
 
   test("bcdev_debug_attach forwards precision break modes to the wire enums", async () => {

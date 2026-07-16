@@ -70,6 +70,7 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 - [ ] bcdev_source (REST) returns real AL for a published demo object (hello-bug codeunit 50130).
 - [ ] bcdev_source (REST) for a base-app object (codeunit 1) returns empty content + isAlContent:false, not an error.
 - [ ] bcdev_source cloud route works on the v2.0 base URL (Sandbox).
+- [ ] bcdev_source hub fallback (GetSourceContent) returns source at a live break when REST is unavailable.
 
 ## Profiling (snapshot Sampling)
 

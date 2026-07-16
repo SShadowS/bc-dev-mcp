@@ -325,6 +325,15 @@ export class DebuggerClient {
     }
   }
 
+  async getSourceContent(objectType: number, objectId: number): Promise<{ content: string; isAlContent: boolean }> {
+    // WIRE: GetSourceContent(ApplicationObjectIdWrapper) -> SourceContent{Content, IsALContent};
+    // requires DebuggerVersion.Major > 1 (esp-decomp HubBasedDebuggerService.GetSourceAsync). Validated live 2026-07-04.
+    const raw = await this.requireHub().invoke<unknown>("GetSourceContent", { ObjectType: objectType, ObjectNumber: objectId });
+    const parsed = normalizeKeys<{ content?: string | null; isALContent?: boolean }>(raw ?? {});
+    const content = typeof parsed.content === "string" ? parsed.content : "";
+    return { content, isAlContent: parsed.isALContent ?? content !== "" };
+  }
+
   async addBreakpoint(objectType: number, objectId: number, line: number, condition?: string): Promise<number> {
     // WIRE: AddBreakpoint(ApplicationObjectIdWrapper, SourcePosition, condition) -> BreakpointDefinition (tw-decomp)
     // WIRE: server lines are 0-based (live BC28 2026-07-03: wire line 9 = editor line 10); tool surface is 1-based (editor convention), converted here.

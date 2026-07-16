@@ -54,3 +54,6 @@ description: Interactively debug AL code on a Business Central server with the b
   `bcdev_debug_run_tests` (which only starts the run).
 - `break` events map object IDs back to local `.al` files (`file` on the event and each
   stack frame) when the objects exist in the project.
+- **A break frame with no local `file`** (third-party extension, generated object) is readable
+  anyway: `bcdev_source { objectType, objectId }` fetches the server's deployed source. Empty
+  content with `isAlContent: false` means the object ships without source (base application).

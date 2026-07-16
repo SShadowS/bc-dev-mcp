@@ -270,6 +270,22 @@ describe("DebuggerClient", () => {
     expect(client.connectionId).toBeNull();
   });
 
+  test("getSourceContent sends the object wrapper and normalizes the response", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => (method === "GetSourceContent" ? { Content: "codeunit 50130 X {}", IsALContent: true } : undefined);
+    const { client } = await connected(hub);
+    expect(await client.getSourceContent(5, 50130)).toEqual({ content: "codeunit 50130 X {}", isAlContent: true });
+    expect(hub.invoked("GetSourceContent")[0]?.args[0]).toEqual({ ObjectType: 5, ObjectNumber: 50130 });
+    // empty body from a base-app object
+    hub.onInvoke = (method) => (method === "GetSourceContent" ? { Content: "", IsALContent: false } : undefined);
+    expect(await client.getSourceContent(5, 1)).toEqual({ content: "", isAlContent: false });
+  });
+
+  test("getSourceContent requires a connected hub", async () => {
+    const client = new DebuggerClient(fakeHubFactory(new FakeHub()));
+    await expect(client.getSourceContent(5, 1)).rejects.toThrow(/not connected/);
+  });
+
   test("auto-acks IsAlive", async () => {
     const hub = new FakeHub();
     await connected(hub);
