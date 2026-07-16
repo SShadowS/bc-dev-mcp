@@ -37,11 +37,15 @@
 
 ## Incidents during validation (environment, not product)
 
-- The v1.1 probe-app publish was interrupted by an NST OutOfMemoryException on the
-  memory-tight container (8.5 GB limit, ~190 apps incl. the full Microsoft test suite).
-  The app ended up published-but-not-installed and every TestRunnerHub `Initialize`
-  failed until `Sync-NAVApp` + `Install-NAVApp` completed it. Recorded as a known
-  server behaviour in `scripts/e2e.md`.
+- The memory-tight container (8.5 GB limit, ~190 apps incl. the full Microsoft test
+  suite) OOM'd its NST repeatedly during validation. Event-log analysis pinned every
+  OOM to the session-open path (license XML validation, `NavSession.Open` inside
+  `TestRunnerRuntime.InitializeRuntime`, company-open event-subscription rebuild) —
+  environment resource exhaustion, not correlated with any specific client call, and
+  none of the new v2 wire calls appear in any OOM stack. A container restart (memory
+  reclaim) restored everything; `Sync-NAVApp`/`Install-NAVApp` were verified no-ops
+  (an initial half-installed-app theory was disproven). Recorded as a known server
+  behaviour in `scripts/e2e.md`.
 - sqlInsight overhead was NOT measured (container memory variance made timing
   meaningless); the e2e.md line stays open.
 
