@@ -54,6 +54,15 @@ Run only against a Business Central Sandbox, using two WebClient sessions A and 
 
 Never record tenant, environment, user, host, session, connection, token, authorization header, or authenticated URL values. Use stable role labels such as `SESSION_A` and `[REDACTED]`, not reversible hashes.
 
+### On-premises BC28 (live, single identity)
+
+Complements the Sandbox checklist above — the feature's live evidence was SaaS-only, so these confirm the same behaviour on the on-prem wire (local Cronus28 container). The fatal/rejection timing differs by platform, so both rollback branches are only fully exercised across the two.
+
+- [x] Default attach (no selector) reports a real `sessionBound` identity, breaks, and detaches; the unconditional `GetNstSessionInfo` call works on BC28 and does not degrade the on-prem attach into a permanent warning. <!-- 2026-07-13 BC28: sessionBound with real sessionId+hostId, then break at codeunit 50130 line 10, then detached -->
+- [x] Exact attach to a nonexistent `sessionId` rejects fast (~84 ms) with the actionable message, no hang. On BC28 this arrives as an `Attach` invocation rejection ("The specified session with id ... for debugging cannot be found"), whereas SaaS signalled it as a fatal during attach — both rollback branches covered, one per platform. <!-- 2026-07-13 BC28 -->
+- [x] `userId` targeting for the correct account binds a matching WebClient and breaks. <!-- 2026-07-13 BC28 -->
+- [x] Unknown `userId` throws an actionable redacted attach error and produces no `sessionBound`/`break`. On BC28 the "user cannot be found" fatal arrives AFTER `Attach` resolves (during bind), not during the invocation as on SaaS — verifying the post-Attach `failUserAttach` teardown path specifically. <!-- 2026-07-15 BC28: PR #4 fix reverified; deterministic across repeated rounds, no leak into another user's session -->
+
 ## Profiling (snapshot Sampling)
 
 Runs against the **snapshot-debugger port** (`DEFAULT_SNAPSHOT_PORT = 7083`), separate from the dev
@@ -100,6 +109,8 @@ recorded, not periodically sampled. `grep // WIRE:` in `src/core/snapshot/snapsh
 - Wire line numbers are 0-based; the tools convert to/from 1-based editor lines (live E2E 2026-07-03).
 - bcdev_debug_eval resolves simple identifier/member paths only; compound expressions return <Out Of Scope> and leave a synthetic empty-method entry in the test-run summary (live E2E 2026-07-03).
 - `StopDebugging` retires the WebClient NST request that was being debugged on the validated SaaS Sandbox; its captured ID is unavailable for a later exact attach. Validate exact targeting with a separate session that is still active (live E2E 2026-07-12).
+- An unavailable exact `sessionId` is reported differently by platform: BC28 rejects the `Attach` invocation ("The specified session with id ... cannot be found"), while SaaS Sandbox raises `OnFatalDebuggerException` during attach. The client converts both into the same rollback (live E2E: BC28 2026-07-13, SaaS 2026-07-12).
+- The server does NOT hard-enforce the `userId` attach filter: an unknown user is reported out of band (BC28 fatal after `Attach` resolves, during bind; SaaS fatal during `Attach`), and without teardown the debugger would bind and break in another user's session. The client must fail the attach on that fatal (live E2E: BC28 2026-07-13, fix reverified 2026-07-15).
 - Snapshot sampling needs a live WebClient session as the bind target; an idle headless container yields no profile (`Initialized` never advances to `Started`). A `business-central-mcp` WebClient session running AL is a valid target; dev-hub test runs and OData are not (live E2E 2026-07-04).
 - `finish` returns a ZIP (magic `50 4b 03 04`) when `ETag=="Sampling"`, NOT the raw `.alcpuprofile` — the profile is the single `<ctx>.alcpuprofile` member inside; unzip, don't rename the body (live E2E 2026-07-04).
 - On a lightly-loaded session the top self-time hotspot is `IdleTime` (`al-preview://allang/Undefined:-1`); real AL frames rank below it — expected, not a capture defect (live E2E 2026-07-04).
