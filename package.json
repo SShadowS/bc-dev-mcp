@@ -1,6 +1,6 @@
 {
   "name": "bc-dev-mcp",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "description": "MCP server for Business Central AL development — run tests with coverage and debug interactively against the BC dev endpoint",
   "keywords": [
     "mcp",
