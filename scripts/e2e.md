@@ -67,6 +67,9 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 
 - [ ] breakOnError:"unhandled" does not break on a [TryFunction]-caught error and still breaks on an uncaught one (BC28 + Sandbox).
 - [ ] breakOnRecordWrite:"nonTemporary" skips temporary-record writes and still breaks on real-table writes.
+- [ ] bcdev_source (REST) returns real AL for a published demo object (hello-bug codeunit 50130).
+- [ ] bcdev_source (REST) for a base-app object (codeunit 1) returns empty content + isAlContent:false, not an error.
+- [ ] bcdev_source cloud route works on the v2.0 base URL (Sandbox).
 
 ## Profiling (snapshot Sampling)
 
