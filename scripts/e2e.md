@@ -19,7 +19,7 @@ with its working directory set to the AL project.
 - [x] `GetVariables(0)` returns LocalNode array; note casing. <!-- 2026-07-03 round 2: validated at-break; nodes carry name/typeName/summary/hasChildren/children/changeState in BOTH casings (mismatch #7); ExpandGlobals(0) also validated -->
 - [ ] IsAlive arrives during a long break; session survives (auto-ack works). <!-- not validated 2026-07-03 round 2: ZERO IsAlive heartbeats during a 65s held break on this server — cadence unknown, auto-ack path never exercised live -->
 - [x] bcdev_debug_eval: GetWatchNode(frameId, expression, watchOption 0) returns a LocalNode; note casing. <!-- 2026-07-03 round 2: validated at-break; out-of-scope expression returns a graceful LocalNode (summary "<Out Of Scope>"); dual casing as mismatch #7 -->
-- [ ] Observe BreakOnRecordWriteBehaviour semantics for breakOnRecordWrite true/false. <!-- not validated 2026-07-03 round 4: options delivery now works (BreakOnError proven effective both ways), but record-write break semantics themselves were not exercised — needs a test that writes records under breakOnRecordWrite:true -->
+- [x] Observe BreakOnRecordWriteBehaviour semantics for breakOnRecordWrite true/false. <!-- 2026-07-16 BC28: validated — All breaks on temp+real Insert, ExcludeTemporary skips temp; see power-controls v2 section -->
 
 ### SaaS / Entra wire assumptions
 
@@ -65,20 +65,20 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 
 ## Debugger power controls v2
 
-- [ ] breakOnError:"unhandled" does not break on a [TryFunction]-caught error and still breaks on an uncaught one (BC28 + Sandbox).
-- [ ] breakOnRecordWrite:"nonTemporary" skips temporary-record writes and still breaks on real-table writes.
-- [ ] bcdev_source (REST) returns real AL for a published demo object (hello-bug codeunit 50130).
-- [ ] bcdev_source (REST) for a base-app object (codeunit 1) returns empty content + isAlContent:false, not an error.
+- [x] breakOnError:"unhandled" does not break on a [TryFunction]-caught error and still breaks on an uncaught one (BC28; Sandbox pending). <!-- 2026-07-16 BC28: "all" broke inside TryDivide (line 11) AND at the uncaught error; "unhandled" broke ONLY at the uncaught error (line 23). Evidence: scripts/e2e-power-controls-2026-07-16.md -->
+- [x] breakOnRecordWrite:"nonTemporary" skips temporary-record writes and still breaks on real-table writes. <!-- 2026-07-16 BC28: "all" broke at temp Insert (line 32) + real Insert (line 42); "nonTemporary" only at line 42 -->
+- [x] bcdev_source (REST) returns real AL for a published demo object (hello-bug codeunit 50130). <!-- 2026-07-16 BC28: 480 chars of AL, isAlContent true -->
+- [x] bcdev_source (REST) for a base-app object (codeunit 1) returns empty content + isAlContent:false, not an error. <!-- 2026-07-16 BC28: server 404s for no-source objects; client maps 404 to the empty result -->
 - [ ] bcdev_source cloud route works on the v2.0 base URL (Sandbox).
-- [ ] bcdev_source hub fallback (GetSourceContent) returns source at a live break when REST is unavailable.
-- [ ] abort (SetBreakpointResponse 5) mid-debug-bound-test-run: record which events fire and whether the run reports runAborted.
-- [ ] release (SetBreakpointResponse 4): released session runs unbroken afterward; record the debugger slot state (idle? re-armed? detached?).
-- [ ] release: is the released session still a valid exact sessionId target afterward, or retired like SaaS StopDebugging?
-- [ ] sqlInsight:true — `<Database Statistics>` node present in GetVariables at a break; absent with the option off (BC28).
-- [ ] bcdev_debug_sql parses at least one SQLn child into {statement, executionTime, durationMs, approxRowsRead}.
-- [ ] longRunningSqlThresholdMs — long-running list populates when a statement exceeds the threshold.
+- [x] bcdev_source hub fallback (GetSourceContent) returns source at a live break when REST is unavailable. <!-- 2026-07-16 BC28: hub GetSourceContent at a break returned 1698 chars for codeunit 50132 -->
+- [x] abort (SetBreakpointResponse 5) mid-debug-bound-test-run: record which events fire and whether the run reports runAborted. <!-- 2026-07-16 BC28: detached event follows; the run completes with the aborted test recorded as failed (a would-pass test fails); runAborted stays false -->
+- [x] release (SetBreakpointResponse 4): released session runs unbroken afterward; record the debugger slot state. <!-- 2026-07-16 BC28: detached event follows; a would-pass test passes (operation continued undebugged); hub connection stays open but debugging is over — detach and re-attach to debug again -->
+- [x] release: is the released session still a valid exact sessionId target afterward, or retired like SaaS StopDebugging? <!-- 2026-07-16 BC28: not reusable — the debug-bound test session ends with its run, exact re-attach rejected as unavailable -->
+- [x] sqlInsight:true — `<Database Statistics>` node present in GetVariables at a break; absent with the option off (BC28). <!-- 2026-07-16: present with on (latency 0.4156 ms, 45 executes), absent with off -->
+- [x] bcdev_debug_sql parses at least one SQLn child into {statement, executionTime, durationMs, approxRowsRead}. <!-- 2026-07-16 BC28: real SELECT statements parsed from the long-running list -->
+- [x] longRunningSqlThresholdMs — long-running list populates when a statement exceeds the threshold. <!-- 2026-07-16 BC28: threshold 1 ms captured 3 entries; note <Last SQL Statements> was empty while long-running populated -->
 - [ ] sqlInsight overhead: measure a test run with/without; note in the tool description if material.
-- [ ] bcdev_debug_eval with WatchOption AllowLargeStrings=1 returns a >1KB string un-truncated (BC28; was truncated with 0).
+- [x] bcdev_debug_eval with WatchOption AllowLargeStrings=1 returns a >1KB string un-truncated (BC28). <!-- 2026-07-16: 2000-char PadStr returned in full (2002 chars incl. quotes); truncation-with-0 comparison not re-run -->
 
 ## Profiling (snapshot Sampling)
 
@@ -128,6 +128,10 @@ recorded, not periodically sampled. `grep // WIRE:` in `src/core/snapshot/snapsh
 - `StopDebugging` retires the WebClient NST request that was being debugged on the validated SaaS Sandbox; its captured ID is unavailable for a later exact attach. Validate exact targeting with a separate session that is still active (live E2E 2026-07-12).
 - An unavailable exact `sessionId` is reported differently by platform: BC28 rejects the `Attach` invocation ("The specified session with id ... cannot be found"), while SaaS Sandbox raises `OnFatalDebuggerException` during attach. The client converts both into the same rollback (live E2E: BC28 2026-07-13, SaaS 2026-07-12).
 - The server does NOT hard-enforce the `userId` attach filter: an unknown user is reported out of band (BC28 fatal after `Attach` resolves, during bind; SaaS fatal during `Attach`), and without teardown the debugger would bind and break in another user's session. The client must fail the attach on that fatal (live E2E: BC28 2026-07-13, fix reverified 2026-07-15).
+- `dev/sourcecontent` returns **404** for objects without deployed source (base application) on BC28 — not an empty SourceContent body. The client maps 404 to the empty no-source result (live E2E 2026-07-16).
+- `SetBreakpointResponse` abort (5) and release (4) both end debugging with a `detached` event and the workload's test run still completes: abort records the test as failed, release lets it pass. Neither leaves a reusable exact-attach target — a debug-bound test session ends with its run (live E2E 2026-07-16).
+- With `EnableLongRunningSqlStatements` on, `<Last SQL Statements>` was observed empty while `<Last Long Running SQL Statements>` populated — don't treat an empty last-statements list as "no SQL" (live E2E 2026-07-16).
+- A dev-endpoint app publish can be interrupted server-side (e.g. NST OOM on a memory-tight container): the app ends up published-but-not-installed and every TestRunnerHub `Initialize` fails until `Sync-NAVApp` + `Install-NAVApp` complete it (observed 2026-07-16).
 - Snapshot sampling needs a live WebClient session as the bind target; an idle headless container yields no profile (`Initialized` never advances to `Started`). A `business-central-mcp` WebClient session running AL is a valid target; dev-hub test runs and OData are not (live E2E 2026-07-04).
 - `finish` returns a ZIP (magic `50 4b 03 04`) when `ETag=="Sampling"`, NOT the raw `.alcpuprofile` — the profile is the single `<ctx>.alcpuprofile` member inside; unzip, don't rename the body (live E2E 2026-07-04).
 - On a lightly-loaded session the top self-time hotspot is `IdleTime` (`al-preview://allang/Undefined:-1`); real AL frames rank below it — expected, not a capture defect (live E2E 2026-07-04).

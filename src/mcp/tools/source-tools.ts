@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { fetchSourceContent, type SourceContentResult } from "../../core/source-content";
-import { DevEndpointError } from "../../core/server-info";
 import type { ServerState } from "../state";
 import { connectionShape, resolve, type ToolDefinition, type ToolDeps } from "./shared";
 
@@ -42,18 +41,14 @@ export function createSourceTools(state: ServerState, deps: ToolDeps): ToolDefin
         const objectType = params["objectType"] as number;
         const objectId = params["objectId"] as number;
         const { config, authorization } = resolve(params, deps);
-        try {
-          const result = await fetchSourceContent(config, authorization, objectType, objectId, deps.fetchFn);
-          return shapeResult(result, objectType, objectId, "rest");
-        } catch (err) {
-          const unsupported = err instanceof DevEndpointError && err.message.includes("needs dev API");
-          if (!unsupported) throw err;
-          if (!state.debug) {
-            throw new Error("Server does not expose dev/sourcecontent (needs dev API >= 2.0) and no debug session is bound for the hub fallback");
-          }
-          const result = await state.debug.client.getSourceContent(objectType, objectId);
-          return shapeResult(result, objectType, objectId, "hub");
+        const result = await fetchSourceContent(config, authorization, objectType, objectId, deps.fetchFn);
+        // REST 404 means "no deployed source" OR "route missing" (pre-2.0 server) — both arrive as
+        // empty content. A live debug session can give the authoritative hub answer for either.
+        if (result.content === "" && state.debug) {
+          const viaHub = await state.debug.client.getSourceContent(objectType, objectId).catch(() => null);
+          if (viaHub && viaHub.content !== "") return shapeResult(viaHub, objectType, objectId, "hub");
         }
+        return shapeResult(result, objectType, objectId, "rest");
       },
     },
   ];

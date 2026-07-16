@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { fetchSourceContent, sourceContentUrl } from "../../src/core/source-content";
-import { DevEndpointError } from "../../src/core/server-info";
 import { BasicAuthorizationProvider } from "../../src/core/authorization";
 import type { ConnectionConfig } from "../../src/core/types";
 
@@ -67,10 +66,9 @@ describe("fetchSourceContent", () => {
     await expect(fetchSourceContent(config, auth, 5, 1, fakeFetch(403, null))).rejects.toThrow(/BC_DEV_USER/);
   });
 
-  test("404 throws an unsupported error naming the dev-API gate", async () => {
-    const error = await fetchSourceContent(config, auth, 5, 1, fakeFetch(404, null)).catch((e: unknown) => e as DevEndpointError);
-    expect(error).toBeInstanceOf(DevEndpointError);
-    expect((error as DevEndpointError).message).toContain("dev API");
+  test("404 is the no-deployed-source result, not an error (live BC28 2026-07-16)", async () => {
+    const result = await fetchSourceContent(config, auth, 5, 1, fakeFetch(404, null));
+    expect(result).toEqual({ content: "", isAlContent: false });
   });
 
   test("network failure throws unreachable", async () => {

@@ -248,11 +248,14 @@ describe("tools", () => {
     expect(hub.invoked("GetSourceContent")).toHaveLength(0);
   });
 
-  test("bcdev_source falls back to the hub only when unsupported REST meets a live session", async () => {
+  test("bcdev_source falls back to the hub when REST has no source and a session is live", async () => {
     const notFoundFetch = (async (input: RequestInfo | URL) =>
       new Response(null, { status: input.toString().includes("sourcecontent") ? 404 : 200 })) as unknown as typeof fetch;
     const { tools } = setup(hub, notFoundFetch);
-    await expect(tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })).rejects.toThrow(/no debug session/);
+    // no session: 404 surfaces as the empty no-source result
+    const empty = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })) as Record<string, unknown>;
+    expect(empty).toMatchObject({ content: "", isAlContent: false, source: "rest" });
+    expect(empty["message"]).toContain("No deployed source");
 
     hub.onInvoke = (method) => (method === "GetSourceContent" ? { Content: "from hub", IsALContent: true } : undefined);
     await tools.get("bcdev_debug_attach")!.handler({});

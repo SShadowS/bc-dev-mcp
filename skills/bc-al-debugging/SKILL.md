@@ -61,3 +61,10 @@ description: Interactively debug AL code on a Business Central server with the b
   at each break `bcdev_debug_sql` returns current latency, execute count, and the last SQL
   statements with duration and approximate rows read. It errors if insight was not enabled at
   attach — the option cannot be turned on mid-session.
+- **abort vs release at a break** (both end debugging with a `detached` event): `abort` kills
+  the paused operation — a bound test run records it as failed; `release` lets it finish
+  undebugged — a passing test still passes. Neither leaves a reusable session: a debug-bound
+  test session ends with its run, so re-attach fresh instead of exact-targeting the old ID.
+- **Precision breaks:** `breakOnError: "unhandled"` skips errors a try function catches and
+  still breaks on uncaught ones; `breakOnRecordWrite: "nonTemporary"` skips temporary-record
+  writes and still breaks on real-table writes.

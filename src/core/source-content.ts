@@ -40,7 +40,10 @@ export async function fetchSourceContent(
     throw new DevEndpointError(`Dev endpoint rejected authentication; ${hint}`, "auth");
   }
   if (response.status === 404) {
-    throw new DevEndpointError("Server does not expose dev/sourcecontent (needs dev API >= 2.0)", "http");
+    // WIRE: BC28 returns 404 from dev/sourcecontent for objects without deployed source (live E2E
+    // 2026-07-16: codeunit 1 -> 404, published app object -> 200 + JSON). Indistinguishable from a
+    // pre-2.0 server missing the route entirely, so both surface as the empty no-source result.
+    return { content: "", isAlContent: false };
   }
   if (!response.ok) {
     throw new DevEndpointError(`dev/sourcecontent returned HTTP ${response.status}`, "http");
