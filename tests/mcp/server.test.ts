@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildServer } from "../../src/mcp/server";
+import { buildServer, toToolResponse } from "../../src/mcp/server";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
@@ -39,7 +39,7 @@ describe("server wiring", () => {
   test("tools/list exposes names, titles, annotations, schemas", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(15);
+    expect(tools).toHaveLength(17);
     const status = tools.find((t) => t.name === "bcdev_status")!;
     expect(status.title).toBe("BC server status");
     expect(status.annotations?.readOnlyHint).toBe(true);
@@ -54,6 +54,8 @@ describe("server wiring", () => {
     const attachProperties = (attach.inputSchema as { properties: Record<string, Record<string, unknown>> }).properties;
     expect(attachProperties["sessionId"]).toMatchObject({ type: "integer", exclusiveMinimum: 0 });
     expect(attachProperties["userId"]).toMatchObject({ type: "string", minLength: 1 });
+    expect(JSON.stringify(attachProperties["breakOnError"])).toContain("unhandled");
+    expect(JSON.stringify(attachProperties["breakOnRecordWrite"])).toContain("nonTemporary");
     const wait = tools.find((t) => t.name === "bcdev_debug_wait")!;
     expect(JSON.stringify(wait.outputSchema)).toContain("sessionBound");
     for (const t of tools) expect(t.outputSchema, `${t.name} outputSchema`).toBeDefined();
@@ -114,8 +116,24 @@ describe("server wiring", () => {
   test("start exposes the kind:instrumentation option", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(15);
+    expect(tools).toHaveLength(17);
     const start = tools.find((t) => t.name === "bcdev_profile_start")!;
     expect(JSON.stringify(start.inputSchema)).toContain("instrumentation");
+  });
+});
+
+describe("toToolResponse", () => {
+  test("object results carry structuredContent", () => {
+    const r = toToolResponse({ a: 1 });
+    expect(r.structuredContent).toEqual({ a: 1 });
+    expect(r.content[0]?.text).toContain('"a"');
+  });
+
+  test("non-object results omit structuredContent but keep text content", () => {
+    for (const value of ["plain text", 42, true, undefined, null]) {
+      const r = toToolResponse(value);
+      expect(r.structuredContent, String(value)).toBeUndefined();
+      expect(r.content[0]?.type).toBe("text");
+    }
   });
 });

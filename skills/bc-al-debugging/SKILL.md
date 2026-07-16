@@ -54,3 +54,17 @@ description: Interactively debug AL code on a Business Central server with the b
   `bcdev_debug_run_tests` (which only starts the run).
 - `break` events map object IDs back to local `.al` files (`file` on the event and each
   stack frame) when the objects exist in the project.
+- **A break frame with no local `file`** (third-party extension, generated object) is readable
+  anyway: `bcdev_source { objectType, objectId }` fetches the server's deployed source. Empty
+  content with `isAlContent: false` means the object ships without source (base application).
+- **SQL triage:** attach with `sqlInsight: true` (optionally `longRunningSqlThresholdMs`), then
+  at each break `bcdev_debug_sql` returns current latency, execute count, and the last SQL
+  statements with duration and approximate rows read. It errors if insight was not enabled at
+  attach — the option cannot be turned on mid-session.
+- **abort vs release at a break** (both end debugging with a `detached` event): `abort` kills
+  the paused operation — a bound test run records it as failed; `release` lets it finish
+  undebugged — a passing test still passes. Neither leaves a reusable session: a debug-bound
+  test session ends with its run, so re-attach fresh instead of exact-targeting the old ID.
+- **Precision breaks:** `breakOnError: "unhandled"` skips errors a try function catches and
+  still breaks on uncaught ones; `breakOnRecordWrite: "nonTemporary"` skips temporary-record
+  writes and still breaks on real-table writes.

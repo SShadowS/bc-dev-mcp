@@ -9,17 +9,34 @@ export interface DebugAttachOptions {
   breakOnNext?: "WebClient" | "WebServiceClient" | "Background";
   sessionId?: number;
   userId?: string;
-  breakOnError?: boolean;
-  breakOnRecordWrite?: boolean;
+  breakOnError?: boolean | "all" | "unhandled";
+  breakOnRecordWrite?: boolean | "all" | "nonTemporary";
   skipSystemTriggers?: boolean;
+  sqlInsight?: boolean;
+  longRunningSqlThresholdMs?: number;
+}
+
+// WIRE: SQL DebugOptions fields (esp-decomp DebugOptions.cs), validated live 2026-07-04: enabling
+// EnableSqlInformationDebugger grows a `<Database Statistics>` node in GetVariables at a break.
+// Statement cap 10 matches the AL extension's launch.json default (no server-side default in decomp).
+const SQL_STATEMENT_CAP = 10;
+
+// WIRE: BreakOnErrorBehaviour / BreakOnRecordWriteBehaviour (esp-decomp BreakOnErrorBehaviour.cs,
+// BreakOnRecordWriteBehaviour.cs): Unspecified=0, None=1, All=2, ExcludeTry|ExcludeTemporary=3.
+// "unhandled" = ExcludeTry (skip try-function-caught errors); "nonTemporary" = ExcludeTemporary.
+function breakBehaviour(mode: boolean | "all" | "unhandled" | "nonTemporary"): { on: boolean; behaviour: number } {
+  if (mode === false) return { on: false, behaviour: 1 };
+  if (mode === "unhandled" || mode === "nonTemporary") return { on: true, behaviour: 3 };
+  return { on: true, behaviour: 2 };
 }
 
 // WIRE: BreakOnNext enum order (esp-decomp BreakOnNext.cs): WebServiceClient=0, WebClient=1, Background=2
 const BREAK_ON_NEXT_WIRE = { WebServiceClient: 0, WebClient: 1, Background: 2 } as const;
 
-export type StepAction = "continue" | "stepOver" | "stepInto" | "stepOut";
-// WIRE: BreakpointResponse enum (tw-decomp BreakpointResponse.cs): Continue=0, StepOver=1, StepIn=2, StepOut=3
-const STEP_WIRE: Record<StepAction, number> = { continue: 0, stepOver: 1, stepInto: 2, stepOut: 3 };
+export type StepAction = "continue" | "stepOver" | "stepInto" | "stepOut" | "release" | "abort";
+// WIRE: BreakpointResponse enum (tw-decomp BreakpointResponse.cs):
+// Continue=0, StepOver=1, StepIn=2, StepOut=3, ReleaseConnection=4, AbortActivity=5
+const STEP_WIRE: Record<StepAction, number> = { continue: 0, stepOver: 1, stepInto: 2, stepOut: 3, release: 4, abort: 5 };
 
 export interface VariableNode {
   name: string;
@@ -140,15 +157,15 @@ export class DebuggerClient {
       // BreakOnErrorBehaviour: Unspecified=0, None=1, All=2, ExcludeTry=3
       // BreakOnRecordWriteBehaviour: Unspecified=0, None=1, All=2, ExcludeTemporary=3
       // (esp-decomp BreakOnRecordWriteBehaviour.cs)
-      BreakOnError: opts.breakOnError ?? true,
-      BreakOnErrorBehaviour: (opts.breakOnError ?? true) ? 2 : 1,
-      BreakOnRecordWrite: opts.breakOnRecordWrite ?? false,
-      BreakOnRecordWriteBehaviour: (opts.breakOnRecordWrite ?? false) ? 2 : 1,
+      BreakOnError: breakBehaviour(opts.breakOnError ?? true).on,
+      BreakOnErrorBehaviour: breakBehaviour(opts.breakOnError ?? true).behaviour,
+      BreakOnRecordWrite: breakBehaviour(opts.breakOnRecordWrite ?? false).on,
+      BreakOnRecordWriteBehaviour: breakBehaviour(opts.breakOnRecordWrite ?? false).behaviour,
       SkipSystemTriggers: opts.skipSystemTriggers ?? true,
-      EnableSqlInformationDebugger: false,
-      EnableLongRunningSqlStatements: false,
-      LongRunningSqlStatementsThreshold: 0,
-      NumberOfSqlStatements: 0,
+      EnableSqlInformationDebugger: (opts.sqlInsight ?? false) || opts.longRunningSqlThresholdMs !== undefined,
+      EnableLongRunningSqlStatements: opts.longRunningSqlThresholdMs !== undefined,
+      LongRunningSqlStatementsThreshold: opts.longRunningSqlThresholdMs ?? 0,
+      NumberOfSqlStatements: (opts.sqlInsight ?? false) || opts.longRunningSqlThresholdMs !== undefined ? SQL_STATEMENT_CAP : 0,
     };
 
     hub.on("IsAlive", () => {
@@ -316,6 +333,15 @@ export class DebuggerClient {
     }
   }
 
+  async getSourceContent(objectType: number, objectId: number): Promise<{ content: string; isAlContent: boolean }> {
+    // WIRE: GetSourceContent(ApplicationObjectIdWrapper) -> SourceContent{Content, IsALContent};
+    // requires DebuggerVersion.Major > 1 (esp-decomp HubBasedDebuggerService.GetSourceAsync). Validated live 2026-07-04.
+    const raw = await this.requireHub().invoke<unknown>("GetSourceContent", { ObjectType: objectType, ObjectNumber: objectId });
+    const parsed = normalizeKeys<{ content?: string | null; isALContent?: boolean }>(raw ?? {});
+    const content = typeof parsed.content === "string" ? parsed.content : "";
+    return { content, isAlContent: parsed.isALContent ?? content !== "" };
+  }
+
   async addBreakpoint(objectType: number, objectId: number, line: number, condition?: string): Promise<number> {
     // WIRE: AddBreakpoint(ApplicationObjectIdWrapper, SourcePosition, condition) -> BreakpointDefinition (tw-decomp)
     // WIRE: server lines are 0-based (live BC28 2026-07-03: wire line 9 = editor line 10); tool surface is 1-based (editor convention), converted here.
@@ -360,8 +386,11 @@ export class DebuggerClient {
   }
 
   async evalWatch(frameId: number, expression: string): Promise<VariableNode | null> {
-    // WIRE: GetWatchNode(frameId, expression, WatchOption None=0) (esp-decomp HubBasedDebuggerService.GetWatchNodeAsync)
-    const node = await this.requireHub().invoke<unknown>("GetWatchNode", frameId, expression, 0);
+    // WIRE: GetWatchNode(frameId, expression, WatchOption) — 3-arg overload needs DebuggerVersion >= 4,
+    // which our supported floor (BC28) satisfies and live E2E validated with the 3-arg form.
+    // WatchOption.AllowLargeStrings=1 returns un-truncated string values (esp-decomp
+    // HubBasedDebuggerService.GetWatchNodeAsync / WatchOption.cs).
+    const node = await this.requireHub().invoke<unknown>("GetWatchNode", frameId, expression, 1);
     return node ? toVariableNode(normalizeKeys<WireLocalNode>(node)) : null;
   }
 

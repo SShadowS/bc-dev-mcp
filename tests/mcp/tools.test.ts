@@ -40,7 +40,7 @@ describe("tools", () => {
     hub = new FakeHub();
   });
 
-  test("registers all 15 tools", () => {
+  test("registers all 17 tools", () => {
     const { tools } = setup(hub);
     expect([...tools.keys()].sort()).toEqual([
       "bcdev_debug_attach",
@@ -49,12 +49,14 @@ describe("tools", () => {
       "bcdev_debug_detach",
       "bcdev_debug_eval",
       "bcdev_debug_run_tests",
+      "bcdev_debug_sql",
       "bcdev_debug_variables",
       "bcdev_debug_wait",
       "bcdev_profile_finish",
       "bcdev_profile_poll",
       "bcdev_profile_start",
       "bcdev_profile_status",
+      "bcdev_source",
       "bcdev_status",
       "bcdev_test_discover",
       "bcdev_test_run",
@@ -199,6 +201,79 @@ describe("tools", () => {
       BreakOnNextClient: 0,
       SessionId: -1,
       UserId: "alice@example.com",
+    });
+  });
+
+  test("bcdev_debug_sql structures the statistics scope and fails actionably when insight is off", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method, args) => {
+      if (method === "GetVariables") {
+        return [{ name: "<Database Statistics>", typeName: "", summary: "", hasChildren: true }];
+      }
+      if (method === "ExpandNode" && args[1] === "<Database Statistics>") {
+        return [
+          { name: "Current SQL Latency (ms)", typeName: "", summary: "0.5", hasChildren: false },
+          { name: "Number of SQL Executes", typeName: "", summary: "3", hasChildren: false },
+          { name: "<Last SQL Statements>", typeName: "", summary: "", hasChildren: false },
+          { name: "<Last Long Running SQL Statements>", typeName: "", summary: "", hasChildren: false },
+        ];
+      }
+      return undefined;
+    };
+    await tools.get("bcdev_debug_attach")!.handler({ sqlInsight: true });
+    const insight = (await tools.get("bcdev_debug_sql")!.handler({})) as Record<string, unknown>;
+    expect(insight).toEqual({ currentLatencyMs: 0.5, sqlExecutes: 3, lastStatements: [], lastLongRunning: [] });
+    expect(() => tools.get("bcdev_debug_sql")!.outputSchema.parse(insight)).not.toThrow();
+
+    hub.onInvoke = (method) => (method === "GetVariables" ? [] : undefined);
+    await expect(tools.get("bcdev_debug_sql")!.handler({})).rejects.toThrow(/sqlInsight: true/);
+  });
+
+  test("bcdev_source uses the REST endpoint and reports empty base-app content as a message", async () => {
+    const restFetch = (async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("dev/sourcecontent")) {
+        const id = new URL(url).searchParams.get("id");
+        return new Response(JSON.stringify(id === "1" ? { Content: "", IsALContent: false } : { Content: "codeunit 50130 X {}", IsALContent: true }));
+      }
+      return new Response(JSON.stringify({ WebApiVersion: "7.0" }));
+    }) as unknown as typeof fetch;
+    const { tools } = setup(hub, restFetch);
+    const published = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })) as Record<string, unknown>;
+    expect(published).toMatchObject({ content: "codeunit 50130 X {}", isAlContent: true, source: "rest" });
+    expect(published["message"]).toBeUndefined();
+    const baseApp = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 1 })) as Record<string, unknown>;
+    expect(baseApp).toMatchObject({ content: "", isAlContent: false, source: "rest" });
+    expect(baseApp["message"]).toContain("No deployed source");
+    expect(hub.invoked("GetSourceContent")).toHaveLength(0);
+  });
+
+  test("bcdev_source falls back to the hub when REST has no source and a session is live", async () => {
+    const notFoundFetch = (async (input: RequestInfo | URL) =>
+      new Response(null, { status: input.toString().includes("sourcecontent") ? 404 : 200 })) as unknown as typeof fetch;
+    const { tools } = setup(hub, notFoundFetch);
+    // no session: 404 surfaces as the empty no-source result
+    const empty = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })) as Record<string, unknown>;
+    expect(empty).toMatchObject({ content: "", isAlContent: false, source: "rest" });
+    expect(empty["message"]).toContain("No deployed source");
+
+    hub.onInvoke = (method) => (method === "GetSourceContent" ? { Content: "from hub", IsALContent: true } : undefined);
+    await tools.get("bcdev_debug_attach")!.handler({});
+    const viaHub = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })) as Record<string, unknown>;
+    expect(viaHub).toMatchObject({ content: "from hub", source: "hub" });
+  });
+
+  test("bcdev_debug_attach forwards precision break modes to the wire enums", async () => {
+    const precisionHub = new FakeHub();
+    const { tools } = setup(precisionHub);
+    await tools.get("bcdev_debug_attach")!.handler({ breakOnError: "unhandled", breakOnRecordWrite: "nonTemporary" });
+    precisionHub.emit("HubConnected");
+    await Bun.sleep(0);
+    expect(precisionHub.invoked("DebugAdapterConfigurationDone")[0]?.args[0]).toMatchObject({
+      BreakOnError: true,
+      BreakOnErrorBehaviour: 3,
+      BreakOnRecordWrite: true,
+      BreakOnRecordWriteBehaviour: 3,
     });
   });
 

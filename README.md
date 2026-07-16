@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-431%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-462%20passing-green)]()
 
 ## Overview
 
@@ -25,7 +25,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | **Structured test runs** | Per-method pass/fail/skip with duration and failure output — every tool returns `structuredContent` validated by a published `outputSchema` |
 | **Code coverage** | `procedure` mode, mapped back to local source files (`line` mode exists but is unproven against real BC) |
 | **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
-| **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break-on-error, stack + variables + watch, stepping |
+| **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break on all or unhandled errors only, record-write breaks (optionally skipping temp records), stack + variables + watch, stepping, abort/release at a break |
 | **Debug-a-test** | Test run bound to the debug session — breakpoints fire during test execution |
 | **Config auto-discovery** | Server/instance/tenant read from the AL project's `.vscode/launch.json` |
 | **Preflight diagnostics** | `bcdev_status` distinguishes unreachable / bad credentials / unsupported dev API |
@@ -110,7 +110,7 @@ Azure access tokens are acquired with `az account get-access-token`, cached only
 MCP client (agent)
   |
   v  (stdio)
-src/mcp/server.ts ── tools/ (15 bcdev_* tools) ── state.ts (session, event queue)
+src/mcp/server.ts ── tools/ (17 bcdev_* tools) ── state.ts (session, event queue)
   |
   v
 src/core/  (pure library — typed returns, injected deps)
@@ -132,11 +132,13 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_debug_attach` | Arm next-session/user-filtered attach or target an existing NST session; optionally set breakpoints |
 | `bcdev_debug_run_tests` | Run tests with breakpoints live |
 | `bcdev_debug_wait` | Long-poll for session-bound / break / run-finished lifecycle events |
-| `bcdev_debug_continue` | continue / stepOver / stepInto / stepOut |
+| `bcdev_debug_continue` | continue / stepOver / stepInto / stepOut / release / abort |
 | `bcdev_debug_variables` | Inspect locals, globals, expand records |
-| `bcdev_debug_eval` | Evaluate watch expression |
+| `bcdev_debug_eval` | Evaluate watch expression (large strings un-truncated) |
+| `bcdev_debug_sql` | Live SQL cost at a break: latency, executes, last statements |
 | `bcdev_debug_breakpoints` | Add/remove breakpoints mid-session |
 | `bcdev_debug_detach` | End the debug session |
+| `bcdev_source` | Read the server’s deployed AL source for an object not on local disk |
 | `bcdev_profile_status` | Preflight the snapshot-debugger endpoint; report whether sampling CPU profiling is supported |
 | `bcdev_profile_start` | Arm a CPU profiler (`kind: "sampling"` or `"instrumentation"`); binds the next matching session (trigger it after) |
 | `bcdev_profile_poll` | Poll the active capture; `ready` once the session was recorded (Started) |
@@ -189,7 +191,7 @@ Sources live in `skills/`; `bun run embed-skills` regenerates `src/mcp/skills.ge
 |------|---------|
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
-| `src/mcp/tools/` | The 15 bcdev_* tool definitions (zod schemas + metadata + handlers) |
+| `src/mcp/tools/` | The 17 bcdev_* tool definitions (zod schemas + metadata + handlers) |
 | `src/mcp/state.ts` | Debug session singleton, event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/hubs/debugger-hub.ts` | DebuggerHub client (attach, breakpoints, stepping, inspection) |
@@ -202,7 +204,7 @@ Sources live in `skills/`; `bun run embed-skills` regenerates `src/mcp/skills.ge
 Ordered by intent, not commitment:
 
 1. **Agent-grade responses** — structured run summaries, parsed call stacks mapped to source lines, verified breakpoint locations, changed-variable flags, structured errors, and next-step hints on every tool. Designed, wire-validated.
-2. **Debugger power controls** — SQL cost per frame at a break, break on unhandled errors only, abort a hung operation, read source for objects not on local disk. Designed, wire-validated against a live BC28.
+2. **Debugger power controls** — **shipped.** Live SQL cost at a break (`bcdev_debug_sql`), break on unhandled errors only / skip temp-record writes, abort or release a paused operation, read deployed source for off-disk objects (`bcdev_source`), un-truncated watch strings.
 3. **CPU profiling** (`bcdev_profile_*`) — **shipped.** Capture a sampling CPU profile (`.alcpuprofile`, V8 format) of a live session and get back a ranked AL-hotspot summary, not just a blob. Four tools (status/start/poll/finish), validated end-to-end against a live BC28 — a real profile with AL call frames captured through the tools (`scripts/e2e-profile-results-2026-07-04.md`). (Full snapshot recording for VS Code replay shares the same core and stays deferred.)
 4. **Entra ID auth** — **shipped.** Azure CLI-backed cloud sandbox/production access alongside explicit on-prem UserPassword.
 5. **Coverage gap analysis** — cross procedure coverage with `git diff`: which changed procedures have no test coverage.

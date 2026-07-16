@@ -4,8 +4,14 @@ import type { ToolDefinition } from "./shared";
 import type { ServerState } from "../state";
 import { createDebugTools } from "./debug-tools";
 import { createProfileTools } from "./profile-tools";
+import { createSourceTools } from "./source-tools";
 import { createTestTools } from "./test-tools";
 
 export function createTools(state: ServerState, deps: ToolDeps): ToolDefinition[] {
-  return [...createTestTools(state, deps), ...createDebugTools(state, deps), ...createProfileTools(state, deps)];
+  return [
+    ...createTestTools(state, deps),
+    ...createDebugTools(state, deps),
+    ...createProfileTools(state, deps),
+    ...createSourceTools(state, deps),
+  ];
 }

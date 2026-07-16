@@ -20,13 +20,23 @@ function fakeFetch(status: number, body?: unknown): typeof fetch {
 
 describe("fetchServerInfo", () => {
   test("parses PascalCase metadata and gates features", async () => {
-    const info = await fetchServerInfo(config, auth, fakeFetch(200, { WebApiVersion: "7.0", RuntimeVersion: "15.0" }));
+    const info = await fetchServerInfo(config, auth, fakeFetch(200, { WebApiVersion: "7.0", RuntimeVersion: "15.0", DebuggerVersion: "7.0" }));
     expect(info).toEqual({
       webApiVersion: "7.0",
       runtimeVersion: "15.0",
+      debuggerVersion: "7.0",
       supportsTestRunning: true,
       supportsCoreSignalR: true,
+      supportsSourceDownload: true,
     });
+  });
+
+  test("tolerates a missing DebuggerVersion and gates source download on dev API 2.0", async () => {
+    const modern = await fetchServerInfo(config, auth, fakeFetch(200, { webApiVersion: "7.0" }));
+    expect(modern.debuggerVersion).toBeUndefined();
+    expect(modern.supportsSourceDownload).toBe(true);
+    const legacy = await fetchServerInfo(config, auth, fakeFetch(404));
+    expect(legacy.supportsSourceDownload).toBe(false);
   });
 
   test("parses camelCase and flags old server", async () => {

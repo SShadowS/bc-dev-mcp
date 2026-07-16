@@ -46,6 +46,28 @@ describe("DebuggerClient", () => {
     expect(hub.invoked("DebugAdapterConfigurationDone")).toHaveLength(1);
   });
 
+  test("break behaviour matrix maps booleans and precision modes to wire enums", async () => {
+    const cases: Array<[DebugAttachOptions, { BreakOnError: boolean; BreakOnErrorBehaviour: number; BreakOnRecordWrite: boolean; BreakOnRecordWriteBehaviour: number }]> = [
+      // WIRE enums: Unspecified=0, None=1, All=2, ExcludeTry|ExcludeTemporary=3
+      [{}, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnError: true }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnError: "all" }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnError: "unhandled" }, { BreakOnError: true, BreakOnErrorBehaviour: 3, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnError: false }, { BreakOnError: false, BreakOnErrorBehaviour: 1, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+      [{ breakOnRecordWrite: true }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: true, BreakOnRecordWriteBehaviour: 2 }],
+      [{ breakOnRecordWrite: "all" }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: true, BreakOnRecordWriteBehaviour: 2 }],
+      [{ breakOnRecordWrite: "nonTemporary" }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: true, BreakOnRecordWriteBehaviour: 3 }],
+      [{ breakOnRecordWrite: false }, { BreakOnError: true, BreakOnErrorBehaviour: 2, BreakOnRecordWrite: false, BreakOnRecordWriteBehaviour: 1 }],
+    ];
+    for (const [opts, expected] of cases) {
+      const hub = new FakeHub();
+      await connected(hub, opts);
+      hub.emit("HubConnected");
+      await Bun.sleep(0);
+      expect(hub.invoked("DebugAdapterConfigurationDone")[0]?.args[0], JSON.stringify(opts)).toMatchObject(expected);
+    }
+  });
+
   test("user targeting trims UserId and keeps break-on-next client selection", async () => {
     const hub = new FakeHub();
     await connected(hub, { userId: "  alice@example.com  ", breakOnNext: "Background" });
@@ -246,6 +268,54 @@ describe("DebuggerClient", () => {
     expect(hub.invoked("StopDebugging")).toHaveLength(1);
     expect(hub.stopped).toBe(true);
     expect(client.connectionId).toBeNull();
+  });
+
+  test("sqlInsight and long-running threshold populate the SQL debug options", async () => {
+    const cases: Array<[DebugAttachOptions, Record<string, unknown>]> = [
+      [{}, { EnableSqlInformationDebugger: false, EnableLongRunningSqlStatements: false, LongRunningSqlStatementsThreshold: 0, NumberOfSqlStatements: 0 }],
+      [{ sqlInsight: true }, { EnableSqlInformationDebugger: true, EnableLongRunningSqlStatements: false, LongRunningSqlStatementsThreshold: 0, NumberOfSqlStatements: 10 }],
+      [{ longRunningSqlThresholdMs: 500 }, { EnableSqlInformationDebugger: true, EnableLongRunningSqlStatements: true, LongRunningSqlStatementsThreshold: 500, NumberOfSqlStatements: 10 }],
+      [{ sqlInsight: true, longRunningSqlThresholdMs: 250 }, { EnableSqlInformationDebugger: true, EnableLongRunningSqlStatements: true, LongRunningSqlStatementsThreshold: 250, NumberOfSqlStatements: 10 }],
+    ];
+    for (const [opts, expected] of cases) {
+      const hub = new FakeHub();
+      await connected(hub, opts);
+      hub.emit("HubConnected");
+      await Bun.sleep(0);
+      expect(hub.invoked("DebugAdapterConfigurationDone")[0]?.args[0], JSON.stringify(opts)).toMatchObject(expected);
+    }
+  });
+
+  test("evalWatch requests un-truncated strings via WatchOption.AllowLargeStrings", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => (method === "GetWatchNode" ? { Name: "S", TypeName: "Text", Summary: "long...", HasChildren: false } : undefined);
+    const { client } = await connected(hub);
+    await client.evalWatch(0, "S");
+    expect(hub.invoked("GetWatchNode")[0]?.args).toEqual([0, "S", 1]);
+  });
+
+  test("step maps release and abort to the unreached wire codes", async () => {
+    const hub = new FakeHub();
+    const { client } = await connected(hub);
+    await client.step("release");
+    await client.step("abort");
+    expect(hub.invoked("SetBreakpointResponse").map((i) => i.args[0])).toEqual([4, 5]);
+  });
+
+  test("getSourceContent sends the object wrapper and normalizes the response", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => (method === "GetSourceContent" ? { Content: "codeunit 50130 X {}", IsALContent: true } : undefined);
+    const { client } = await connected(hub);
+    expect(await client.getSourceContent(5, 50130)).toEqual({ content: "codeunit 50130 X {}", isAlContent: true });
+    expect(hub.invoked("GetSourceContent")[0]?.args[0]).toEqual({ ObjectType: 5, ObjectNumber: 50130 });
+    // empty body from a base-app object
+    hub.onInvoke = (method) => (method === "GetSourceContent" ? { Content: "", IsALContent: false } : undefined);
+    expect(await client.getSourceContent(5, 1)).toEqual({ content: "", isAlContent: false });
+  });
+
+  test("getSourceContent requires a connected hub", async () => {
+    const client = new DebuggerClient(fakeHubFactory(new FakeHub()));
+    await expect(client.getSourceContent(5, 1)).rejects.toThrow(/not connected/);
   });
 
   test("auto-acks IsAlive", async () => {

@@ -3,9 +3,22 @@ import type { ServerState } from "./state";
 import { createTools, type ToolDeps } from "./tools";
 import { skills, skillsIndexJson } from "./skills.generated";
 
+// Runtime guard (v0.1 final review): the SDK publishes outputSchema for every tool, so a
+// non-object handler result assigned to structuredContent would be a protocol violation.
+export function toToolResponse(result: unknown): {
+  content: Array<{ type: "text"; text: string }>;
+  structuredContent?: Record<string, unknown>;
+} {
+  const structured = typeof result === "object" && result !== null ? (result as Record<string, unknown>) : undefined;
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) ?? String(result) }],
+    ...(structured !== undefined ? { structuredContent: structured } : {}),
+  };
+}
+
 export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
   const server = new McpServer(
-    { name: "bc-dev-mcp", version: "0.1.0" },
+    { name: "bc-dev-mcp", version: "0.3.0" },
     // Skills served as resources under skill:// — tracks draft SEP-2640 (io.modelcontextprotocol/skills).
     { capabilities: { extensions: { "io.modelcontextprotocol/skills": {} } } },
   );
@@ -22,11 +35,7 @@ export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
       },
       async (params: Record<string, unknown>) => {
         try {
-          const result = (await tool.handler(params)) as Record<string, unknown>;
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-            structuredContent: result,
-          };
+          return toToolResponse(await tool.handler(params));
         } catch (err) {
           return {
             content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AlObjectIndex } from "../../core/al-objects";
 import { DebuggerClient, type StepAction } from "../../core/hubs/debugger-hub";
+import { parseDatabaseStatistics } from "../../core/sql-insight";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { DebugSession, type ServerState } from "../state";
 import {
@@ -18,6 +19,13 @@ import {
   type ToolDeps,
   variableNodeSchema,
 } from "./shared";
+
+const sqlStatementSchema = z.object({
+  statement: z.string(),
+  executionTime: z.string().nullable(),
+  durationMs: z.number().nullable(),
+  approxRowsRead: z.number().nullable(),
+});
 
 interface DebugTarget {
   sessionId?: number;
@@ -77,9 +85,22 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
           .min(1)
           .optional()
           .describe("Business Central user ID whose next matching session should bind; mutually exclusive with sessionId and filtered by breakOnNext client type"),
-        breakOnError: z.boolean().optional().describe("Pause when an AL runtime error occurs (default true)"),
-        breakOnRecordWrite: z.boolean().optional().describe("Pause on record writes (default false)"),
+        breakOnError: z
+          .union([z.boolean(), z.enum(["all", "unhandled"])])
+          .optional()
+          .describe("Pause on AL runtime errors: true/'all' = every error, 'unhandled' = skip errors caught by a try function, false = never (default true)"),
+        breakOnRecordWrite: z
+          .union([z.boolean(), z.enum(["all", "nonTemporary"])])
+          .optional()
+          .describe("Pause on record writes: true/'all' = every write, 'nonTemporary' = skip temporary-record writes, false = never (default false)"),
         skipSystemTriggers: z.boolean().optional().describe("Skip breaks inside system triggers (default true)"),
+        sqlInsight: z.boolean().optional().describe("Collect live SQL statistics for bcdev_debug_sql at each break (default false)"),
+        longRunningSqlThresholdMs: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Also track SQL statements slower than this many milliseconds (implies sqlInsight)"),
       },
       outputSchema: z.object({
         attached: z.literal(true),
@@ -99,9 +120,11 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
           await client.connect(config, authorization, {
             breakOnNext: params["breakOnNext"] as never,
             ...target,
-            breakOnError: params["breakOnError"] as boolean | undefined,
-            breakOnRecordWrite: params["breakOnRecordWrite"] as boolean | undefined,
+            breakOnError: params["breakOnError"] as boolean | "all" | "unhandled" | undefined,
+            breakOnRecordWrite: params["breakOnRecordWrite"] as boolean | "all" | "nonTemporary" | undefined,
             skipSystemTriggers: params["skipSystemTriggers"] as boolean | undefined,
+            sqlInsight: params["sqlInsight"] as boolean | undefined,
+            longRunningSqlThresholdMs: params["longRunningSqlThresholdMs"] as number | undefined,
           });
           const breakpoints = await mapBreakpoints(
             session,
@@ -194,12 +217,13 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
     {
       name: "bcdev_debug_continue",
       title: "Continue / step",
-      description: "Resume from a break: continue, stepOver, stepInto, or stepOut. Then bcdev_debug_wait for the next event.",
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      description:
+        "Resume from a break: continue, stepOver, stepInto, or stepOut — then bcdev_debug_wait for the next event. abort terminates the paused operation (a bound test run reports it as failed); release lets it run to completion undebugged. Both end debugging with a detached event.",
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       schema: {
         action: z
-          .enum(["continue", "stepOver", "stepInto", "stepOut"])
-          .describe("continue resumes; the step actions advance one statement (over/into/out of calls)"),
+          .enum(["continue", "stepOver", "stepInto", "stepOut", "release", "abort"])
+          .describe("continue resumes; step actions advance one statement (over/into/out of calls); abort kills the paused operation and detaches; release lets it finish undebugged and detaches — re-attach to debug again"),
       },
       outputSchema: z.object({ ok: z.literal(true) }),
       handler: async (params) => {
@@ -246,6 +270,32 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       handler: async (params) => {
         const node = await requireSession(state).client.evalWatch(params["frameId"] as number, params["expression"] as string);
         return { result: node ?? null };
+      },
+    },
+    {
+      name: "bcdev_debug_sql",
+      title: "SQL statistics at a break",
+      description:
+        "Read live SQL cost at a break: current latency, execute count, and the last (and long-running) SQL statements. Requires attaching with sqlInsight: true.",
+      annotations: { readOnlyHint: true, openWorldHint: true },
+      schema: {
+        frameId: z.number().optional().describe("Stack frame index from the break event (default 0 = innermost frame)"),
+      },
+      outputSchema: z.object({
+        currentLatencyMs: z.number().nullable(),
+        sqlExecutes: z.number().nullable(),
+        lastStatements: z.array(sqlStatementSchema),
+        lastLongRunning: z.array(sqlStatementSchema).describe("Statements slower than longRunningSqlThresholdMs, when that was set"),
+      }),
+      handler: async (params) => {
+        const client = requireSession(state).client;
+        const frameId = (params["frameId"] as number | undefined) ?? 0;
+        const insight = await parseDatabaseStatistics(
+          await client.getVariables(frameId),
+          (path) => client.expandNode(frameId, path),
+        );
+        if (!insight) throw new Error("SQL insight is off — re-attach with sqlInsight: true (bcdev_debug_attach)");
+        return insight;
       },
     },
     {
