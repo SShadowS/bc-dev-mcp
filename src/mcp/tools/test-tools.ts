@@ -17,8 +17,10 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
       outputSchema: z.looseObject({
         webApiVersion: z.string(),
         runtimeVersion: z.string().optional(),
+        debuggerVersion: z.string().optional().describe("Hub debugger protocol version; gates source download and large-string watches"),
         supportsTestRunning: z.boolean().describe("false = server too old for TestRunnerHub (needs dev API >= 7.0)"),
         supportsCoreSignalR: z.boolean(),
+        supportsSourceDownload: z.boolean().describe("true = dev/sourcecontent available (dev API >= 2.0) for bcdev_source"),
       }),
       handler: async (params) => {
         const { config, authorization } = resolve(params, deps);

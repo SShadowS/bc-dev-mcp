@@ -5,8 +5,10 @@ import { metadataUrl } from "./urls";
 export interface DevServerInfo {
   webApiVersion: string;
   runtimeVersion?: string;
+  debuggerVersion?: string;
   supportsTestRunning: boolean;
   supportsCoreSignalR: boolean;
+  supportsSourceDownload: boolean;
 }
 
 export class DevEndpointError extends Error {
@@ -53,7 +55,7 @@ export async function fetchServerInfo(
   }
   if (response.status === 404) {
     // Pre-metadata servers are dev API 1.0 (dep-decomp ServerInfoApiClient.TryGetLegacyServerInfo)
-    return { webApiVersion: "1.0", supportsTestRunning: false, supportsCoreSignalR: false };
+    return { webApiVersion: "1.0", supportsTestRunning: false, supportsCoreSignalR: false, supportsSourceDownload: false };
   }
   if (!response.ok) {
     throw new DevEndpointError(`Dev endpoint returned HTTP ${response.status}`, "http");
@@ -66,11 +68,16 @@ export async function fetchServerInfo(
   }
   const webApiVersion = pick(body, "webApiVersion") ?? "0.0";
   const runtimeVersion = pick(body, "runtimeVersion");
+  // WIRE: ServerInfo.DebuggerVersion gates hub debugger capabilities independently of WebApiVersion
+  // (dep-decomp ServerInfo.cs; esp-decomp HubBasedDebuggerService uses it for GetSourceContent/GetWatchNode overloads)
+  const debuggerVersion = pick(body, "debuggerVersion");
   return {
     webApiVersion,
     runtimeVersion,
-    // WIRE: DevApiFeature.TestRunning => 7.0, NetCoreSignalR => 6.0 (dep-decomp DevApiFeatureExtensions.cs)
+    debuggerVersion,
+    // WIRE: DevApiFeature.TestRunning => 7.0, NetCoreSignalR => 6.0, GetSourceCode => 2.0 (dep-decomp DevApiFeatureExtensions.cs)
     supportsTestRunning: major(webApiVersion) >= 7,
     supportsCoreSignalR: major(webApiVersion) >= 6,
+    supportsSourceDownload: major(webApiVersion) >= 2,
   };
 }
