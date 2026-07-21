@@ -80,6 +80,19 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 - [ ] sqlInsight overhead: measure a test run with/without; note in the tool description if material.
 - [x] bcdev_debug_eval with WatchOption AllowLargeStrings=1 returns a >1KB string un-truncated (BC28). <!-- 2026-07-16: 2000-char PadStr returned in full (2002 chars incl. quotes); truncation-with-0 comparison not re-run -->
 
+## Agent-grade responses (SaaS Sandbox)
+
+Run against Sandbox only; never retain tenant, environment, user, host, session, connection,
+token, authorization header, or authenticated URL values. Evidence belongs in
+`scripts/e2e-agent-grade-responses-2026-07-20.md`.
+
+- [x] Every listed tool publishes `nextSteps` in its output schema; representative terminal and nonterminal successes return an array. <!-- 2026-07-20: 17/17 schema check plus live status/test/debug successes; see dated evidence -->
+- [ ] A deliberately failing AL test returns a run `summary`, preserves raw `output`, parses the `AL Callstack`, and maps at least one frame to a local source file. <!-- 2026-07-20: real Sandbox passing summary verified. The installed intentional-failure probe did not fail on this tenant, so the parser/source-map negative and positive cases remain covered by unit tests using the exact live BC28 AL Callstack shape; no test-only app was published merely to force a failure. -->
+- [x] The same enriched run result arrives through a debug-bound `testRunFinished` event. <!-- 2026-07-20 SaaS: real result row plus summary and nextSteps; sessionBound/detached also observed -->
+- [x] A live breakpoint addition reports `verified` or `relocated` with the server-resolved 1-based span; legacy ID-only behavior remains unit-tested as `unverified`. <!-- 2026-07-20 SaaS WebClient: verified with non-null span -->
+- [x] At a live break, variables/watches expose normalized `changeState` and `changed`; record whether this Sandbox emits an observable changed state after stepping. <!-- 2026-07-20 SaaS WebClient: normalized nodes before/after a successful stepOver; no changed:true node was emitted for that step -->
+- [x] A failing tool returns `isError:true`, no `structuredContent`, and parseable redacted JSON text with stable code, retryability, tool name, and recovery steps. <!-- 2026-07-20: real MCP server over in-memory transport, NO_DEBUG_SESSION path -->
+
 ## Profiling (snapshot Sampling)
 
 Runs against the **snapshot-debugger port** (`DEFAULT_SNAPSHOT_PORT = 7083`), separate from the dev

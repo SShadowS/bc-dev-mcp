@@ -58,7 +58,11 @@ describe("server wiring", () => {
     expect(JSON.stringify(attachProperties["breakOnRecordWrite"])).toContain("nonTemporary");
     const wait = tools.find((t) => t.name === "bcdev_debug_wait")!;
     expect(JSON.stringify(wait.outputSchema)).toContain("sessionBound");
-    for (const t of tools) expect(t.outputSchema, `${t.name} outputSchema`).toBeDefined();
+    for (const t of tools) {
+      expect(t.outputSchema, `${t.name} outputSchema`).toBeDefined();
+      const properties = (t.outputSchema as { properties?: Record<string, unknown> }).properties;
+      expect(properties?.["nextSteps"], `${t.name} nextSteps`).toMatchObject({ type: "array" });
+    }
   });
 
   test("callTool returns structuredContent and text", async () => {
@@ -73,7 +77,38 @@ describe("server wiring", () => {
     const client = await connect();
     const result = await client.callTool({ name: "bcdev_debug_wait", arguments: {} });
     expect(result.isError).toBe(true);
-    expect((result.content as Array<{ text: string }>)[0]?.text).toContain("bcdev_debug_attach");
+    expect(result.structuredContent).toBeUndefined();
+    const body = JSON.parse((result.content as Array<{ text: string }>)[0]!.text) as {
+      error: { code: string; category: string; tool: string; retryable: boolean; message: string; details: Record<string, unknown> };
+      nextSteps: string[];
+    };
+    expect(body.error).toEqual({
+      code: "NO_DEBUG_SESSION",
+      category: "state",
+      tool: "bcdev_debug_wait",
+      retryable: false,
+      message: "No debug session — call bcdev_debug_attach first",
+      details: {},
+    });
+    expect(body.nextSteps.join(" ")).toContain("bcdev_debug_attach");
+  });
+
+  test("SDK input validation failures use the same machine-readable error contract", async () => {
+    const client = await connect();
+    const result = await client.callTool({ name: "bcdev_debug_attach", arguments: { sessionId: 0 } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    const body = JSON.parse((result.content as Array<{ text: string }>)[0]!.text) as {
+      error: { code: string; category: string; tool: string; retryable: boolean };
+      nextSteps: string[];
+    };
+    expect(body.error).toMatchObject({
+      code: "INVALID_ARGUMENT",
+      category: "validation",
+      tool: "bcdev_debug_attach",
+      retryable: false,
+    });
+    expect(body.nextSteps.join(" ")).toContain("input schema");
   });
 
   test("serves skills as skill:// resources with an index", async () => {

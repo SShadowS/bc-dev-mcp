@@ -369,8 +369,18 @@ describe("DebuggerClient", () => {
     const hub = new FakeHub();
     hub.onInvoke = (method) => (method === "AddBreakpoint" ? { BreakpointId: 42 } : undefined);
     const { client } = await connected(hub);
-    const id = await client.addBreakpoint(5, 50100, 12, "x > 1");
-    expect(id).toBe(42);
+    const registration = await client.addBreakpoint(5, 50100, 12, "x > 1");
+    expect(registration).toEqual({
+      breakpointId: 42,
+      verification: {
+        status: "unverified",
+        methodName: null,
+        internalMethodName: null,
+        objectType: null,
+        objectId: null,
+        span: null,
+      },
+    });
     expect(hub.invoked("AddBreakpoint")[0]?.args).toEqual([
       { ObjectType: 5, ObjectNumber: 50100 },
       { Line: 11, Column: 0 },
@@ -392,6 +402,41 @@ describe("DebuggerClient", () => {
     ]);
   });
 
+  test("addBreakpoint reports the verified resolved span and relocation", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => method === "AddBreakpoint" ? {
+      BreakpointId: 9,
+      MethodName: "SplitAmount",
+      InternalMethodName: "SplitAmount",
+      ObjectId: { ObjectType: 5, ObjectNumber: 50100 },
+      SourceSpan: { From: { Line: 13, Column: 8 }, To: { Line: 13, Column: 30 } },
+    } : undefined;
+    const { client } = await connected(hub);
+    expect(await client.addBreakpoint(5, 50100, 12)).toEqual({
+      breakpointId: 9,
+      verification: {
+        status: "relocated",
+        methodName: "SplitAmount",
+        internalMethodName: "SplitAmount",
+        objectType: 5,
+        objectId: 50100,
+        span: { from: { line: 14, column: 9 }, to: { line: 14, column: 31 } },
+      },
+    });
+  });
+
+  test("addBreakpoint removes and rejects a response for the wrong object", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => method === "AddBreakpoint" ? {
+      BreakpointId: 10,
+      ObjectId: { ObjectType: 5, ObjectNumber: 99999 },
+      SourceSpan: { From: { Line: 1, Column: 0 }, To: { Line: 1, Column: 1 } },
+    } : undefined;
+    const { client } = await connected(hub);
+    await expect(client.addBreakpoint(5, 50100, 2)).rejects.toThrow(/not requested object/);
+    expect(hub.invoked("RemoveBreakpoint")[0]?.args).toEqual([10]);
+  });
+
   test("getVariables normalizes LocalNode payload", async () => {
     const hub = new FakeHub();
     hub.onInvoke = (method) =>
@@ -400,7 +445,7 @@ describe("DebuggerClient", () => {
         : undefined;
     const { client } = await connected(hub);
     expect(await client.getVariables(0)).toEqual([
-      { name: "Rec", typeName: "Record", summary: "Customer 10000", hasChildren: true, children: undefined },
+      { name: "Rec", typeName: "Record", summary: "Customer 10000", hasChildren: true, changeState: "unknown", changed: false, children: undefined },
     ]);
   });
 
@@ -413,7 +458,31 @@ describe("DebuggerClient", () => {
         : undefined;
     const { client } = await connected(hub);
     expect(await client.getVariables(0)).toEqual([
-      { name: "Fields", typeName: "", summary: "", hasChildren: true, children: [] },
+      { name: "Fields", typeName: "", summary: "", hasChildren: true, changeState: "unknown", changed: false, children: [] },
+    ]);
+  });
+
+  test("maps variable change states recursively", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => method === "GetVariables" ? [{
+      Name: "Rec",
+      TypeName: "Record",
+      Summary: "Customer",
+      HasChildren: true,
+      ChangeState: 3,
+      Children: [
+        { Name: "No.", TypeName: "Code", Summary: "10000", HasChildren: false, ChangeState: 2 },
+        { Name: "Name", TypeName: "Text", Summary: "A", HasChildren: false, ChangeState: 0 },
+        { Name: "Mystery", TypeName: "Text", Summary: "?", HasChildren: false, ChangeState: 99 },
+      ],
+    }] : undefined;
+    const { client } = await connected(hub);
+    const variables = await client.getVariables(0);
+    expect(variables[0]).toMatchObject({ changeState: "descendantChanged", changed: true });
+    expect(variables[0]?.children?.map((node) => [node.changeState, node.changed])).toEqual([
+      ["valueChanged", true],
+      ["unchanged", false],
+      ["unknown", false],
     ]);
   });
 

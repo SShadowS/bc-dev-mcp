@@ -141,7 +141,8 @@ describe("tools", () => {
     };
     const check = async (name: string, params: Record<string, unknown>) => {
       const tool = tools.get(name)!;
-      const result = await tool.handler(params);
+      const result = await tool.handler(params) as { nextSteps?: unknown };
+      expect(Array.isArray(result.nextSteps), `${name} nextSteps`).toBe(true);
       expect(() => tool.outputSchema.parse(result), `${name} output`).not.toThrow();
     };
     await check("bcdev_status", {});
@@ -174,14 +175,89 @@ describe("tools", () => {
     expect(state.testRunActive).toBe(false);
   });
 
+  test("bcdev_test_run returns a summary and parsed, source-mapped failure", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") {
+        queueMicrotask(() => {
+          hub.emit("TestCompleted", 50100, "A", 1, 'boom\r\nAL Callstack:\r\n"T"(CodeUnit 50100).A() line 7 - Local app', 6);
+          hub.emit("TestCompleted", 50100, "", 1, "rollup", 99);
+          hub.emit("TestRunCompleted", { Tests: [] });
+        });
+      }
+      return undefined;
+    };
+    const result = (await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] })) as {
+      summary: Record<string, unknown>;
+      results: Array<{ failure?: { parsed: boolean; callStack: Array<{ file: string | null }> } }>;
+      nextSteps: string[];
+    };
+    expect(result.summary).toMatchObject({ outcome: "failed", total: 1, failed: 1, syntheticResults: 1, durationMs: 6 });
+    expect(result.results[0]?.failure?.parsed).toBe(true);
+    expect(result.results[0]?.failure?.callStack[0]?.file).toEndWith("T.Codeunit.al");
+    expect(result.nextSteps.join(" ")).toContain("bcdev_debug_attach");
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
+  });
+
   test("bcdev_debug_attach maps file/line breakpoints and stores session", async () => {
     const { state, tools } = setup(hub);
     hub.onInvoke = (method) => (method === "AddBreakpoint" ? { BreakpointId: 7 } : undefined);
     const attach = (await tools.get("bcdev_debug_attach")!.handler({
       breakpoints: [{ file: "T.Codeunit.al", line: 6 }],
     })) as Record<string, unknown>;
-    expect(attach["breakpoints"]).toEqual([{ breakpointId: 7, file: "T.Codeunit.al", line: 6 }]);
+    expect(attach["breakpoints"]).toEqual([{
+      breakpointId: 7,
+      file: "T.Codeunit.al",
+      line: 6,
+      verification: {
+        status: "unverified",
+        methodName: null,
+        internalMethodName: null,
+        objectType: null,
+        objectId: null,
+        span: null,
+      },
+    }]);
     expect(state.debug).not.toBeNull();
+  });
+
+  test("bcdev_debug_breakpoints returns verified server location metadata", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => method === "AddBreakpoint"
+      ? {
+          BreakpointId: 8,
+          MethodName: "A",
+          InternalMethodName: "A@0",
+          ObjectId: { ObjectType: 5, ObjectNumber: 50100 },
+          SourceSpan: { From: { Line: 5, Column: 0 }, To: { Line: 5, Column: 8 } },
+        }
+      : undefined;
+    await tools.get("bcdev_debug_attach")!.handler({});
+    const result = (await tools.get("bcdev_debug_breakpoints")!.handler({
+      add: [{ file: "T.Codeunit.al", line: 6 }],
+    })) as { added: Array<{ verification: Record<string, unknown> }> };
+    expect(result.added[0]?.verification).toMatchObject({
+      status: "verified",
+      methodName: "A",
+      internalMethodName: "A@0",
+      objectType: 5,
+      objectId: 50100,
+      span: { from: { line: 6, column: 1 }, to: { line: 6, column: 9 } },
+    });
+    expect(() => tools.get("bcdev_debug_breakpoints")!.outputSchema.parse(result)).not.toThrow();
+  });
+
+  test("bcdev_debug_variables exposes server change flags", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => method === "GetVariables"
+      ? [{ Name: "Counter", TypeName: "Integer", Summary: "2", HasChildren: false, ChangeState: 2 }]
+      : undefined;
+    await tools.get("bcdev_debug_attach")!.handler({});
+    const result = (await tools.get("bcdev_debug_variables")!.handler({ frameId: 0 })) as {
+      variables: Array<{ changeState: string; changed: boolean }>;
+    };
+    expect(result.variables[0]).toMatchObject({ changeState: "valueChanged", changed: true });
+    expect(() => tools.get("bcdev_debug_variables")!.outputSchema.parse(result)).not.toThrow();
   });
 
   test("bcdev_debug_attach forwards exact-session and trimmed user targeting", async () => {
@@ -222,7 +298,7 @@ describe("tools", () => {
     };
     await tools.get("bcdev_debug_attach")!.handler({ sqlInsight: true });
     const insight = (await tools.get("bcdev_debug_sql")!.handler({})) as Record<string, unknown>;
-    expect(insight).toEqual({ currentLatencyMs: 0.5, sqlExecutes: 3, lastStatements: [], lastLongRunning: [] });
+    expect(insight).toMatchObject({ currentLatencyMs: 0.5, sqlExecutes: 3, lastStatements: [], lastLongRunning: [] });
     expect(() => tools.get("bcdev_debug_sql")!.outputSchema.parse(insight)).not.toThrow();
 
     hub.onInvoke = (method) => (method === "GetVariables" ? [] : undefined);
@@ -318,6 +394,7 @@ describe("tools", () => {
       kind: "sessionBound",
       sessionId: 43210,
       hostId: "11111111-1111-1111-1111-111111111111",
+      nextSteps: ["Trigger the target workload, then call bcdev_debug_wait for a break or completion event."],
     });
     expect(() => tools.get("bcdev_debug_wait")!.outputSchema.parse(event)).not.toThrow();
   });
@@ -335,7 +412,7 @@ describe("tools", () => {
     expect(event).toMatchObject({ kind: "sessionBound", sessionId: null, hostId: null });
     expect(() => tools.get("bcdev_debug_wait")!.outputSchema.parse(event)).not.toThrow();
     const timedOut = await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 5 });
-    expect(timedOut).toEqual({ timedOut: true });
+    expect(timedOut).toEqual({ timedOut: true, nextSteps: ["Call bcdev_debug_wait again to keep waiting."] });
     expect(state.debug).not.toBeNull();
     expect(hub.invoked("GetNstSessionInfo")).toHaveLength(1);
   });
@@ -369,6 +446,29 @@ describe("tools", () => {
     await tools.get("bcdev_debug_run_tests")!.handler({ codeunits: [{ id: 50100 }] });
     await Bun.sleep(0); // authorization acquisition is asynchronous before the background hub starts
     expect(hub.invoked("Initialize")[0]?.args[1]).toBe("fake-conn-1");
+  });
+
+  test("debug-bound testRunFinished carries the same enriched result contract", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") {
+        queueMicrotask(() => {
+          hub.emit("TestCompleted", 50100, "A", 1, 'boom\nAL Callstack:\n"T"(CodeUnit 50100).A() line 7', 4);
+          hub.emit("TestRunCompleted", { Tests: [] });
+        });
+      }
+      return undefined;
+    };
+    await tools.get("bcdev_debug_attach")!.handler({});
+    await tools.get("bcdev_debug_run_tests")!.handler({ codeunits: [{ id: 50100 }] });
+    const event = (await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 500 })) as {
+      kind: string;
+      results: { summary: { outcome: string }; results: Array<{ failure?: { parsed: boolean } }> };
+    };
+    expect(event.kind).toBe("testRunFinished");
+    expect(event.results.summary.outcome).toBe("failed");
+    expect(event.results.results[0]?.failure?.parsed).toBe(true);
+    expect(() => tools.get("bcdev_debug_wait")!.outputSchema.parse(event)).not.toThrow();
   });
 
   test("bcdev_debug_run_tests: a synchronously-throwing background run surfaces a fatal event instead of an unhandled rejection", async () => {

@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-462%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-476%20passing-green)]()
 
 ## Overview
 
@@ -22,7 +22,8 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 
 | Feature | Description |
 |---------|-------------|
-| **Structured test runs** | Per-method pass/fail/skip with duration and failure output — every tool returns `structuredContent` validated by a published `outputSchema` |
+| **Agent-grade responses** | Every success returns schema-validated `structuredContent` plus contextual `nextSteps`; failures use stable, redacted JSON error bodies |
+| **Structured test runs** | Run-level pass/fail/abort counts, per-method duration, parsed AL call stacks, and local source mappings while retaining raw server output |
 | **Code coverage** | `procedure` mode, mapped back to local source files (`line` mode exists but is unproven against real BC) |
 | **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
 | **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break on all or unhandled errors only, record-write breaks (optionally skipping temp records), stack + variables + watch, stepping, abort/release at a break |
@@ -128,15 +129,15 @@ src/core/  (pure library — typed returns, injected deps)
 |------|---------|
 | `bcdev_status` | Preflight: reachability, auth, dev API version, feature gates |
 | `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files |
-| `bcdev_test_run` | Run tests, structured results, optional coverage |
+| `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, and optional coverage |
 | `bcdev_debug_attach` | Arm next-session/user-filtered attach or target an existing NST session; optionally set breakpoints |
 | `bcdev_debug_run_tests` | Run tests with breakpoints live |
 | `bcdev_debug_wait` | Long-poll for session-bound / break / run-finished lifecycle events |
 | `bcdev_debug_continue` | continue / stepOver / stepInto / stepOut / release / abort |
-| `bcdev_debug_variables` | Inspect locals, globals, expand records |
+| `bcdev_debug_variables` | Inspect locals/globals, expand records, and report server-provided change flags |
 | `bcdev_debug_eval` | Evaluate watch expression (large strings un-truncated) |
 | `bcdev_debug_sql` | Live SQL cost at a break: latency, executes, last statements |
-| `bcdev_debug_breakpoints` | Add/remove breakpoints mid-session |
+| `bcdev_debug_breakpoints` | Add/remove breakpoints and report the server's verified or relocated source span |
 | `bcdev_debug_detach` | End the debug session |
 | `bcdev_source` | Read the server’s deployed AL source for an object not on local disk |
 | `bcdev_profile_status` | Preflight the snapshot-debugger endpoint; report whether sampling CPU profiling is supported |
@@ -185,6 +186,24 @@ resources (draft [SEP-2640](https://github.com/modelcontextprotocol/modelcontext
 these up automatically; everything else sees them as plain readable resources.
 Sources live in `skills/`; `bun run embed-skills` regenerates `src/mcp/skills.generated.ts`.
 
+## Agent response contract
+
+Successful tool calls remain backward-compatible objects and add a required `nextSteps: string[]`.
+The array is contextual and may be empty when the result is terminal or no useful action follows.
+Test runs add `summary`; failed method rows add `failure.message`, `failure.parsed`, and predictable
+`failure.callStack` frames. The original `output` and each frame's `raw` text are retained so an
+unrecognized or localized server format never loses evidence.
+
+Breakpoint additions include `verification.status` (`verified`, `relocated`, or `unverified`) and
+the resolved object, method, and 1-based span when Business Central supplies them. Variable and
+watch nodes include `changeState` plus the convenience boolean `changed`; `unknown` means the
+server omitted or returned an unfamiliar wire value, not that the value was proven unchanged.
+
+MCP errors intentionally omit `structuredContent` (the protocol has no negotiated structured-error
+channel here). Their text content is a JSON object with stable `error.code`, `category`, `message`,
+`retryable`, `tool`, redacted `details`, and recovery `nextSteps`, so agents can parse it without
+scraping prose while existing MCP clients still receive a normal `isError: true` response.
+
 ## Key Files
 
 | File | Purpose |
@@ -203,7 +222,7 @@ Sources live in `skills/`; `bun run embed-skills` regenerates `src/mcp/skills.ge
 
 Ordered by intent, not commitment:
 
-1. **Agent-grade responses** — structured run summaries, parsed call stacks mapped to source lines, verified breakpoint locations, changed-variable flags, structured errors, and next-step hints on every tool. Designed, wire-validated.
+1. **Agent-grade responses** — **shipped.** Structured run summaries, parsed call stacks mapped to source lines, verified breakpoint locations, changed-variable flags, stable machine-readable error bodies, and next-step hints on every tool.
 2. **Debugger power controls** — **shipped.** Live SQL cost at a break (`bcdev_debug_sql`), break on unhandled errors only / skip temp-record writes, abort or release a paused operation, read deployed source for off-disk objects (`bcdev_source`), un-truncated watch strings.
 3. **CPU profiling** (`bcdev_profile_*`) — **shipped.** Capture a sampling CPU profile (`.alcpuprofile`, V8 format) of a live session and get back a ranked AL-hotspot summary, not just a blob. Four tools (status/start/poll/finish), validated end-to-end against a live BC28 — a real profile with AL call frames captured through the tools (`scripts/e2e-profile-results-2026-07-04.md`). (Full snapshot recording for VS Code replay shares the same core and stays deferred.)
 4. **Entra ID auth** — **shipped.** Azure CLI-backed cloud sandbox/production access alongside explicit on-prem UserPassword.

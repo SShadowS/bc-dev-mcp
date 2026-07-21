@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { BcDevError } from "../../core/agent-errors";
 import { SnapshotClient } from "../../core/snapshot/snapshot-client";
 import { summarizeProfile } from "../../core/snapshot/profile-summary";
 import { extractEntry, listEntryNames } from "../../core/snapshot/zip";
@@ -23,7 +24,7 @@ const AL_PERF_HINT =
   "For deep analysis (anti-patterns, AI insights), pass this .alcpuprofile to al-perf (github.com/SShadowS/al-perf).";
 
 function requireProfile(state: ServerState) {
-  if (!state.profile) throw new Error("No active profile — call bcdev_profile_start first");
+  if (!state.profile) throw new BcDevError("PROFILE_NOT_ACTIVE", "No active profile — call bcdev_profile_start first", "state");
   return state.profile;
 }
 

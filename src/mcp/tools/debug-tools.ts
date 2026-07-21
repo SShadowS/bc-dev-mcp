@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { AlObjectIndex } from "../../core/al-objects";
+import { BcDevError } from "../../core/agent-errors";
 import { DebuggerClient, type StepAction } from "../../core/hubs/debugger-hub";
 import { parseDatabaseStatistics } from "../../core/sql-insight";
+import { enrichTestRun } from "../../core/agent-results";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { DebugSession, type ServerState } from "../state";
 import {
@@ -108,7 +110,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         breakpoints: z.array(addedBreakpointSchema),
       }),
       handler: async (params) => {
-        if (state.debug) throw new Error("Debug session already active — call bcdev_debug_detach first");
+        if (state.debug) throw new BcDevError("DEBUG_SESSION_ACTIVE", "Debug session already active — call bcdev_debug_detach first", "state");
         const target = normalizeDebugTarget(params);
         const { config, authorization, project } = resolve(params, deps);
         const client = new DebuggerClient(deps.hubFactory);
@@ -152,7 +154,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       outputSchema: z.object({ started: z.literal(true), hint: z.string() }),
       handler: async (params) => {
         const session = requireSession(state);
-        if (state.testRunActive) throw new Error("A test run is already running — wait for it to finish");
+        if (state.testRunActive) throw new BcDevError("TEST_RUN_ACTIVE", "A test run is already running — wait for it to finish", "state");
         const { config, authorization } = resolve(params, deps);
         const debuggingContext = session.client.connectionId ?? "";
         state.testRunActive = true;
@@ -162,7 +164,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
             debuggingContext,
           })
           .then((result) => {
-            session.lastTestRun = result;
+            session.lastTestRun = enrichTestRun(result, session.index);
             session.push({ kind: "testRunFinished" });
           })
           .catch((err) => {

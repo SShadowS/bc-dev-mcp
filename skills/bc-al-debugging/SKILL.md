@@ -41,6 +41,10 @@ description: Interactively debug AL code on a Business Central server with the b
   session is live, breakpoints added for later code in the same run fire normally.
 - **Line numbers are 1-based** everywhere in these tools — use the line you see in your
   editor. (The BC wire is 0-based; conversion is internal.)
+- **Check breakpoint verification.** Each added breakpoint returns `verification.status`.
+  `verified` means the server accepted the requested line, `relocated` means it moved to the
+  returned 1-based span, and `unverified` means this server returned only a usable breakpoint ID.
+  Use the returned span rather than assuming the requested line will fire.
 - **Watch expressions are paths, not code.** `bcdev_debug_eval` resolves identifier /
   member paths only (`CustomerName`, `Customer."No."`). Operators come back
   `<Out Of Scope>` — and leave a synthetic empty-method entry in the test-run summary.
@@ -48,6 +52,10 @@ description: Interactively debug AL code on a Business Central server with the b
   `bcdev_debug_variables { frameId, expand: "<dot-joined path>" }`, e.g. `"Customer"` or
   `"Customer.Fields"`. Globals live under the `<Globals>` node (or pass
   `globals: true`).
+- **Variable changes come from Business Central.** Each variable/watch node has `changeState`
+  (`unchanged`, `new`, `valueChanged`, `descendantChanged`, or `unknown`) and `changed` is true
+  for the three changed states. On a first read, or when the server omits the wire flag,
+  `unknown` is not proof that a value stayed the same.
 - **Pages double-break:** page triggers fire twice per interaction on BC28 — expect two
   identical breaks, continue through the second.
 - **Test results arrive on the `testRunFinished` event** from `bcdev_debug_wait`, not from
@@ -68,3 +76,6 @@ description: Interactively debug AL code on a Business Central server with the b
 - **Precision breaks:** `breakOnError: "unhandled"` skips errors a try function catches and
   still breaks on uncaught ones; `breakOnRecordWrite: "nonTemporary"` skips temporary-record
   writes and still breaks on real-table writes.
+- **Responses guide the loop.** Every successful tool result includes `nextSteps` (possibly
+  empty for terminal results). MCP errors have `isError: true`, no `structuredContent`, and a
+  JSON text body with stable `error.code`, `retryable`, redacted detail, and recovery steps.

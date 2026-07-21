@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { BcDevError } from "../../core/agent-errors";
 import { AlObjectIndex, discoverTests } from "../../core/al-objects";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { fetchServerInfo } from "../../core/server-info";
 import type { CoverageMode } from "../../core/types";
+import { enrichTestRun } from "../../core/agent-results";
 import type { ServerState } from "../state";
 import { codeunitsShape, connectionShape, resolve, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
 
@@ -64,7 +66,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           .describe("Code coverage: 'procedure' is validated against real BC; 'line' is unproven — prefer 'procedure'. Default 'none'."),
       },
       handler: async (params) => {
-        if (state.testRunActive) throw new Error("A test run is already running — wait for it to finish");
+        if (state.testRunActive) throw new BcDevError("TEST_RUN_ACTIVE", "A test run is already running — wait for it to finish", "state");
         const { config, authorization, project } = resolve(params, deps);
         state.testRunActive = true;
         try {
@@ -74,8 +76,9 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             params["codeunits"] as Array<{ id: number; methods?: string[] }>,
             { company: params["company"] as string | undefined, coverage: params["coverage"] as CoverageMode | undefined },
           );
+          const index = await AlObjectIndex.build(project);
+          enrichTestRun(result, index);
           if (result.coverage?.length) {
-            const index = await AlObjectIndex.build(project);
             for (const entry of result.coverage) {
               for (const proc of entry.coveredProcedures) {
                 proc.file = index.byId(proc.objectType, proc.objectId)?.file;
