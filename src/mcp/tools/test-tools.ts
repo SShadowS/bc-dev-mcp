@@ -1,13 +1,12 @@
 import { z } from "zod";
 import { resolve as resolvePath } from "node:path";
-import { BcDevError } from "../../core/agent-errors";
 import { AlObjectIndex, discoverTests } from "../../core/al-objects";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { fetchServerInfo } from "../../core/server-info";
 import type { CoverageMode } from "../../core/types";
 import { enrichTestRun, mapTestRunSources, testRunNeedsSourceMapping } from "../../core/agent-results";
 import type { ServerState } from "../state";
-import { codeunitsShape, connectionShape, requireTestRunningSupport, resolve, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
+import { claimTestRun, codeunitsShape, connectionShape, requireTestRunningSupport, resolve, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
 
 const indexByProject = new Map<string, Promise<AlObjectIndex>>();
 
@@ -85,11 +84,10 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           .describe("Code coverage: 'procedure' is validated against real BC; 'line' is unproven — prefer 'procedure'. Default 'none'."),
       },
       handler: async (params) => {
-        if (state.testRunActive) throw new BcDevError("TEST_RUN_ACTIVE", "A test run is already running — wait for it to finish", "state");
-        const { config, authorization, project } = resolve(params, deps);
-        await requireTestRunningSupport(config, authorization, deps);
-        state.testRunActive = true;
+        claimTestRun(state);
         try {
+          const { config, authorization, project } = resolve(params, deps);
+          await requireTestRunningSupport(config, authorization, deps);
           const result = await new TestRunnerClient(deps.hubFactory).run(
             config,
             authorization,

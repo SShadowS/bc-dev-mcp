@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-484%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-489%20passing-green)]()
 
 ## Overview
 
@@ -213,8 +213,10 @@ detail values are redacted, and sensitive detail keys fail closed to `[REDACTED]
 Debugger guidance accounts for asynchronous binding: next-session/user-filtered attach tells the
 agent to create or trigger the matching session before waiting, exact-session attach waits for
 confirmation before driving the operation, and a timeout reminds the agent to confirm the workload
-was triggered. Profiling guidance similarly branches on reachability, feature support, and whether
-the capture actually contained data.
+was triggered. Profiling guidance similarly branches on reachability, feature support, every poll
+status (`Initialized`, `Started`, `Finished`, or `Failed`), and whether the capture actually
+contained data. Test-running support is preflighted only after atomically claiming the shared
+single-run slot, so concurrent direct/debug-bound calls cannot pass the feature gate together.
 
 ## Key Files
 

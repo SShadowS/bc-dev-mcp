@@ -101,6 +101,8 @@ token, authorization header, or authenticated URL values. Evidence belongs in
 - [x] Error detail strings and sensitive detail keys are redacted. <!-- authenticated URL + authorization/accessToken/password details unit-tested 2026-07-20 -->
 - [x] Profile guidance branches on unreachable, unsupported, and empty-capture results. <!-- unit-tested 2026-07-20 -->
 - [x] Startup fails clearly if the private MCP SDK error-formatting seam is absent or cannot be replaced. <!-- current SDK integration exercised by server tests 2026-07-20 -->
+- [x] Profile polling guidance distinguishes Initialized, Started, Finished, and Failed instead of treating every non-ready state as retryable. <!-- all four statuses unit-tested 2026-07-20 -->
+- [x] Direct and debug-bound test entry points atomically claim the shared run slot before the typed unsupported-server preflight. <!-- deferred-metadata direct/direct, debug/debug, and direct/debug contention unit-tested 2026-07-20 -->
 
 ## Profiling (snapshot Sampling)
 

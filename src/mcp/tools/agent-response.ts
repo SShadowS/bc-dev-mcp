@@ -50,10 +50,20 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
         : ["Use a Business Central server that supports the requested profile mode."];
     case "bcdev_profile_start":
       return ["Trigger the target workload, then call bcdev_profile_poll until it reports ready."];
-    case "bcdev_profile_poll":
-      return result["ready"] === true
-        ? ["Call bcdev_profile_finish to save and summarize the capture."]
-        : ["Trigger or continue the target workload, then call bcdev_profile_poll again."];
+    case "bcdev_profile_poll": {
+      switch (result["status"]) {
+        case "Initialized":
+          return ["Trigger or continue the target workload, then call bcdev_profile_poll again."];
+        case "Started":
+          return ["Call bcdev_profile_finish to save and summarize the capture."];
+        case "Finished":
+          return ["Call bcdev_profile_finish to retrieve and clear the completed capture."];
+        case "Failed":
+          return ["Call bcdev_profile_finish to clear the failed capture, then review the result before starting another capture."];
+        default:
+          return [];
+      }
+    }
     case "bcdev_profile_finish":
       return result["captured"] === false
         ? ["Start a new capture, trigger the matching workload, poll until ready, then call bcdev_profile_finish again."]

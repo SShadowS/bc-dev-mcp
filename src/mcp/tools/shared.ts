@@ -28,6 +28,13 @@ export interface ToolDefinition {
   handler(params: Record<string, unknown>): Promise<unknown>;
 }
 
+export function claimTestRun(state: ServerState): void {
+  if (state.testRunActive) {
+    throw new BcDevError("TEST_RUN_ACTIVE", "A test run is already running — wait for it to finish", "state");
+  }
+  state.testRunActive = true;
+}
+
 const serverInfoByDeps = new WeakMap<ToolDeps, Map<string, Promise<DevServerInfo>>>();
 
 function connectionCacheKey(config: ConnectionConfig): string {

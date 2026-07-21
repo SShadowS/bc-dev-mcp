@@ -35,6 +35,14 @@ function setup(hub: FakeHub, fetchFn?: typeof fetch, hubFactory: ToolDeps["hubFa
   return { state, tools };
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe("tools", () => {
   let hub: FakeHub;
   beforeEach(() => {
@@ -184,6 +192,30 @@ describe("tools", () => {
     expect(error).toMatchObject({ code: "UNSUPPORTED_SERVER", category: "server" });
     expect(oldServer.state.testRunActive).toBe(false);
     expect(hub.invoked("RunTests")).toHaveLength(0);
+  });
+
+  test("bcdev_test_run claims the singleton lock before a deferred metadata preflight", async () => {
+    const metadata = deferred<Response>();
+    const { state, tools } = setup(hub, (async () => await metadata.promise) as unknown as typeof fetch);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") {
+        queueMicrotask(() => {
+          hub.emit("TestCompleted", 50100, "A", 0, "", 5);
+          hub.emit("TestRunCompleted", { Tests: [] });
+        });
+      }
+      return undefined;
+    };
+
+    const first = tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] });
+    const secondError = await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] }).catch((caught) => caught);
+    expect(secondError).toBeInstanceOf(BcDevError);
+    expect(secondError).toMatchObject({ code: "TEST_RUN_ACTIVE", category: "state" });
+    metadata.resolve(new Response(JSON.stringify({ WebApiVersion: "7.0" })));
+    await first;
+
+    expect(hub.invoked("RunTests")).toHaveLength(1);
+    expect(state.testRunActive).toBe(false);
   });
 
   test("bcdev_test_run returns a summary and parsed, source-mapped failure", async () => {
@@ -395,6 +427,31 @@ describe("tools", () => {
     expect(finished.nextSteps.join(" ")).toContain("Start a new capture");
   });
 
+  test("profile polling guidance handles every snapshot status", async () => {
+    const cases = [
+      ["Initialized", "Trigger or continue the target workload, then call bcdev_profile_poll again."],
+      ["Started", "Call bcdev_profile_finish to save and summarize the capture."],
+      ["Finished", "Call bcdev_profile_finish to retrieve and clear the completed capture."],
+      ["Failed", "Call bcdev_profile_finish to clear the failed capture, then review the result before starting another capture."],
+    ] as const;
+
+    for (const [status, nextStep] of cases) {
+      const current = setup(new FakeHub(), (async (input: RequestInfo | URL) =>
+        input.toString().includes("attach")
+          ? new Response('"NextSessionOnTenant"')
+          : new Response(`"${status}"`)) as unknown as typeof fetch);
+      await current.tools.get("bcdev_profile_start")!.handler({});
+      const polled = await current.tools.get("bcdev_profile_poll")!.handler({}) as {
+        status: string;
+        ready: boolean;
+        nextSteps: string[];
+      };
+      expect(polled.status).toBe(status);
+      expect(polled.ready).toBe(status === "Started");
+      expect(polled.nextSteps).toEqual([nextStep]);
+    }
+  });
+
   test("bcdev_debug_attach forwards precision break modes to the wire enums", async () => {
     const precisionHub = new FakeHub();
     const { tools } = setup(precisionHub);
@@ -505,6 +562,60 @@ describe("tools", () => {
     await tools.get("bcdev_debug_run_tests")!.handler({ codeunits: [{ id: 50100 }] });
     await Bun.sleep(0); // authorization acquisition is asynchronous before the background hub starts
     expect(hub.invoked("Initialize")[0]?.args[1]).toBe("fake-conn-1");
+  });
+
+  test("bcdev_debug_run_tests claims the singleton lock before a deferred metadata preflight", async () => {
+    const metadata = deferred<Response>();
+    const { state, tools } = setup(hub, (async () => await metadata.promise) as unknown as typeof fetch);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      return undefined;
+    };
+    await tools.get("bcdev_debug_attach")!.handler({});
+
+    const first = tools.get("bcdev_debug_run_tests")!.handler({ codeunits: [{ id: 50100 }] });
+    const secondError = await tools.get("bcdev_debug_run_tests")!.handler({ codeunits: [{ id: 50100 }] }).catch((caught) => caught);
+    expect(secondError).toBeInstanceOf(BcDevError);
+    expect(secondError).toMatchObject({ code: "TEST_RUN_ACTIVE", category: "state" });
+    metadata.resolve(new Response(JSON.stringify({ WebApiVersion: "7.0" })));
+    await first;
+    const event = await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 200 }) as Record<string, unknown>;
+
+    expect(event["kind"]).toBe("testRunFinished");
+    expect(hub.invoked("RunTests")).toHaveLength(1);
+    expect(state.testRunActive).toBe(false);
+  });
+
+  test("bcdev_debug_run_tests releases its claim when metadata preflight fails", async () => {
+    const { state, tools } = setup(hub, (async () =>
+      new Response(JSON.stringify({ WebApiVersion: "6.0" }))) as unknown as typeof fetch);
+    await tools.get("bcdev_debug_attach")!.handler({});
+
+    const error = await tools.get("bcdev_debug_run_tests")!.handler({ codeunits: [{ id: 50100 }] }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(BcDevError);
+    expect(error).toMatchObject({ code: "UNSUPPORTED_SERVER" });
+    expect(hub.invoked("RunTests")).toHaveLength(0);
+    expect(state.testRunActive).toBe(false);
+  });
+
+  test("direct and debug-bound test entry points share the preflight lock", async () => {
+    const metadata = deferred<Response>();
+    const { state, tools } = setup(hub, (async () => await metadata.promise) as unknown as typeof fetch);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      return undefined;
+    };
+    await tools.get("bcdev_debug_attach")!.handler({});
+
+    const direct = tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] });
+    const debugError = await tools.get("bcdev_debug_run_tests")!.handler({ codeunits: [{ id: 50100 }] }).catch((caught) => caught);
+    expect(debugError).toBeInstanceOf(BcDevError);
+    expect(debugError).toMatchObject({ code: "TEST_RUN_ACTIVE" });
+    metadata.resolve(new Response(JSON.stringify({ WebApiVersion: "7.0" })));
+    await direct;
+
+    expect(hub.invoked("RunTests")).toHaveLength(1);
+    expect(state.testRunActive).toBe(false);
   });
 
   test("debug-bound testRunFinished carries the same enriched result contract", async () => {

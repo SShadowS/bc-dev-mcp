@@ -10,6 +10,7 @@ import {
   addedBreakpointSchema,
   annotateFiles,
   breakpointShape,
+  claimTestRun,
   codeunitsShape,
   connectionShape,
   mapBreakpoints,
@@ -155,30 +156,34 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       outputSchema: z.object({ started: z.literal(true), hint: z.string() }),
       handler: async (params) => {
         const session = requireSession(state);
-        if (state.testRunActive) throw new BcDevError("TEST_RUN_ACTIVE", "A test run is already running — wait for it to finish", "state");
-        const { config, authorization } = resolve(params, deps);
-        await requireTestRunningSupport(config, authorization, deps);
-        const debuggingContext = session.client.connectionId ?? "";
-        state.testRunActive = true;
-        void new TestRunnerClient(deps.hubFactory)
-          .run(config, authorization, params["codeunits"] as Array<{ id: number; methods?: string[] }>, {
-            company: params["company"] as string | undefined,
-            debuggingContext,
-          })
-          .then((result) => {
-            session.lastTestRun = enrichTestRun(result, session.index);
-            session.push({ kind: "testRunFinished" });
-          })
-          .catch((err) => {
-            session.push({ kind: "fatal", message: `Test run failed to start: ${String(err)}` });
-          })
-          .finally(() => {
-            state.testRunActive = false;
-          });
-        return {
-          started: true,
-          hint: "Call bcdev_debug_wait to receive break events; testRunFinished signals completion and carries the results.",
-        };
+        claimTestRun(state);
+        try {
+          const { config, authorization } = resolve(params, deps);
+          await requireTestRunningSupport(config, authorization, deps);
+          const debuggingContext = session.client.connectionId ?? "";
+          void new TestRunnerClient(deps.hubFactory)
+            .run(config, authorization, params["codeunits"] as Array<{ id: number; methods?: string[] }>, {
+              company: params["company"] as string | undefined,
+              debuggingContext,
+            })
+            .then((result) => {
+              session.lastTestRun = enrichTestRun(result, session.index);
+              session.push({ kind: "testRunFinished" });
+            })
+            .catch((err) => {
+              session.push({ kind: "fatal", message: `Test run failed to start: ${String(err)}` });
+            })
+            .finally(() => {
+              state.testRunActive = false;
+            });
+          return {
+            started: true,
+            hint: "Call bcdev_debug_wait to receive break events; testRunFinished signals completion and carries the results.",
+          };
+        } catch (error) {
+          state.testRunActive = false;
+          throw error;
+        }
       },
     },
     {

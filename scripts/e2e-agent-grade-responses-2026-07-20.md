@@ -31,6 +31,12 @@ debug-bound test returned `testRunFinished`, `sessionBound`, and `detached` with
 The run exited successfully. The already-installed failure probe again did not fail, so no new live
 call-stack claim is made.
 
+After the final branch-scope correction moved the singleton test-run claim ahead of the metadata
+preflight, the same redacted SaaS harness passed again. Both the ordinary and debug-bound test paths
+completed through the live preflight, with the expected summary and lifecycle contracts. The
+concurrent/preflight-failure cases and all four profile-poll statuses are deterministic unit tests;
+no claim is made that simultaneous Sandbox calls or terminal profile states were observed live.
+
 ## Additional observations
 
 - The selected published object did not expose deployed source through the Sandbox REST route;
