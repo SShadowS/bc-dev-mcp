@@ -1,17 +1,21 @@
 import { z } from "zod";
 import { AlObjectIndex } from "../../core/al-objects";
+import { BcDevError } from "../../core/agent-errors";
 import { DebuggerClient, type StepAction } from "../../core/hubs/debugger-hub";
 import { parseDatabaseStatistics } from "../../core/sql-insight";
+import { enrichTestRun } from "../../core/agent-results";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { DebugSession, type ServerState } from "../state";
 import {
   addedBreakpointSchema,
   annotateFiles,
   breakpointShape,
+  claimTestRun,
   codeunitsShape,
   connectionShape,
   mapBreakpoints,
   requireSession,
+  requireTestRunningSupport,
   resolve,
   runTestsOutputSchema,
   stackFrameSchema,
@@ -108,7 +112,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         breakpoints: z.array(addedBreakpointSchema),
       }),
       handler: async (params) => {
-        if (state.debug) throw new Error("Debug session already active — call bcdev_debug_detach first");
+        if (state.debug) throw new BcDevError("DEBUG_SESSION_ACTIVE", "Debug session already active — call bcdev_debug_detach first", "state");
         const target = normalizeDebugTarget(params);
         const { config, authorization, project } = resolve(params, deps);
         const client = new DebuggerClient(deps.hubFactory);
@@ -152,29 +156,34 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       outputSchema: z.object({ started: z.literal(true), hint: z.string() }),
       handler: async (params) => {
         const session = requireSession(state);
-        if (state.testRunActive) throw new Error("A test run is already running — wait for it to finish");
-        const { config, authorization } = resolve(params, deps);
-        const debuggingContext = session.client.connectionId ?? "";
-        state.testRunActive = true;
-        void new TestRunnerClient(deps.hubFactory)
-          .run(config, authorization, params["codeunits"] as Array<{ id: number; methods?: string[] }>, {
-            company: params["company"] as string | undefined,
-            debuggingContext,
-          })
-          .then((result) => {
-            session.lastTestRun = result;
-            session.push({ kind: "testRunFinished" });
-          })
-          .catch((err) => {
-            session.push({ kind: "fatal", message: `Test run failed to start: ${String(err)}` });
-          })
-          .finally(() => {
-            state.testRunActive = false;
-          });
-        return {
-          started: true,
-          hint: "Call bcdev_debug_wait to receive break events; testRunFinished signals completion and carries the results.",
-        };
+        claimTestRun(state);
+        try {
+          const { config, authorization } = resolve(params, deps);
+          await requireTestRunningSupport(config, authorization, deps);
+          const debuggingContext = session.client.connectionId ?? "";
+          void new TestRunnerClient(deps.hubFactory)
+            .run(config, authorization, params["codeunits"] as Array<{ id: number; methods?: string[] }>, {
+              company: params["company"] as string | undefined,
+              debuggingContext,
+            })
+            .then((result) => {
+              session.lastTestRun = enrichTestRun(result, session.index);
+              session.push({ kind: "testRunFinished" });
+            })
+            .catch((err) => {
+              session.push({ kind: "fatal", message: `Test run failed to start: ${String(err)}` });
+            })
+            .finally(() => {
+              state.testRunActive = false;
+            });
+          return {
+            started: true,
+            hint: "Call bcdev_debug_wait to receive break events; testRunFinished signals completion and carries the results.",
+          };
+        } catch (error) {
+          state.testRunActive = false;
+          throw error;
+        }
       },
     },
     {
@@ -294,7 +303,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
           await client.getVariables(frameId),
           (path) => client.expandNode(frameId, path),
         );
-        if (!insight) throw new Error("SQL insight is off — re-attach with sqlInsight: true (bcdev_debug_attach)");
+        if (!insight) throw new BcDevError("SQL_INSIGHT_NOT_ENABLED", "SQL insight is off — re-attach with sqlInsight: true (bcdev_debug_attach)", "state");
         return insight;
       },
     },

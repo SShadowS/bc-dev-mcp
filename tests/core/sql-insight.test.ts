@@ -6,7 +6,7 @@ import type { VariableNode } from "../../src/core/hubs/debugger-hub";
 // GetVariables grows a `<Database Statistics>` top-level node when EnableSqlInformationDebugger
 // is on; statement lists expand to SQLn nodes whose children carry the metrics.
 function node(name: string, summary = "", hasChildren = false, children?: VariableNode[]): VariableNode {
-  return { name, typeName: "", summary, hasChildren, children };
+  return { name, typeName: "", summary, hasChildren, changeState: "unchanged", changed: false, children };
 }
 
 const topLevel: VariableNode[] = [

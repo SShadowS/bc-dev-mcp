@@ -11,6 +11,7 @@
  * requests, run background refresh, support static tokens, or provide a command plug-in system.
  */
 import { execFile } from "node:child_process";
+import { BcDevError } from "./agent-errors";
 import type { ConnectionConfig } from "./types";
 
 export interface AuthorizationProvider {
@@ -112,7 +113,7 @@ export class AzureCliAuthorizationProvider implements AuthorizationProvider {
     // inert argument. This permits tenant GUIDs and verified domain names while rejecting shell
     // metacharacters, whitespace, paths, and quoting on every platform.
     if (!/^[A-Za-z0-9._-]+$/.test(this.tenant)) {
-      throw new Error("Business Central Entra tenant must be a GUID or domain name");
+      throw new BcDevError("CONFIGURATION_ERROR", "Business Central Entra tenant must be a GUID or domain name", "configuration");
     }
     let result: ProcessResult;
     try {
@@ -135,14 +136,14 @@ export class AzureCliAuthorizationProvider implements AuthorizationProvider {
     try {
       parsed = JSON.parse(result.stdout) as CliTokenResponse;
     } catch {
-      throw new Error("Azure CLI returned invalid JSON while acquiring a Business Central access token");
+      throw new BcDevError("CONFIGURATION_ERROR", "Azure CLI returned invalid JSON while acquiring a Business Central access token", "configuration");
     }
     if (typeof parsed.accessToken !== "string" || parsed.accessToken.trim() === "") {
-      throw new Error("Azure CLI response did not contain a Business Central access token");
+      throw new BcDevError("AUTHENTICATION_FAILED", "Azure CLI response did not contain a Business Central access token", "auth");
     }
     const expiresAt = this.parseExpiration(parsed);
     if (expiresAt <= this.clock()) {
-      throw new Error("Azure CLI returned an already expired Business Central access token");
+      throw new BcDevError("AUTHENTICATION_FAILED", "Azure CLI returned an already expired Business Central access token", "auth");
     }
     return { header: `Bearer ${parsed.accessToken.trim()}`, expiresAt };
   }
@@ -159,23 +160,23 @@ export class AzureCliAuthorizationProvider implements AuthorizationProvider {
       const value = Date.parse(normalized);
       if (Number.isFinite(value)) return value;
     }
-    throw new Error("Azure CLI response did not contain a valid token expiration (`expires_on`)");
+    throw new BcDevError("CONFIGURATION_ERROR", "Azure CLI response did not contain a valid token expiration (`expires_on`)", "configuration");
   }
 
   private cliError(error: unknown): Error {
     const e = error as { code?: unknown; capturedStderr?: unknown };
-    if (e.code === "ENOENT") return new Error("Azure CLI (`az`) was not found; install it and run `az login`");
+    if (e.code === "ENOENT") return new BcDevError("CONFIGURATION_ERROR", "Azure CLI (`az`) was not found; install it and run `az login`", "configuration");
     const stderr = typeof e.capturedStderr === "string" ? e.capturedStderr.toLowerCase() : "";
     if (/consent|permission|resource|aadsts65001/.test(stderr)) {
-      return new Error("Azure CLI account lacks Business Central consent; sign in with an authorized account and grant the required delegated consent");
+      return new BcDevError("AUTHENTICATION_FAILED", "Azure CLI account lacks Business Central consent; sign in with an authorized account and grant the required delegated consent", "auth");
     }
     if (/aadsts50020|aadsts90002|tenant.*(?:not found|invalid|does not exist)/.test(stderr)) {
-      return new Error("Azure CLI could not acquire a token for the configured tenant; verify the launch.json tenant and Azure account");
+      return new BcDevError("AUTHENTICATION_FAILED", "Azure CLI could not acquire a token for the configured tenant; verify the launch.json tenant and Azure account", "auth");
     }
     if (/login|not logged|interaction_required|authentication/.test(stderr)) {
-      return new Error(`Azure CLI is not logged in for the configured tenant; run \`az login --tenant ${this.tenant}\``);
+      return new BcDevError("AUTHENTICATION_FAILED", `Azure CLI is not logged in for the configured tenant; run \`az login --tenant ${this.tenant}\``, "auth");
     }
-    return new Error("Azure CLI failed to acquire a Business Central access token; verify `az login`, tenant access, and Business Central consent");
+    return new BcDevError("AUTHENTICATION_FAILED", "Azure CLI failed to acquire a Business Central access token; verify `az login`, tenant access, and Business Central consent", "auth");
   }
 }
 

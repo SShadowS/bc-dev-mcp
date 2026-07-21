@@ -14,9 +14,11 @@ with its working directory set to the AL project.
 - [x] `coverage: "line"`: dump raw payload to decide the v2 schema (spec flags this unproven). <!-- 2026-07-03: dumped against BC28 — structurally identical to "procedure" mode for the codeunit tested, no distinct line-level schema observed -->
 - [x] DebuggerHub `Attach` + `DebugAdapterConfigurationDone` accepted (no hub exception). <!-- 2026-07-03 round 4 (fixes 38dc476 + 56f32de + 1f4a77d): Attach(SessionId:-1) accepted cleanly; ConfigurationDone is only accepted AFTER the debugger binds a session (HubConnected/at-break) and the deferred send on HubConnected now fires and returns OK on the wire — verified with an invoke-logging hubFactory proxy, and confirmed effective: breakOnError:false suppressed all break events on a run that breaks 12+ times under breakOnError:true. See "Round 4" in scripts/e2e-results-2026-07-03.md -->
 - [x] `AddBreakpoint({ObjectType,ObjectNumber},{Line,Column},condition)` returns a `BreakpointId`. <!-- 2026-07-03 round 2: full BreakpointDefinition returned (raw probe, at-break); BreakpointId can be NEGATIVE (hash). Caveat: succeeds even for objects not deployed on the server, then poisons the session — mismatch #8 -->
+- [x] `BreakpointDefinition.SourceSpan` uses 0-based debugger coordinates that become 1-based tool coordinates; an all-zero value-type span means unset, not line 1. `RelativeSourceSpan` is editor-relative metadata and is not reported. <!-- 2026-07-20 SaaS: real nonzero SourceSpan verified and converted; 2026-07-21: all-zero/unset path confirmed from the serialized BC contract and regression-tested as unverified -->
 - [x] Break event fires when a bcdev_debug_run_tests run hits the breakpoint; stack frames carry `StatementSpan.From.Line`. <!-- 2026-07-03 round 2: Break validated via break-on-error during a debug-bound test run (not via a source breakpoint — no deployable test app available); frames carry statementSpan.from.line in BOTH camelCase and PascalCase (mismatch #7); Break arg0 objectId is PascalCase-only -->
 - [x] `SetBreakpointResponse` 0-3 continue/step correctly. <!-- 2026-07-03 round 2: 0=Continue and 1=StepOver validated live (step break with errorMessage null at the caller frame); 2=StepInto / 3=StepOut not individually exercised (same call shape) -->
 - [x] `GetVariables(0)` returns LocalNode array; note casing. <!-- 2026-07-03 round 2: validated at-break; nodes carry name/typeName/summary/hasChildren/children/changeState in BOTH casings (mismatch #7); ExpandGlobals(0) also validated -->
+- [ ] `LocalNode.ChangeState` is the integer enum 0/1/2/3 (`unchanged`/`new`/`valueChanged`/`descendantChanged`); observe at least one nonzero value live. <!-- wire shape and all mappings unit-tested 2026-07-21; SaaS 2026-07-20 returned only 0 during the observed step, so the nonzero live case remains open -->
 - [ ] IsAlive arrives during a long break; session survives (auto-ack works). <!-- not validated 2026-07-03 round 2: ZERO IsAlive heartbeats during a 65s held break on this server — cadence unknown, auto-ack path never exercised live -->
 - [x] bcdev_debug_eval: GetWatchNode(frameId, expression, watchOption 0) returns a LocalNode; note casing. <!-- 2026-07-03 round 2: validated at-break; out-of-scope expression returns a graceful LocalNode (summary "<Out Of Scope>"); dual casing as mismatch #7 -->
 - [x] Observe BreakOnRecordWriteBehaviour semantics for breakOnRecordWrite true/false. <!-- 2026-07-16 BC28: validated — All breaks on temp+real Insert, ExcludeTemporary skips temp; see power-controls v2 section -->
@@ -79,6 +81,36 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 - [x] longRunningSqlThresholdMs — long-running list populates when a statement exceeds the threshold. <!-- 2026-07-16 BC28: threshold 1 ms captured 3 entries; note <Last SQL Statements> was empty while long-running populated -->
 - [ ] sqlInsight overhead: measure a test run with/without; note in the tool description if material.
 - [x] bcdev_debug_eval with WatchOption AllowLargeStrings=1 returns a >1KB string un-truncated (BC28). <!-- 2026-07-16: 2000-char PadStr returned in full (2002 chars incl. quotes); truncation-with-0 comparison not re-run -->
+
+## Agent-grade responses (SaaS Sandbox)
+
+Run against Sandbox only; never retain tenant, environment, user, host, session, connection,
+token, authorization header, or authenticated URL values. Evidence belongs in
+`scripts/e2e-agent-grade-responses-2026-07-20.md`.
+
+- [x] Every listed tool publishes `nextSteps` in its output schema; representative terminal and nonterminal successes return an array. <!-- 2026-07-20: 17/17 schema check plus live status/test/debug successes; see dated evidence -->
+- [ ] A deliberately failing AL test returns a run `summary`, preserves raw `output`, parses the `AL Callstack`, and maps at least one frame to a local source file. <!-- 2026-07-20: real Sandbox passing summary verified. The installed intentional-failure probe did not fail on this tenant, so the parser/source-map negative and positive cases remain covered by unit tests using the exact live BC28 AL Callstack shape; no test-only app was published merely to force a failure. -->
+- [x] The same enriched run result arrives through a debug-bound `testRunFinished` event. <!-- 2026-07-20 SaaS: real result row plus summary and nextSteps; sessionBound/detached also observed -->
+- [x] A live breakpoint addition reports `verified` or `relocated` with the server-resolved 1-based span; legacy ID-only and all-zero value-type spans remain unit-tested as `unverified`. <!-- 2026-07-20 SaaS WebClient: verified with non-null span; 2026-07-21 zero-span regression test -->
+- [x] At a live break, variables/watches expose normalized `changeState` and `changed`; record whether this Sandbox emits an observable changed state after stepping. <!-- 2026-07-20 SaaS WebClient: normalized nodes before/after a successful stepOver; no changed:true node was emitted for that step -->
+- [x] A failing tool returns `isError:true`, no `structuredContent`, and parseable redacted JSON text with stable code, retryability, tool name, and recovery steps. <!-- 2026-07-20: real MCP server over in-memory transport, NO_DEBUG_SESSION path -->
+
+### Agent-response review corrections
+
+- [x] Next-session/user-filtered attach guidance tells the agent to trigger the matching session before waiting; exact-session guidance waits for confirmation; timeout guidance cannot form a wait-only loop. <!-- unit-tested 2026-07-20 -->
+- [x] Exact launch-config and Azure CLI errors are typed at their source; active-profile, SQL-insight-disabled, and unsupported developer API states have stable codes. <!-- unit-tested with production messages 2026-07-20 -->
+- [x] Passing test runs without coverage do not require a local AL index; mapping-needed runs retain server results when the project is missing/unreadable. <!-- unit-tested and passing-run metadata preflight rerun on SaaS 2026-07-20 -->
+- [x] Error detail strings and sensitive detail keys are redacted. <!-- authenticated URL + authorization/accessToken/password details unit-tested 2026-07-20 -->
+- [x] Profile guidance branches on unreachable, unsupported, and empty-capture results. <!-- unit-tested 2026-07-20 -->
+- [x] If the private MCP SDK error-formatting seam is absent or cannot be replaced, startup emits a warning and keeps the SDK's default error formatting; the current SDK still routes validation errors through the replacement. <!-- missing/non-writable seam and live replacement integration unit-tested 2026-07-21 -->
+- [x] Profile polling guidance distinguishes Initialized, Started, Finished, and Failed instead of treating every non-ready state as retryable. <!-- all four statuses unit-tested 2026-07-20 -->
+- [x] Direct and debug-bound test entry points atomically claim the shared run slot before the typed unsupported-server preflight. <!-- deferred-metadata direct/direct, debug/debug, and direct/debug contention unit-tested 2026-07-20 -->
+- [x] Specific timeout and not-found fallbacks take precedence over generic validation words, and the SDK's disabled-tool response receives a stable state code. <!-- exact mixed-message and disabled-tool cases unit-tested 2026-07-21 -->
+- [x] MCP recovery guidance and error serialization live in the MCP layer; the core error type has no MCP tool-name or frontend dependency. <!-- architecture audit and typecheck 2026-07-21 -->
+- [x] Local source indexes are scoped to one dependency/server composition; successful developer-metadata preflights expire, and the request has a bounded timeout that releases the test-run lock. <!-- TTL refresh, abort-aware timeout, and lock cleanup unit-tested 2026-07-21 -->
+- [x] Source-mapping failures identify call-stack and/or coverage file fields precisely and do not partially map the result. <!-- missing-project procedure-coverage and call-stack cases unit-tested 2026-07-21 -->
+- [x] The response decorator rejects non-object output schemas and replaces payload-supplied `nextSteps` with locally generated guidance. <!-- unit-tested 2026-07-21 -->
+- [x] Error redaction removes URL userinfo as well as authentication query/header material; passing test rows omit the optional `failure` key. <!-- unit-tested 2026-07-21 -->
 
 ## Profiling (snapshot Sampling)
 

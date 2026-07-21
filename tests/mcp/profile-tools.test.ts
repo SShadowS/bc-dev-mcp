@@ -7,6 +7,7 @@ import { ServerState } from "../../src/mcp/state";
 import { createProfileTools } from "../../src/mcp/tools/profile-tools";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import type { ToolDeps } from "../../src/mcp/tools/shared";
+import { BcDevError } from "../../src/core/agent-errors";
 
 // Reuse the zip fixture builder from the core zip test (copy the two helpers here).
 function crc32(buf: Buffer): number { let c = ~0; for (let i = 0; i < buf.length; i++) { c ^= buf[i]!; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return (~c) >>> 0; }
@@ -49,7 +50,9 @@ describe("profile tools", () => {
     expect(r["attachKind"]).toBe("NextSessionOnTenant");
     expect(typeof r["debuggingContext"]).toBe("string");
     expect(state.profile).not.toBeNull();
-    await expect(tools.get("bcdev_profile_start")!.handler({ ...conn })).rejects.toThrow(/already active/);
+    const error = await tools.get("bcdev_profile_start")!.handler({ ...conn }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(BcDevError);
+    expect(error).toMatchObject({ code: "PROFILE_ACTIVE", category: "state" });
   });
 
   test("poll reports status and ready flag", async () => {
@@ -80,7 +83,7 @@ describe("profile tools", () => {
     expect(summary.hotspots[0]!.function).toBe("OnRun");
     expect(JSON.parse(readFileSync(outPath, "utf8")).nodes).toHaveLength(1);
     expect(state.profile).toBeNull();
-    expect((f["nextSteps"] as string[]).join(" ")).toContain("al-perf");
+    expect(f["nextSteps"]).toBeUndefined(); // added only by the MCP response decorator
   });
 
   test("finish on empty body reports captured:false", async () => {

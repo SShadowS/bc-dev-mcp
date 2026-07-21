@@ -49,6 +49,34 @@ export interface TestMethodResult {
   status: TestStatus;
   durationMs: number;
   output: string;
+  failure?: TestFailure;
+}
+
+export interface TestCallStackFrame {
+  raw: string;
+  objectType: number | null;
+  objectId: number | null;
+  objectName: string | null;
+  methodName: string | null;
+  line: number | null;
+  file: string | null;
+}
+
+export interface TestFailure {
+  message: string;
+  parsed: boolean;
+  callStack: TestCallStackFrame[];
+}
+
+export interface TestRunSummary {
+  outcome: "passed" | "failed" | "aborted";
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  durationMs: number;
+  syntheticResults: number;
+  failedTests: Array<{ codeunitId: number; method: string }>;
 }
 
 export interface CoverageProcedure {
@@ -66,6 +94,8 @@ export interface CoverageEntry {
 
 export interface RunTestsResult {
   results: TestMethodResult[];
+  summary?: TestRunSummary;
+  sourceMappingWarning?: string;
   coverage?: CoverageEntry[];
   runAborted?: boolean;
   abortReason?: string;

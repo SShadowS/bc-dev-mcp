@@ -14,8 +14,8 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
    (`Subtype = Test`) and their `[Test]` methods. No server involved. Use the returned
    `codeunitId` values in the next step.
 3. `bcdev_test_run { codeunits: [{ id: <codeunitId> }] }` — runs on the server, returns
-   per-method `passed | failed | skipped` with duration and failure output (message +
-   AL callstack). Restrict with `methods: ["Name"]`; pick the company with `company`.
+   a run `summary` plus per-method `passed | failed | skipped`, duration, and failure output.
+   Restrict with `methods: ["Name"]`; pick the company with `company`.
 
 ## Facts that save you time
 
@@ -26,8 +26,20 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
   back to local source files when the object IDs exist in the project.
 - **Tests run in codeunit declaration order**, not the order of your `methods` array.
 - **Synthetic results:** the run summary can contain an extra entry with an empty
-  method name (a server-side quirk, e.g. after watch evaluations). Ignore entries with
-  an empty `method`.
+  method name (a server-side quirk, e.g. after watch evaluations). `summary` excludes
+  these from totals and reports their count as `syntheticResults`; raw rows remain available.
+- **Failed rows are parsed without losing evidence.** Read `failure.message` and
+  `failure.callStack`; parsed frames use 1-based `line` and include local `file` when the
+  object maps to this project. `failure.parsed: false` means the server format was opaque or
+  localized — use the unchanged `output` text. Every frame also retains `raw`.
+- **Local mapping is best-effort.** Passing runs without coverage do not scan the AL tree. When
+  mapping is needed, the project index is reused within that MCP server; if the directory is
+  missing or unreadable, the complete server result still returns with `sourceMappingWarning`.
+  The warning identifies whether call-stack files remain `null`, coverage files remain unset, or
+  both mappings were unavailable.
+- **Follow the response, not a memorized script.** Every success includes `nextSteps`; an empty
+  array is valid when the run is complete. An MCP error's text is JSON with stable
+  `error.code`, `retryable`, and recovery `nextSteps` (and no `structuredContent`).
 - The tests must already be published to the server (publish via the dev endpoint or
   VS Code AL extension); this server runs tests, it does not publish apps.
 - Connection defaults come from the project's `.vscode/launch.json`. On-premises UserPassword

@@ -6,6 +6,7 @@ import { createDebugTools } from "./debug-tools";
 import { createProfileTools } from "./profile-tools";
 import { createSourceTools } from "./source-tools";
 import { createTestTools } from "./test-tools";
+import { withAgentResponses } from "./agent-response";
 
 export function createTools(state: ServerState, deps: ToolDeps): ToolDefinition[] {
   return [
@@ -13,5 +14,5 @@ export function createTools(state: ServerState, deps: ToolDeps): ToolDefinition[
     ...createDebugTools(state, deps),
     ...createProfileTools(state, deps),
     ...createSourceTools(state, deps),
-  ];
+  ].map(withAgentResponses);
 }

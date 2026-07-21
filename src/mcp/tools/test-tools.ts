@@ -1,10 +1,35 @@
 import { z } from "zod";
+import { resolve as resolvePath } from "node:path";
 import { AlObjectIndex, discoverTests } from "../../core/al-objects";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { fetchServerInfo } from "../../core/server-info";
 import type { CoverageMode } from "../../core/types";
+import { enrichTestRun, mapTestRunSources, testRunNeedsSourceMapping } from "../../core/agent-results";
 import type { ServerState } from "../state";
-import { codeunitsShape, connectionShape, resolve, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
+import { claimTestRun, codeunitsShape, connectionShape, requireTestRunningSupport, resolve, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
+
+const indexByDeps = new WeakMap<ToolDeps, Map<string, Promise<AlObjectIndex>>>();
+
+async function cachedObjectIndex(project: string, deps: ToolDeps): Promise<AlObjectIndex> {
+  const key = resolvePath(project);
+  let byProject = indexByDeps.get(deps);
+  if (!byProject) {
+    byProject = new Map();
+    indexByDeps.set(deps, byProject);
+  }
+  let pending = byProject.get(key);
+  if (!pending) {
+    pending = AlObjectIndex.build(key);
+    byProject.set(key, pending);
+    void pending.catch(() => {
+      if (byProject?.get(key) === pending) byProject.delete(key);
+    });
+    return await pending;
+  }
+  const index = await pending;
+  await index.refresh();
+  return index;
+}
 
 export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinition[] {
   return [
@@ -64,21 +89,37 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           .describe("Code coverage: 'procedure' is validated against real BC; 'line' is unproven — prefer 'procedure'. Default 'none'."),
       },
       handler: async (params) => {
-        if (state.testRunActive) throw new Error("A test run is already running — wait for it to finish");
-        const { config, authorization, project } = resolve(params, deps);
-        state.testRunActive = true;
+        claimTestRun(state);
         try {
+          const { config, authorization, project } = resolve(params, deps);
+          await requireTestRunningSupport(config, authorization, deps);
           const result = await new TestRunnerClient(deps.hubFactory).run(
             config,
             authorization,
             params["codeunits"] as Array<{ id: number; methods?: string[] }>,
             { company: params["company"] as string | undefined, coverage: params["coverage"] as CoverageMode | undefined },
           );
-          if (result.coverage?.length) {
-            const index = await AlObjectIndex.build(project);
-            for (const entry of result.coverage) {
-              for (const proc of entry.coveredProcedures) {
-                proc.file = index.byId(proc.objectType, proc.objectId)?.file;
+          enrichTestRun(result);
+          const needsCoverageMapping = result.coverage?.some((entry) => entry.coveredProcedures.length > 0) ?? false;
+          const needsCallStackMapping = testRunNeedsSourceMapping(result);
+          if (needsCallStackMapping || needsCoverageMapping) {
+            let index: AlObjectIndex | null = null;
+            try {
+              index = await cachedObjectIndex(project, deps);
+            } catch {
+              const unavailable = [
+                ...(needsCallStackMapping ? ["call-stack file fields remain null"] : []),
+                ...(needsCoverageMapping ? ["coverage procedure file fields remain unset"] : []),
+              ];
+              result.sourceMappingWarning =
+                `Local AL source mapping was unavailable; server test results are complete and ${unavailable.join("; ")}.`;
+            }
+            if (index) {
+              mapTestRunSources(result, index);
+              for (const entry of result.coverage ?? []) {
+                for (const proc of entry.coveredProcedures) {
+                  proc.file = index.byId(proc.objectType, proc.objectId)?.file;
+                }
               }
             }
           }

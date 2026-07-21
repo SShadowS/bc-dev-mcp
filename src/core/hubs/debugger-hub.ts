@@ -43,6 +43,8 @@ export interface VariableNode {
   typeName: string;
   summary: string;
   hasChildren: boolean;
+  changeState: "unchanged" | "new" | "valueChanged" | "descendantChanged" | "unknown";
+  changed: boolean;
   children?: VariableNode[];
 }
 
@@ -53,6 +55,7 @@ interface WireLocalNode {
   typeName: string | null;
   summary: string | null;
   hasChildren: boolean;
+  changeState?: unknown;
   children?: WireLocalNode[] | null;
 }
 
@@ -76,6 +79,37 @@ export interface NstSessionInfo {
 interface WireAttachTarget {
   SessionId: number;
   UserId: string | null;
+}
+
+interface WireBreakpointDefinition {
+  breakpointId?: unknown;
+  methodName?: unknown;
+  internalMethodName?: unknown;
+  objectId?: { objectType?: unknown; objectNumber?: unknown };
+  sourceSpan?: {
+    from?: { line?: unknown; column?: unknown };
+    to?: { line?: unknown; column?: unknown };
+  };
+  // WIRE: BreakpointDefinition.RelativeSourceSpan is editor-relative metadata; the tool reports
+  // the absolute SourceSpan used by the AL client (tw-decomp BreakpointDefinition.cs).
+  relativeSourceSpan?: unknown;
+}
+
+export interface BreakpointVerification {
+  status: "verified" | "relocated" | "unverified";
+  methodName: string | null;
+  internalMethodName: string | null;
+  objectType: number | null;
+  objectId: number | null;
+  span: {
+    from: { line: number; column: number };
+    to: { line: number; column: number };
+  } | null;
+}
+
+export interface BreakpointRegistration {
+  breakpointId: number;
+  verification: BreakpointVerification;
 }
 
 function normalizeAttachTarget(opts: DebugAttachOptions): WireAttachTarget {
@@ -113,11 +147,24 @@ function errorDetail(error: unknown): string {
 }
 
 function toVariableNode(n: WireLocalNode): VariableNode {
+  // WIRE: LocalNode.ChangeState is the integer LocalNodeChangeState enum 0/1/2/3; the property has
+  // no string-enum converter (tw-decomp LocalNode.cs and LocalNodeChangeState.cs).
+  const changeState = n.changeState === 0
+    ? "unchanged"
+    : n.changeState === 1
+      ? "new"
+      : n.changeState === 2
+        ? "valueChanged"
+        : n.changeState === 3
+          ? "descendantChanged"
+          : "unknown";
   return {
     name: n.name,
     typeName: n.typeName ?? "",
     summary: n.summary ?? "",
     hasChildren: n.hasChildren,
+    changeState,
+    changed: changeState === "new" || changeState === "valueChanged" || changeState === "descendantChanged",
     children: n.children ? n.children.map(toVariableNode) : undefined,
   };
 }
@@ -342,7 +389,7 @@ export class DebuggerClient {
     return { content, isAlContent: parsed.isALContent ?? content !== "" };
   }
 
-  async addBreakpoint(objectType: number, objectId: number, line: number, condition?: string): Promise<number> {
+  async addBreakpoint(objectType: number, objectId: number, line: number, condition?: string): Promise<BreakpointRegistration> {
     // WIRE: AddBreakpoint(ApplicationObjectIdWrapper, SourcePosition, condition) -> BreakpointDefinition (tw-decomp)
     // WIRE: server lines are 0-based (live BC28 2026-07-03: wire line 9 = editor line 10); tool surface is 1-based (editor convention), converted here.
     const def = await this.requireHub().invoke<unknown>(
@@ -351,11 +398,45 @@ export class DebuggerClient {
       { Line: line - 1, Column: 0 },
       condition ?? "",
     );
-    const parsed = normalizeKeys<{ breakpointId?: number }>(def ?? {});
+    const parsed = normalizeKeys<WireBreakpointDefinition>(def ?? {});
     if (typeof parsed.breakpointId !== "number") {
       throw new Error("Server did not return a breakpoint id — breakpoint was not set");
     }
-    return parsed.breakpointId;
+    const returnedType = typeof parsed.objectId?.objectType === "number" ? parsed.objectId.objectType : null;
+    const returnedId = typeof parsed.objectId?.objectNumber === "number" ? parsed.objectId.objectNumber : null;
+    if ((returnedType !== null && returnedType !== objectType) || (returnedId !== null && returnedId !== objectId)) {
+      await this.removeBreakpoint(parsed.breakpointId).catch(() => {});
+      throw new Error(
+        `Server returned breakpoint ${parsed.breakpointId} for object ${returnedType ?? "?"}:${returnedId ?? "?"}, not requested object ${objectType}:${objectId}`,
+      );
+    }
+    const from = parsed.sourceSpan?.from;
+    const to = parsed.sourceSpan?.to;
+    const validSpan = typeof from?.line === "number" && Number.isInteger(from.line) && from.line >= 0
+      && typeof from.column === "number" && Number.isInteger(from.column) && from.column >= 0
+      && typeof to?.line === "number" && Number.isInteger(to.line) && to.line >= 0
+      && typeof to.column === "number" && Number.isInteger(to.column) && to.column >= 0;
+    // WIRE: SourceSpan is a value-type struct and an unset value serializes as four zeroes. Real
+    // positions use debugger coordinates converted to the tool's 1-based line/column convention;
+    // this matches the AL client's DebugHelper conversion (esp-decomp DebugHelper.cs).
+    const degenerateSpan = from?.line === 0 && from.column === 0 && to?.line === 0 && to.column === 0;
+    const span = validSpan && !degenerateSpan
+      ? {
+          from: { line: (from.line as number) + 1, column: (from.column as number) + 1 },
+          to: { line: (to.line as number) + 1, column: (to.column as number) + 1 },
+        }
+      : null;
+    return {
+      breakpointId: parsed.breakpointId,
+      verification: {
+        status: span === null ? "unverified" : span.from.line === line ? "verified" : "relocated",
+        methodName: typeof parsed.methodName === "string" ? parsed.methodName : null,
+        internalMethodName: typeof parsed.internalMethodName === "string" ? parsed.internalMethodName : null,
+        objectType: returnedType,
+        objectId: returnedId,
+        span,
+      },
+    };
   }
 
   async removeBreakpoint(breakpointId: number): Promise<void> {

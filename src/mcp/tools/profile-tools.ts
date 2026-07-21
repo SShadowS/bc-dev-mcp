@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { BcDevError } from "../../core/agent-errors";
 import { SnapshotClient } from "../../core/snapshot/snapshot-client";
 import { summarizeProfile } from "../../core/snapshot/profile-summary";
 import { extractEntry, listEntryNames } from "../../core/snapshot/zip";
@@ -19,11 +20,8 @@ const hotspotSchema = z.object({
   selfPct: z.number(),
 });
 
-const AL_PERF_HINT =
-  "For deep analysis (anti-patterns, AI insights), pass this .alcpuprofile to al-perf (github.com/SShadowS/al-perf).";
-
 function requireProfile(state: ServerState) {
-  if (!state.profile) throw new Error("No active profile — call bcdev_profile_start first");
+  if (!state.profile) throw new BcDevError("PROFILE_NOT_ACTIVE", "No active profile — call bcdev_profile_start first", "state");
   return state.profile;
 }
 
@@ -84,7 +82,7 @@ export function createProfileTools(
       },
       outputSchema: z.object({ debuggingContext: z.string(), attachKind: z.string(), hint: z.string(), converterAvailable: z.boolean().optional() }),
       handler: async (params) => {
-        if (state.profile) throw new Error("Profile capture already active — call bcdev_profile_finish first");
+        if (state.profile) throw new BcDevError("PROFILE_ACTIVE", "Profile capture already active — call bcdev_profile_finish first", "state");
         const { config, authorization } = resolve(params, deps);
         const snapshotPort = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
         const kind = (params["kind"] as "sampling" | "instrumentation" | undefined) ?? "sampling";
@@ -163,7 +161,6 @@ export function createProfileTools(
           hotspots: z.array(hotspotSchema),
         }).optional(),
         hint: z.string().optional(),
-        nextSteps: z.array(z.string()).optional(),
       }),
       handler: async (params) => {
         const p = requireProfile(state);
@@ -191,7 +188,7 @@ export function createProfileTools(
             const outPath = (params["outPath"] as string | undefined) ?? join(deps.cwd, member);
             writeFileSync(outPath, profileBytes);
             const summary = summarizeProfile(profileBytes.toString("utf8"));
-            return { captured: true, profilePath: outPath, kind: "sampling", summary, nextSteps: [AL_PERF_HINT] };
+            return { captured: true, profilePath: outPath, kind: "sampling", summary };
           }
           // instrumentation: body is a .zip of .mdc
           const names = listEntryNames(fin.body);
@@ -208,7 +205,6 @@ export function createProfileTools(
               kind: "instrumentation-raw",
               zipPath,
               hint: "Raw .mdc snapshot saved. Convert with bc-mdc-converter (set BC_MDC_CONVERTER or put it on PATH — github.com/SShadowS/bc-mdc-converter), or open it in VS Code (AL: Open snapshot -> generate profile).",
-              nextSteps: [AL_PERF_HINT],
             };
           }
           const outPath = (params["outPath"] as string | undefined) ?? join(deps.cwd, `${p.debuggingContext}.alcpuprofile`);
@@ -219,7 +215,6 @@ export function createProfileTools(
               kind: "instrumentation-raw",
               zipPath,
               hint: `Raw .mdc snapshot saved; conversion failed (${conv.error}). Open the .zip in VS Code, or check the bc-mdc-converter binary.`,
-              nextSteps: [AL_PERF_HINT],
             };
           }
           const summary = summarizeProfile(readFileSync(outPath, "utf8"));
@@ -229,7 +224,6 @@ export function createProfileTools(
             profilePath: outPath,
             zipPath,
             summary,
-            nextSteps: [AL_PERF_HINT, "Instrumentation self-time is deterministic call-time, not statistical."],
           };
         } finally {
           state.profile = null;
