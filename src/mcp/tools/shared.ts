@@ -8,6 +8,7 @@ import { fetchServerInfo, type DevServerInfo } from "../../core/server-info";
 import type { AuthorizationProvider, AuthorizationProviderFactory } from "../../core/authorization";
 import { resolveConnection } from "../../core/launch-config";
 import type { ConnectionConfig } from "../../core/types";
+import { DEFAULT_DEV_PORT } from "../../core/urls";
 import { DebugSession, ServerState } from "../state";
 
 export interface ToolDeps {
@@ -16,6 +17,9 @@ export interface ToolDeps {
   fetchFn: typeof fetch;
   env: Record<string, string | undefined>;
   cwd: string;
+  serverInfoCacheTtlMs?: number;
+  serverInfoTimeoutMs?: number;
+  now?: () => number;
 }
 
 export interface ToolDefinition {
@@ -35,11 +39,29 @@ export function claimTestRun(state: ServerState): void {
   state.testRunActive = true;
 }
 
-const serverInfoByDeps = new WeakMap<ToolDeps, Map<string, Promise<DevServerInfo>>>();
+interface CachedServerInfo {
+  promise: Promise<DevServerInfo>;
+  expiresAt: number | null;
+}
+
+const DEFAULT_SERVER_INFO_CACHE_TTL_MS = 60_000;
+const serverInfoByDeps = new WeakMap<ToolDeps, Map<string, CachedServerInfo>>();
+
+function assertTestRunningSupport(info: DevServerInfo): void {
+  if (!info.supportsTestRunning) {
+    throw new BcDevError(
+      "UNSUPPORTED_SERVER",
+      `Business Central developer API ${info.webApiVersion} does not support TestRunnerHub; version 7.0 or newer is required`,
+      "server",
+      false,
+      { webApiVersion: info.webApiVersion },
+    );
+  }
+}
 
 function connectionCacheKey(config: ConnectionConfig): string {
   return config.environmentType === "OnPrem"
-    ? `OnPrem|${config.server}|${config.serverInstance}|${config.port ?? 7049}|${config.tenant ?? "default"}`
+    ? `OnPrem|${config.server}|${config.serverInstance}|${config.port ?? DEFAULT_DEV_PORT}|${config.tenant ?? "default"}`
     : `${config.environmentType}|${config.environmentName}|${config.tenant}`;
 }
 
@@ -54,24 +76,28 @@ export async function requireTestRunningSupport(
     serverInfoByDeps.set(deps, byTarget);
   }
   const key = connectionCacheKey(config);
-  let pending = byTarget.get(key);
-  if (!pending) {
-    pending = fetchServerInfo(config, authorization, deps.fetchFn);
-    byTarget.set(key, pending);
-    void pending.catch(() => {
-      if (byTarget?.get(key) === pending) byTarget.delete(key);
-    });
+  const now = deps.now ?? Date.now;
+  const cached = byTarget.get(key);
+  if (cached && (cached.expiresAt === null || cached.expiresAt > now())) {
+    const info = await cached.promise;
+    assertTestRunningSupport(info);
+    return;
   }
-  const info = await pending;
-  if (!info.supportsTestRunning) {
-    throw new BcDevError(
-      "UNSUPPORTED_SERVER",
-      `Business Central developer API ${info.webApiVersion} does not support TestRunnerHub; version 7.0 or newer is required`,
-      "server",
-      false,
-      { webApiVersion: info.webApiVersion },
-    );
-  }
+  const promise = fetchServerInfo(config, authorization, deps.fetchFn, deps.serverInfoTimeoutMs);
+  const entry: CachedServerInfo = { promise, expiresAt: null };
+  byTarget.set(key, entry);
+  void promise.then(
+    () => {
+      if (byTarget?.get(key) === entry) {
+        entry.expiresAt = now() + (deps.serverInfoCacheTtlMs ?? DEFAULT_SERVER_INFO_CACHE_TTL_MS);
+      }
+    },
+    () => {
+      if (byTarget?.get(key) === entry) byTarget.delete(key);
+    },
+  );
+  const info = await promise;
+  assertTestRunningSupport(info);
 }
 
 // Wire-derived data is always loose: unknown fields from BC must never fail output validation.

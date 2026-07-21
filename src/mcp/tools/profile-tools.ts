@@ -20,9 +20,6 @@ const hotspotSchema = z.object({
   selfPct: z.number(),
 });
 
-const AL_PERF_HINT =
-  "For deep analysis (anti-patterns, AI insights), pass this .alcpuprofile to al-perf (github.com/SShadowS/al-perf).";
-
 function requireProfile(state: ServerState) {
   if (!state.profile) throw new BcDevError("PROFILE_NOT_ACTIVE", "No active profile — call bcdev_profile_start first", "state");
   return state.profile;
@@ -164,7 +161,6 @@ export function createProfileTools(
           hotspots: z.array(hotspotSchema),
         }).optional(),
         hint: z.string().optional(),
-        nextSteps: z.array(z.string()).optional(),
       }),
       handler: async (params) => {
         const p = requireProfile(state);
@@ -192,7 +188,7 @@ export function createProfileTools(
             const outPath = (params["outPath"] as string | undefined) ?? join(deps.cwd, member);
             writeFileSync(outPath, profileBytes);
             const summary = summarizeProfile(profileBytes.toString("utf8"));
-            return { captured: true, profilePath: outPath, kind: "sampling", summary, nextSteps: [AL_PERF_HINT] };
+            return { captured: true, profilePath: outPath, kind: "sampling", summary };
           }
           // instrumentation: body is a .zip of .mdc
           const names = listEntryNames(fin.body);
@@ -209,7 +205,6 @@ export function createProfileTools(
               kind: "instrumentation-raw",
               zipPath,
               hint: "Raw .mdc snapshot saved. Convert with bc-mdc-converter (set BC_MDC_CONVERTER or put it on PATH — github.com/SShadowS/bc-mdc-converter), or open it in VS Code (AL: Open snapshot -> generate profile).",
-              nextSteps: [AL_PERF_HINT],
             };
           }
           const outPath = (params["outPath"] as string | undefined) ?? join(deps.cwd, `${p.debuggingContext}.alcpuprofile`);
@@ -220,7 +215,6 @@ export function createProfileTools(
               kind: "instrumentation-raw",
               zipPath,
               hint: `Raw .mdc snapshot saved; conversion failed (${conv.error}). Open the .zip in VS Code, or check the bc-mdc-converter binary.`,
-              nextSteps: [AL_PERF_HINT],
             };
           }
           const summary = summarizeProfile(readFileSync(outPath, "utf8"));
@@ -230,7 +224,6 @@ export function createProfileTools(
             profilePath: outPath,
             zipPath,
             summary,
-            nextSteps: [AL_PERF_HINT, "Instrumentation self-time is deterministic call-time, not statistical."],
           };
         } finally {
           state.profile = null;

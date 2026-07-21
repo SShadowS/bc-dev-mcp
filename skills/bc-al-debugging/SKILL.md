@@ -45,8 +45,9 @@ description: Interactively debug AL code on a Business Central server with the b
   editor. (The BC wire is 0-based; conversion is internal.)
 - **Check breakpoint verification.** Each added breakpoint returns `verification.status`.
   `verified` means the server accepted the requested line, `relocated` means it moved to the
-  returned 1-based span, and `unverified` means this server returned only a usable breakpoint ID.
-  Use the returned span rather than assuming the requested line will fire.
+  returned 1-based span, and `unverified` means the server returned a usable breakpoint ID without
+  a resolved span, including the all-zero value it uses for an unset span. Use a non-null returned
+  span rather than assuming the requested line will fire.
 - **Watch expressions are paths, not code.** `bcdev_debug_eval` resolves identifier /
   member paths only (`CustomerName`, `Customer."No."`). Operators come back
   `<Out Of Scope>` — and leave a synthetic empty-method entry in the test-run summary.

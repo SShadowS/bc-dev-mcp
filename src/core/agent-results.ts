@@ -79,7 +79,8 @@ export function mapTestRunSources(result: RunTestsResult, index: AlObjectIndex):
 
 export function enrichTestRun(result: RunTestsResult, index?: AlObjectIndex): RunTestsResult {
   for (const row of result.results) {
-    row.failure = row.status === "failed" ? parseTestFailure(row.output) : undefined;
+    if (row.status === "failed") row.failure = parseTestFailure(row.output);
+    else delete row.failure;
   }
   result.summary = summarizeTestRun(result);
   if (index) mapTestRunSources(result, index);

@@ -84,4 +84,11 @@ describe("agent test results", () => {
     expect(result.summary?.outcome).toBe("failed");
     expect(result.results[0]?.failure?.callStack[0]?.file).toBe(file);
   });
+
+  test("does not materialize the optional failure key on non-failed rows", () => {
+    const result = enrichTestRun({
+      results: [{ codeunitId: 50100, method: "Passes", status: "passed", durationMs: 1, output: "", failure: undefined }],
+    });
+    expect(Object.hasOwn(result.results[0]!, "failure")).toBe(false);
+  });
 });

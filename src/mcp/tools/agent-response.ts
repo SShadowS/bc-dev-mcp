@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { ToolDefinition } from "./shared";
 
+const AL_PERF_HINT =
+  "For deep analysis (anti-patterns, AI insights), pass this .alcpuprofile to al-perf (github.com/SShadowS/al-perf).";
+
 function generatedNextSteps(name: string, result: Record<string, unknown>, params: Record<string, unknown>): string[] {
   switch (name) {
     case "bcdev_status":
@@ -65,9 +68,12 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       }
     }
     case "bcdev_profile_finish":
-      return result["captured"] === false
-        ? ["Start a new capture, trigger the matching workload, poll until ready, then call bcdev_profile_finish again."]
-        : [];
+      if (result["captured"] === false) {
+        return ["Start a new capture, trigger the matching workload, poll until ready, then call bcdev_profile_finish again."];
+      }
+      return result["kind"] === "instrumentation"
+        ? [AL_PERF_HINT, "Instrumentation self-time is deterministic call-time, not statistical."]
+        : [AL_PERF_HINT];
     default:
       return [];
   }
@@ -90,10 +96,7 @@ export function withAgentResponses(tool: ToolDefinition): ToolDefinition {
         throw new Error(`Tool ${tool.name} returned a non-object success result`);
       }
       const result = value as Record<string, unknown>;
-      const existing = Array.isArray(result["nextSteps"]) && result["nextSteps"].every((step) => typeof step === "string")
-        ? result["nextSteps"] as string[]
-        : null;
-      return { ...result, nextSteps: existing ?? generatedNextSteps(tool.name, result, params) };
+      return { ...result, nextSteps: generatedNextSteps(tool.name, result, params) };
     },
   };
 }

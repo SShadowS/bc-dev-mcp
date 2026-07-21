@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildServer, toToolResponse } from "../../src/mcp/server";
+import { buildServer, installSdkErrorFormatter, toToolResponse } from "../../src/mcp/server";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
@@ -170,5 +170,31 @@ describe("toToolResponse", () => {
       expect(r.structuredContent, String(value)).toBeUndefined();
       expect(r.content[0]?.type).toBe("text");
     }
+  });
+});
+
+describe("installSdkErrorFormatter", () => {
+  test("degrades to the SDK formatter when the private seam is missing", () => {
+    const warnings: string[] = [];
+    expect(installSdkErrorFormatter({} as never, (message) => warnings.push(message))).toBe(false);
+    expect(warnings).toEqual([expect.stringContaining("default formatting")]);
+  });
+
+  test("degrades when the private seam is not replaceable", () => {
+    const server = {} as Record<string, unknown>;
+    Object.defineProperty(server, "createToolError", { value: () => ({}), writable: false });
+    const warnings: string[] = [];
+    expect(installSdkErrorFormatter(server as never, (message) => warnings.push(message))).toBe(false);
+    expect(warnings).toEqual([expect.stringContaining("not replaceable")]);
+  });
+
+  test("degrades when an SDK accessor ignores the replacement", () => {
+    const original = () => ({});
+    const server = {} as Record<string, unknown>;
+    Object.defineProperty(server, "createToolError", { get: () => original, set: () => {}, configurable: true });
+    const warnings: string[] = [];
+    expect(installSdkErrorFormatter(server as never, (message) => warnings.push(message))).toBe(false);
+    expect(warnings).toEqual([expect.stringContaining("did not take effect")]);
+    expect(server["createToolError"]).toBe(original);
   });
 });

@@ -83,7 +83,7 @@ describe("profile tools", () => {
     expect(summary.hotspots[0]!.function).toBe("OnRun");
     expect(JSON.parse(readFileSync(outPath, "utf8")).nodes).toHaveLength(1);
     expect(state.profile).toBeNull();
-    expect((f["nextSteps"] as string[]).join(" ")).toContain("al-perf");
+    expect(f["nextSteps"]).toBeUndefined(); // added only by the MCP response decorator
   });
 
   test("finish on empty body reports captured:false", async () => {

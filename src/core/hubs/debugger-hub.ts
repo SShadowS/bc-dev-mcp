@@ -90,6 +90,9 @@ interface WireBreakpointDefinition {
     from?: { line?: unknown; column?: unknown };
     to?: { line?: unknown; column?: unknown };
   };
+  // WIRE: BreakpointDefinition.RelativeSourceSpan is editor-relative metadata; the tool reports
+  // the absolute SourceSpan used by the AL client (tw-decomp BreakpointDefinition.cs).
+  relativeSourceSpan?: unknown;
 }
 
 export interface BreakpointVerification {
@@ -144,6 +147,8 @@ function errorDetail(error: unknown): string {
 }
 
 function toVariableNode(n: WireLocalNode): VariableNode {
+  // WIRE: LocalNode.ChangeState is the integer LocalNodeChangeState enum 0/1/2/3; the property has
+  // no string-enum converter (tw-decomp LocalNode.cs and LocalNodeChangeState.cs).
   const changeState = n.changeState === 0
     ? "unchanged"
     : n.changeState === 1
@@ -411,7 +416,11 @@ export class DebuggerClient {
       && typeof from.column === "number" && Number.isInteger(from.column) && from.column >= 0
       && typeof to?.line === "number" && Number.isInteger(to.line) && to.line >= 0
       && typeof to.column === "number" && Number.isInteger(to.column) && to.column >= 0;
-    const span = validSpan
+    // WIRE: SourceSpan is a value-type struct and an unset value serializes as four zeroes. Real
+    // positions use debugger coordinates converted to the tool's 1-based line/column convention;
+    // this matches the AL client's DebugHelper conversion (esp-decomp DebugHelper.cs).
+    const degenerateSpan = from?.line === 0 && from.column === 0 && to?.line === 0 && to.column === 0;
+    const span = validSpan && !degenerateSpan
       ? {
           from: { line: (from.line as number) + 1, column: (from.column as number) + 1 },
           to: { line: (to.line as number) + 1, column: (to.column as number) + 1 },

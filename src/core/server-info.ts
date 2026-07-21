@@ -11,6 +11,8 @@ export interface DevServerInfo {
   supportsSourceDownload: boolean;
 }
 
+export const DEFAULT_DEV_ENDPOINT_TIMEOUT_MS = 15_000;
+
 export class DevEndpointError extends Error {
   constructor(
     message: string,
@@ -36,16 +38,25 @@ export async function fetchServerInfo(
   c: ConnectionConfig,
   authorization: AuthorizationProvider,
   fetchFn: typeof fetch = fetch,
+  timeoutMs = DEFAULT_DEV_ENDPOINT_TIMEOUT_MS,
 ): Promise<DevServerInfo> {
+  const authHeader = await authorization.getAuthorizationHeader();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
     // WIRE: GET dev/metadata returns ServerInfo JSON (dep-decomp ServerInfoApiClient.cs)
-    response = await fetchFn(metadataUrl(c), { headers: { Authorization: await authorization.getAuthorizationHeader() } });
+    response = await fetchFn(metadataUrl(c), { headers: { Authorization: authHeader }, signal: controller.signal });
   } catch (err) {
+    if (controller.signal.aborted) {
+      throw new DevEndpointError(`Dev endpoint metadata request timed out after ${timeoutMs} ms`, "unreachable");
+    }
     throw new DevEndpointError(
       `Dev endpoint unreachable at ${metadataUrl(c)} — is the BC server running and the developer service port open? (${String(err)})`,
       "unreachable",
     );
+  } finally {
+    clearTimeout(timeout);
   }
   if (response.status === 401 || response.status === 403) {
     const hint = c.authentication === "UserPassword"

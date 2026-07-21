@@ -8,16 +8,21 @@ import { enrichTestRun, mapTestRunSources, testRunNeedsSourceMapping } from "../
 import type { ServerState } from "../state";
 import { claimTestRun, codeunitsShape, connectionShape, requireTestRunningSupport, resolve, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
 
-const indexByProject = new Map<string, Promise<AlObjectIndex>>();
+const indexByDeps = new WeakMap<ToolDeps, Map<string, Promise<AlObjectIndex>>>();
 
-async function cachedObjectIndex(project: string): Promise<AlObjectIndex> {
+async function cachedObjectIndex(project: string, deps: ToolDeps): Promise<AlObjectIndex> {
   const key = resolvePath(project);
-  let pending = indexByProject.get(key);
+  let byProject = indexByDeps.get(deps);
+  if (!byProject) {
+    byProject = new Map();
+    indexByDeps.set(deps, byProject);
+  }
+  let pending = byProject.get(key);
   if (!pending) {
     pending = AlObjectIndex.build(key);
-    indexByProject.set(key, pending);
+    byProject.set(key, pending);
     void pending.catch(() => {
-      if (indexByProject.get(key) === pending) indexByProject.delete(key);
+      if (byProject?.get(key) === pending) byProject.delete(key);
     });
     return await pending;
   }
@@ -96,18 +101,26 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           );
           enrichTestRun(result);
           const needsCoverageMapping = result.coverage?.some((entry) => entry.coveredProcedures.length > 0) ?? false;
-          if (testRunNeedsSourceMapping(result) || needsCoverageMapping) {
+          const needsCallStackMapping = testRunNeedsSourceMapping(result);
+          if (needsCallStackMapping || needsCoverageMapping) {
+            let index: AlObjectIndex | null = null;
             try {
-              const index = await cachedObjectIndex(project);
+              index = await cachedObjectIndex(project, deps);
+            } catch {
+              const unavailable = [
+                ...(needsCallStackMapping ? ["call-stack file fields remain null"] : []),
+                ...(needsCoverageMapping ? ["coverage procedure file fields remain unset"] : []),
+              ];
+              result.sourceMappingWarning =
+                `Local AL source mapping was unavailable; server test results are complete and ${unavailable.join("; ")}.`;
+            }
+            if (index) {
               mapTestRunSources(result, index);
               for (const entry of result.coverage ?? []) {
                 for (const proc of entry.coveredProcedures) {
                   proc.file = index.byId(proc.objectType, proc.objectId)?.file;
                 }
               }
-            } catch {
-              result.sourceMappingWarning =
-                "Local AL source mapping was unavailable; server test results are complete and call-stack file fields remain null.";
             }
           }
           return result;

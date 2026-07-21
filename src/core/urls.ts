@@ -1,6 +1,6 @@
 import type { ConnectionConfig } from "./types";
 
-const DEFAULT_DEV_PORT = 7049; // WIRE: UriHelper.GetPort fallback (dep-decomp UriHelper.cs)
+export const DEFAULT_DEV_PORT = 7049; // WIRE: UriHelper.GetPort fallback (dep-decomp UriHelper.cs)
 const CLOUD_API_ROOT = "https://api.businesscentral.dynamics.com/v2.0/";
 
 export function baseClientUrl(c: ConnectionConfig): string {

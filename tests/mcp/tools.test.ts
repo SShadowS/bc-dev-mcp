@@ -22,7 +22,12 @@ function makeProject(): string {
   return dir;
 }
 
-function setup(hub: FakeHub, fetchFn?: typeof fetch, hubFactory: ToolDeps["hubFactory"] = fakeHubFactory(hub)) {
+function setup(
+  hub: FakeHub,
+  fetchFn?: typeof fetch,
+  hubFactory: ToolDeps["hubFactory"] = fakeHubFactory(hub),
+  overrides: Partial<ToolDeps> = {},
+) {
   const state = new ServerState();
   const deps: ToolDeps = {
     hubFactory,
@@ -30,6 +35,7 @@ function setup(hub: FakeHub, fetchFn?: typeof fetch, hubFactory: ToolDeps["hubFa
     fetchFn: fetchFn ?? ((async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch),
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: makeProject(),
+    ...overrides,
   };
   const tools = new Map(createTools(state, deps).map((t) => [t.name, t]));
   return { state, tools };
@@ -216,6 +222,45 @@ describe("tools", () => {
 
     expect(hub.invoked("RunTests")).toHaveLength(1);
     expect(state.testRunActive).toBe(false);
+  });
+
+  test("test-running support cache expires and rechecks the server version", async () => {
+    let now = 0;
+    let webApiVersion = "7.0";
+    let metadataCalls = 0;
+    const fetchFn = (async () => {
+      metadataCalls++;
+      return new Response(JSON.stringify({ WebApiVersion: webApiVersion }));
+    }) as unknown as typeof fetch;
+    const { tools } = setup(hub, fetchFn, undefined, { now: () => now, serverInfoCacheTtlMs: 100 });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      return undefined;
+    };
+
+    await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] });
+    now = 50;
+    await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] });
+    expect(metadataCalls).toBe(1);
+
+    webApiVersion = "6.0";
+    now = 101;
+    const error = await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] }).catch((caught) => caught);
+    expect(error).toMatchObject({ code: "UNSUPPORTED_SERVER" });
+    expect(metadataCalls).toBe(2);
+    expect(hub.invoked("RunTests")).toHaveLength(2);
+  });
+
+  test("a timed-out metadata preflight releases the singleton test-run lock", async () => {
+    const hanging = ((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      })) as typeof fetch;
+    const { state, tools } = setup(hub, hanging, undefined, { serverInfoTimeoutMs: 5 });
+    const error = await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] }).catch((caught) => caught);
+    expect(error).toMatchObject({ kind: "unreachable", message: expect.stringContaining("timed out") });
+    expect(state.testRunActive).toBe(false);
+    expect(hub.invoked("RunTests")).toHaveLength(0);
   });
 
   test("bcdev_test_run returns a summary and parsed, source-mapped failure", async () => {
@@ -714,6 +759,37 @@ describe("tools", () => {
     expect(result.summary.outcome).toBe("failed");
     expect(result.results[0]?.failure?.callStack[0]?.file).toBeNull();
     expect(result.sourceMappingWarning).toContain("server test results are complete");
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
+  });
+
+  test("coverage mapping failure is nonfatal and names the unmapped coverage fields", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") {
+        queueMicrotask(() => hub.emit("TestRunCompleted", {
+          Tests: [{
+            ApplicationObjectId: 50100,
+            MethodId: 1,
+            CoveredProcedures: [{ ObjectType: 5, ObjectId: 50100, MethodId: 2 }],
+          }],
+        }));
+      }
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({
+      project: "/definitely/missing/al-project-with-coverage",
+      environmentType: "OnPrem",
+      server: "http://localhost",
+      serverInstance: "BC",
+      codeunits: [{ id: 50100 }],
+      coverage: "procedure",
+    }) as {
+      coverage: Array<{ coveredProcedures: Array<{ file?: string }> }>;
+      sourceMappingWarning?: string;
+    };
+    expect(result.coverage[0]?.coveredProcedures[0]?.file).toBeUndefined();
+    expect(result.sourceMappingWarning).toContain("coverage procedure file fields remain unset");
+    expect(result.sourceMappingWarning).not.toContain("call-stack");
     expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
   });
 

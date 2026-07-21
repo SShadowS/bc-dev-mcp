@@ -2,7 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ServerState } from "./state";
 import { createTools, type ToolDeps } from "./tools";
 import { skills, skillsIndexJson } from "./skills.generated";
-import { agentErrorBody, BcDevError } from "../core/agent-errors";
+import { BcDevError } from "../core/agent-errors";
+import { agentErrorBody } from "./agent-errors";
 
 function toAgentToolError(tool: string, error: unknown) {
   const body = agentErrorBody(tool, error);
@@ -12,7 +13,10 @@ function toAgentToolError(tool: string, error: unknown) {
   };
 }
 
-function installSdkErrorFormatter(server: McpServer): void {
+export function installSdkErrorFormatter(
+  server: McpServer,
+  warn: (message: string) => void = (message) => console.error(message),
+): boolean {
   // The high-level SDK validates inputs before invoking registered handlers and otherwise formats
   // those failures as unstructured prose. Replace that narrow formatting seam so schema failures
   // obey the same public error contract as handler failures. The SDK still owns validation itself.
@@ -20,8 +24,10 @@ function installSdkErrorFormatter(server: McpServer): void {
     createToolError?: (message: string) => ReturnType<typeof toAgentToolError>;
   };
   if (typeof formatter.createToolError !== "function") {
-    throw new Error("Incompatible @modelcontextprotocol/sdk: McpServer.createToolError is unavailable; pin or update the agent error integration");
+    warn("bc-dev-mcp warning: SDK validation errors will use default formatting because McpServer.createToolError is unavailable");
+    return false;
   }
+  const original = formatter.createToolError;
   const replacement = (message: string) => {
     const tool = /(?:arguments for tool|Tool)\s+([^:\s]+)/i.exec(message)?.[1] ?? "unknown";
     if (/Input validation error:/i.test(message)) {
@@ -33,16 +39,26 @@ function installSdkErrorFormatter(server: McpServer): void {
     if (/Tool\s+\S+\s+not found/i.test(message)) {
       return toAgentToolError(tool, new BcDevError("NOT_FOUND", message, "server"));
     }
-    return toAgentToolError(tool, new BcDevError("INTERNAL_ERROR", message, "internal"));
+    return toAgentToolError(tool, new Error(message));
   };
   try {
     formatter.createToolError = replacement;
-  } catch (error) {
-    throw new Error("Incompatible @modelcontextprotocol/sdk: McpServer.createToolError is not replaceable", { cause: error });
+  } catch {
+    warn("bc-dev-mcp warning: SDK validation errors will use default formatting because McpServer.createToolError is not replaceable");
+    return false;
   }
   if (formatter.createToolError !== replacement) {
-    throw new Error("Incompatible @modelcontextprotocol/sdk: McpServer.createToolError replacement did not take effect");
+    try {
+      formatter.createToolError = original;
+    } catch {
+      // Best effort: an unusual accessor ignored the first assignment and may reject restoration.
+    }
+    warn("bc-dev-mcp warning: SDK validation errors will use default formatting because the formatter replacement did not take effect");
+    return false;
   }
+  // The assignment check proves replacement only; the MCP validation integration test proves the
+  // installed SDK actually dispatches schema failures through this method.
+  return true;
 }
 
 // Runtime guard (v0.1 final review): the SDK publishes outputSchema for every tool, so a

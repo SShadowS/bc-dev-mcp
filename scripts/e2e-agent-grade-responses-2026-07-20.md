@@ -37,6 +37,16 @@ completed through the live preflight, with the expected summary and lifecycle co
 concurrent/preflight-failure cases and all four profile-poll statuses are deterministic unit tests;
 no claim is made that simultaneous Sandbox calls or terminal profile states were observed live.
 
+On 2026-07-21, the full review-correction build was run against the same SaaS Sandbox after adding
+the bounded metadata request, expiring capability cache, dependency-scoped source index, zero-span
+breakpoint handling, and MCP-layer error recovery. The harness again verified all 17 schemas, the
+machine-readable failure contract, a supported live metadata preflight, one passing ordinary test,
+and a debug-bound run with `sessionBound`, `testRunFinished`, `detached`, summary, result row, and
+`nextSteps`. It exited successfully. The installed failure probe still did not fail, and the fast
+debug-bound test completed without a breakpoint, so this rerun makes no new live claim for a
+nonzero `ChangeState` or an all-zero `SourceSpan`; those exact wire cases remain explicitly covered
+by deterministic regression tests.
+
 ## Additional observations
 
 - The selected published object did not expose deployed source through the Sandbox REST route;
@@ -47,4 +57,5 @@ no claim is made that simultaneous Sandbox calls or terminal profile states were
   result contract still arrived correctly. Breakpoint and variable response validation therefore
   used a WebClient workload, which produced a stable live pause.
 - The temporary harnesses were stored only under ignored `scratch/`. All debugger connections were
-  detached or closed. No cross-fork PR was created.
+  detached or closed. No cross-fork PR was created during the initial evidence run; the branch was
+  opened for review later at the user's request.

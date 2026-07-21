@@ -425,6 +425,28 @@ describe("DebuggerClient", () => {
     });
   });
 
+  test("addBreakpoint treats the wire's zeroed value-type SourceSpan as unverified", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => method === "AddBreakpoint" ? {
+      BreakpointId: 11,
+      MethodName: "Unresolved",
+      ObjectId: { ObjectType: 5, ObjectNumber: 50100 },
+      SourceSpan: { From: { Line: 0, Column: 0 }, To: { Line: 0, Column: 0 } },
+    } : undefined;
+    const { client } = await connected(hub);
+    expect(await client.addBreakpoint(5, 50100, 42)).toEqual({
+      breakpointId: 11,
+      verification: {
+        status: "unverified",
+        methodName: "Unresolved",
+        internalMethodName: null,
+        objectType: 5,
+        objectId: 50100,
+        span: null,
+      },
+    });
+  });
+
   test("addBreakpoint removes and rejects a response for the wrong object", async () => {
     const hub = new FakeHub();
     hub.onInvoke = (method) => method === "AddBreakpoint" ? {
@@ -471,6 +493,7 @@ describe("DebuggerClient", () => {
       HasChildren: true,
       ChangeState: 3,
       Children: [
+        { Name: "Inserted", TypeName: "Text", Summary: "B", HasChildren: false, ChangeState: 1 },
         { Name: "No.", TypeName: "Code", Summary: "10000", HasChildren: false, ChangeState: 2 },
         { Name: "Name", TypeName: "Text", Summary: "A", HasChildren: false, ChangeState: 0 },
         { Name: "Mystery", TypeName: "Text", Summary: "?", HasChildren: false, ChangeState: 99 },
@@ -480,6 +503,7 @@ describe("DebuggerClient", () => {
     const variables = await client.getVariables(0);
     expect(variables[0]).toMatchObject({ changeState: "descendantChanged", changed: true });
     expect(variables[0]?.children?.map((node) => [node.changeState, node.changed])).toEqual([
+      ["new", true],
       ["valueChanged", true],
       ["unchanged", false],
       ["unknown", false],

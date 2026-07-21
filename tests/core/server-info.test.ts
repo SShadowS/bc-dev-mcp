@@ -79,6 +79,17 @@ describe("fetchServerInfo", () => {
     await expect(fetchServerInfo(config, auth, failing)).rejects.toMatchObject({ kind: "unreachable" });
   });
 
+  test("aborts a metadata request at the configured timeout", async () => {
+    const hanging = ((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      })) as typeof fetch;
+    await expect(fetchServerInfo(config, auth, hanging, 5)).rejects.toMatchObject({
+      kind: "unreachable",
+      message: expect.stringContaining("timed out after 5 ms"),
+    });
+  });
+
   test("null wire fields become undefined, not 'null'", async () => {
     const info = await fetchServerInfo(config, auth, fakeFetch(200, { WebApiVersion: "7.0", RuntimeVersion: null }));
     expect(info.runtimeVersion).toBeUndefined();
