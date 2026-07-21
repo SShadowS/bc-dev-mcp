@@ -7,6 +7,7 @@ import {
   type ExecFileLike,
   type ProcessRunner,
 } from "../../src/core/authorization";
+import { BcDevError } from "../../src/core/agent-errors";
 
 const NOW = Date.parse("2026-07-10T20:00:00Z");
 
@@ -133,7 +134,10 @@ describe("authorization providers", () => {
 
   test("reports Azure CLI executable not found", async () => {
     const runner: ProcessRunner = async () => { throw Object.assign(new Error("secret-token"), { code: "ENOENT" }); };
-    await expect(new AzureCliAuthorizationProvider("tenant", runner, () => NOW).getAuthorizationHeader()).rejects.toThrow(/not found/);
+    const error = await new AzureCliAuthorizationProvider("tenant", runner, () => NOW).getAuthorizationHeader().catch((caught) => caught);
+    expect(error).toBeInstanceOf(BcDevError);
+    expect(error).toMatchObject({ code: "CONFIGURATION_ERROR", category: "configuration" });
+    expect((error as Error).message).toMatch(/Azure CLI.*not found/);
   });
 
   test("reports invalid JSON, token, expiration, and expired token separately", async () => {
@@ -150,6 +154,8 @@ describe("authorization providers", () => {
         .getAuthorizationHeader().catch((e: unknown) => e as Error);
       expect((error as Error).message, name).toMatch(pattern);
       expect((error as Error).message).not.toContain("secret-token");
+      expect(error).toBeInstanceOf(BcDevError);
+      expect((error as BcDevError).code, name).toBe(name === "missing token" || name === "expired" ? "AUTHENTICATION_FAILED" : "CONFIGURATION_ERROR");
     }
   });
 
@@ -161,5 +167,15 @@ describe("authorization providers", () => {
       .getAuthorizationHeader().catch((e: unknown) => e as Error);
     expect((error as Error).message).toMatch(/consent/);
     expect((error as Error).message).not.toContain("secret-token");
+    expect(error).toMatchObject({ code: "AUTHENTICATION_FAILED", category: "auth" });
+  });
+
+  test("login and tenant-access failures use typed authentication errors", async () => {
+    for (const stderr of ["Please run az login", "AADSTS90002 tenant not found"]) {
+      const runner: ProcessRunner = async () => { throw Object.assign(new Error("failed"), { capturedStderr: stderr }); };
+      const error = await new AzureCliAuthorizationProvider("tenant", runner, () => NOW).getAuthorizationHeader().catch((caught) => caught);
+      expect(error).toBeInstanceOf(BcDevError);
+      expect(error).toMatchObject({ code: "AUTHENTICATION_FAILED", category: "auth" });
+    }
   });
 });

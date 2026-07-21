@@ -18,6 +18,8 @@ description: Interactively debug AL code on a Business Central server with the b
    bind reports `kind: sessionBound` with `sessionId` and `hostId` (the optional `hostId` may be null). **A timeout is a normal result**
    (`timedOut: true`): just call it again. Other events carry `kind`: `break`,
    `testRunFinished` (with the test results embedded), `detached`, `fatal`.
+   If waiting times out before binding, confirm that you actually created or triggered the matching
+   WebClient/workload, then wait again; waiting alone cannot create a next-session target.
 4. At a `break`: `bcdev_debug_variables { frameId: 0 }` for locals,
    `bcdev_debug_eval { frameId: 0, expression: "..." }` for watches,
    `bcdev_debug_breakpoints { add: [...] }` to place file/line breakpoints.

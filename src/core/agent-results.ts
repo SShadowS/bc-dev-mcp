@@ -62,17 +62,26 @@ export function summarizeTestRun(result: RunTestsResult): TestRunSummary {
   };
 }
 
-export function enrichTestRun(result: RunTestsResult, index?: AlObjectIndex): RunTestsResult {
+export function testRunNeedsSourceMapping(result: RunTestsResult): boolean {
+  return result.results.some((row) => row.failure?.callStack.some((frame) => frame.objectType !== null && frame.objectId !== null));
+}
+
+export function mapTestRunSources(result: RunTestsResult, index: AlObjectIndex): RunTestsResult {
   for (const row of result.results) {
-    row.failure = row.status === "failed" ? parseTestFailure(row.output) : undefined;
-    if (row.failure && index) {
-      for (const frame of row.failure.callStack) {
-        if (frame.objectType !== null && frame.objectId !== null) {
-          frame.file = index.byId(frame.objectType, frame.objectId)?.file ?? null;
-        }
+    for (const frame of row.failure?.callStack ?? []) {
+      if (frame.objectType !== null && frame.objectId !== null) {
+        frame.file = index.byId(frame.objectType, frame.objectId)?.file ?? null;
       }
     }
   }
+  return result;
+}
+
+export function enrichTestRun(result: RunTestsResult, index?: AlObjectIndex): RunTestsResult {
+  for (const row of result.results) {
+    row.failure = row.status === "failed" ? parseTestFailure(row.output) : undefined;
+  }
   result.summary = summarizeTestRun(result);
+  if (index) mapTestRunSources(result, index);
   return result;
 }

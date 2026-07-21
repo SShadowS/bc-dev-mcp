@@ -93,6 +93,15 @@ token, authorization header, or authenticated URL values. Evidence belongs in
 - [x] At a live break, variables/watches expose normalized `changeState` and `changed`; record whether this Sandbox emits an observable changed state after stepping. <!-- 2026-07-20 SaaS WebClient: normalized nodes before/after a successful stepOver; no changed:true node was emitted for that step -->
 - [x] A failing tool returns `isError:true`, no `structuredContent`, and parseable redacted JSON text with stable code, retryability, tool name, and recovery steps. <!-- 2026-07-20: real MCP server over in-memory transport, NO_DEBUG_SESSION path -->
 
+### Agent-response review corrections
+
+- [x] Next-session/user-filtered attach guidance tells the agent to trigger the matching session before waiting; exact-session guidance waits for confirmation; timeout guidance cannot form a wait-only loop. <!-- unit-tested 2026-07-20 -->
+- [x] Exact launch-config and Azure CLI errors are typed at their source; active-profile, SQL-insight-disabled, and unsupported developer API states have stable codes. <!-- unit-tested with production messages 2026-07-20 -->
+- [x] Passing test runs without coverage do not require a local AL index; mapping-needed runs retain server results when the project is missing/unreadable. <!-- unit-tested and passing-run metadata preflight rerun on SaaS 2026-07-20 -->
+- [x] Error detail strings and sensitive detail keys are redacted. <!-- authenticated URL + authorization/accessToken/password details unit-tested 2026-07-20 -->
+- [x] Profile guidance branches on unreachable, unsupported, and empty-capture results. <!-- unit-tested 2026-07-20 -->
+- [x] Startup fails clearly if the private MCP SDK error-formatting seam is absent or cannot be replaced. <!-- current SDK integration exercised by server tests 2026-07-20 -->
+
 ## Profiling (snapshot Sampling)
 
 Runs against the **snapshot-debugger port** (`DEFAULT_SNAPSHOT_PORT = 7083`), separate from the dev

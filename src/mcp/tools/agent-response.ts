@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ToolDefinition } from "./shared";
 
-function generatedNextSteps(name: string, result: Record<string, unknown>): string[] {
+function generatedNextSteps(name: string, result: Record<string, unknown>, params: Record<string, unknown>): string[] {
   switch (name) {
     case "bcdev_status":
       return result["supportsTestRunning"] === true
@@ -18,13 +18,16 @@ function generatedNextSteps(name: string, result: Record<string, unknown>): stri
       return [];
     }
     case "bcdev_debug_attach":
+      return params["sessionId"] === undefined
+        ? ["Create or trigger the matching session, then call bcdev_debug_wait."]
+        : ["Call bcdev_debug_wait to confirm attachment, then drive the target operation."];
     case "bcdev_debug_run_tests":
     case "bcdev_debug_continue":
       return ["Call bcdev_debug_wait for the next debugger lifecycle event."];
     case "bcdev_debug_wait":
-      if (result["timedOut"] === true) return ["Call bcdev_debug_wait again to keep waiting."];
+      if (result["timedOut"] === true) return ["Confirm that the matching session or workload has been triggered, then call bcdev_debug_wait again."];
       if (result["kind"] === "break") return ["Inspect with bcdev_debug_variables or bcdev_debug_eval, then call bcdev_debug_continue."];
-      if (result["kind"] === "sessionBound") return ["Trigger the target workload, then call bcdev_debug_wait for a break or completion event."];
+      if (result["kind"] === "sessionBound") return ["Drive the operation you want to inspect, if it has not already begun, then call bcdev_debug_wait again."];
       if (result["kind"] === "testRunFinished") return ["Review the test results, then call bcdev_debug_detach."];
       if (result["kind"] === "fatal") return ["Call bcdev_debug_detach, then bcdev_status before retrying."];
       return [];
@@ -39,7 +42,12 @@ function generatedNextSteps(name: string, result: Record<string, unknown>): stri
     case "bcdev_debug_detach":
       return [];
     case "bcdev_profile_status":
-      return ["Call bcdev_profile_start to arm a supported profile capture."];
+      if (result["reachable"] !== true) {
+        return ["Correct connectivity, authentication, or snapshot-port settings, then call bcdev_profile_status again."];
+      }
+      return result["sampleProfilingSupported"] === true
+        ? ["Call bcdev_profile_start to arm a supported profile capture."]
+        : ["Use a Business Central server that supports the requested profile mode."];
     case "bcdev_profile_start":
       return ["Trigger the target workload, then call bcdev_profile_poll until it reports ready."];
     case "bcdev_profile_poll":
@@ -47,7 +55,9 @@ function generatedNextSteps(name: string, result: Record<string, unknown>): stri
         ? ["Call bcdev_profile_finish to save and summarize the capture."]
         : ["Trigger or continue the target workload, then call bcdev_profile_poll again."];
     case "bcdev_profile_finish":
-      return [];
+      return result["captured"] === false
+        ? ["Start a new capture, trigger the matching workload, poll until ready, then call bcdev_profile_finish again."]
+        : [];
     default:
       return [];
   }
@@ -73,7 +83,7 @@ export function withAgentResponses(tool: ToolDefinition): ToolDefinition {
       const existing = Array.isArray(result["nextSteps"]) && result["nextSteps"].every((step) => typeof step === "string")
         ? result["nextSteps"] as string[]
         : null;
-      return { ...result, nextSteps: existing ?? generatedNextSteps(tool.name, result) };
+      return { ...result, nextSteps: existing ?? generatedNextSteps(tool.name, result, params) };
     },
   };
 }

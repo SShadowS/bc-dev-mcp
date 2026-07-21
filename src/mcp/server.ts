@@ -17,9 +17,12 @@ function installSdkErrorFormatter(server: McpServer): void {
   // those failures as unstructured prose. Replace that narrow formatting seam so schema failures
   // obey the same public error contract as handler failures. The SDK still owns validation itself.
   const formatter = server as unknown as {
-    createToolError: (message: string) => ReturnType<typeof toAgentToolError>;
+    createToolError?: (message: string) => ReturnType<typeof toAgentToolError>;
   };
-  formatter.createToolError = (message) => {
+  if (typeof formatter.createToolError !== "function") {
+    throw new Error("Incompatible @modelcontextprotocol/sdk: McpServer.createToolError is unavailable; pin or update the agent error integration");
+  }
+  const replacement = (message: string) => {
     const tool = /(?:arguments for tool|Tool)\s+([^:\s]+)/i.exec(message)?.[1] ?? "unknown";
     if (/Input validation error:/i.test(message)) {
       return toAgentToolError(tool, new BcDevError("INVALID_ARGUMENT", message, "validation"));
@@ -32,6 +35,14 @@ function installSdkErrorFormatter(server: McpServer): void {
     }
     return toAgentToolError(tool, new BcDevError("INTERNAL_ERROR", message, "internal"));
   };
+  try {
+    formatter.createToolError = replacement;
+  } catch (error) {
+    throw new Error("Incompatible @modelcontextprotocol/sdk: McpServer.createToolError is not replaceable", { cause: error });
+  }
+  if (formatter.createToolError !== replacement) {
+    throw new Error("Incompatible @modelcontextprotocol/sdk: McpServer.createToolError replacement did not take effect");
+  }
 }
 
 // Runtime guard (v0.1 final review): the SDK publishes outputSchema for every tool, so a

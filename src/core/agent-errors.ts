@@ -12,6 +12,8 @@ export type AgentErrorCode =
   | "DEBUG_SESSION_ACTIVE"
   | "TEST_RUN_ACTIVE"
   | "PROFILE_NOT_ACTIVE"
+  | "PROFILE_ACTIVE"
+  | "SQL_INSIGHT_NOT_ENABLED"
   | "TIMEOUT"
   | "SERVER_REJECTED"
   | "PROTOCOL_ERROR"
@@ -51,6 +53,8 @@ function fromKnownMessage(message: string): BcDevError {
   if (lower.includes("debug session already active")) return new BcDevError("DEBUG_SESSION_ACTIVE", message, "state");
   if (lower.includes("test run is already") || lower.includes("test run is in progress")) return new BcDevError("TEST_RUN_ACTIVE", message, "state");
   if (lower.includes("no active profile") || lower.includes("no profile capture")) return new BcDevError("PROFILE_NOT_ACTIVE", message, "state");
+  if (lower.includes("profile capture already active")) return new BcDevError("PROFILE_ACTIVE", message, "state");
+  if (lower.includes("sql insight is off")) return new BcDevError("SQL_INSIGHT_NOT_ENABLED", message, "state");
   if (lower.includes("unable to attach") || lower.includes("unable to bind") || lower.includes("server rejected")) {
     return new BcDevError("SERVER_REJECTED", message, "server");
   }
@@ -91,6 +95,8 @@ function recoverySteps(code: AgentErrorCode): string[] {
     case "DEBUG_SESSION_ACTIVE": return ["Call bcdev_debug_detach before starting another debugger session."];
     case "TEST_RUN_ACTIVE": return ["Wait for the active test run to finish, then retry."];
     case "PROFILE_NOT_ACTIVE": return ["Call bcdev_profile_start before polling or finishing a profile."];
+    case "PROFILE_ACTIVE": return ["Call bcdev_profile_finish before starting another profile capture."];
+    case "SQL_INSIGHT_NOT_ENABLED": return ["Detach, then call bcdev_debug_attach with sqlInsight: true before retrying SQL inspection."];
     case "AUTHENTICATION_FAILED": return ["Call bcdev_status after correcting the configured Business Central credentials or Azure CLI login."];
     case "ENDPOINT_UNREACHABLE": return ["Call bcdev_status after confirming the Business Central endpoint is reachable."];
     case "UNSUPPORTED_SERVER": return ["Call bcdev_status and use a Business Central server that supports the required developer API feature."];
@@ -104,6 +110,15 @@ function recoverySteps(code: AgentErrorCode): string[] {
   }
 }
 
+const SENSITIVE_DETAIL_KEY = /authorization|authentication|token|password|secret|credential/i;
+
+function redactDetails(details: Record<string, string | number | boolean | null>): Record<string, string | number | boolean | null> {
+  return Object.fromEntries(Object.entries(details).map(([key, value]) => {
+    if (SENSITIVE_DETAIL_KEY.test(key)) return [key, "[REDACTED]"];
+    return [key, typeof value === "string" ? redactAuthorization(value) : value];
+  }));
+}
+
 export function agentErrorBody(tool: string, error: unknown): AgentErrorBody {
   const normalized = normalizeAgentError(error);
   return {
@@ -113,7 +128,7 @@ export function agentErrorBody(tool: string, error: unknown): AgentErrorBody {
       message: redactAuthorization(normalized.message),
       retryable: normalized.retryable,
       tool,
-      details: normalized.details,
+      details: redactDetails(normalized.details),
     },
     nextSteps: recoverySteps(normalized.code),
   };

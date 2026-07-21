@@ -27,4 +27,26 @@ describe("agent errors", () => {
     expect(body.error.message).not.toContain("secret-token");
     expect(body.nextSteps.join(" ")).toContain("bcdev_debug_attach");
   });
+
+  test("redacts authenticated URLs and sensitive keys in details", () => {
+    const body = agentErrorBody(
+      "bcdev_status",
+      new BcDevError("CONFIGURATION_ERROR", "bad configuration", "configuration", false, {
+        url: "https://bc.example/dev?tenant=default&Authentication=Bearer%20detail-token",
+        authorization: "Bearer detail-token",
+        accessToken: "detail-token",
+        password: "password-value",
+        attempt: 2,
+      }),
+    );
+    expect(body.error.details).toEqual({
+      url: "https://bc.example/dev?tenant=default&Authentication=[REDACTED]",
+      authorization: "[REDACTED]",
+      accessToken: "[REDACTED]",
+      password: "[REDACTED]",
+      attempt: 2,
+    });
+    expect(JSON.stringify(body)).not.toContain("detail-token");
+    expect(JSON.stringify(body)).not.toContain("password-value");
+  });
 });

@@ -95,6 +95,7 @@ export interface CoverageEntry {
 export interface RunTestsResult {
   results: TestMethodResult[];
   summary?: TestRunSummary;
+  sourceMappingWarning?: string;
   coverage?: CoverageEntry[];
   runAborted?: boolean;
   abortReason?: string;

@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTools, type ToolDeps } from "../../src/mcp/tools";
+import { BcDevError } from "../../src/core/agent-errors";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
@@ -21,10 +22,10 @@ function makeProject(): string {
   return dir;
 }
 
-function setup(hub: FakeHub, fetchFn?: typeof fetch) {
+function setup(hub: FakeHub, fetchFn?: typeof fetch, hubFactory: ToolDeps["hubFactory"] = fakeHubFactory(hub)) {
   const state = new ServerState();
   const deps: ToolDeps = {
-    hubFactory: fakeHubFactory(hub),
+    hubFactory,
     authorizationFactory: createAuthorizationProviderFactory(),
     fetchFn: fetchFn ?? ((async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch),
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
@@ -175,6 +176,16 @@ describe("tools", () => {
     expect(state.testRunActive).toBe(false);
   });
 
+  test("bcdev_test_run rejects an unsupported developer API with a typed error", async () => {
+    const oldServer = setup(hub, (async () =>
+      new Response(JSON.stringify({ WebApiVersion: "6.0" }))) as unknown as typeof fetch);
+    const error = await oldServer.tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(BcDevError);
+    expect(error).toMatchObject({ code: "UNSUPPORTED_SERVER", category: "server" });
+    expect(oldServer.state.testRunActive).toBe(false);
+    expect(hub.invoked("RunTests")).toHaveLength(0);
+  });
+
   test("bcdev_test_run returns a summary and parsed, source-mapped failure", async () => {
     const { tools } = setup(hub);
     hub.onInvoke = (method) => {
@@ -219,6 +230,20 @@ describe("tools", () => {
       },
     }]);
     expect(state.debug).not.toBeNull();
+  });
+
+  test("bcdev_debug_attach guidance distinguishes next-session and exact-session modes", async () => {
+    const next = setup(new FakeHub());
+    const nextResult = await next.tools.get("bcdev_debug_attach")!.handler({}) as { nextSteps: string[] };
+    expect(nextResult.nextSteps.join(" ")).toContain("Create or trigger the matching session");
+
+    const user = setup(new FakeHub());
+    const userResult = await user.tools.get("bcdev_debug_attach")!.handler({ userId: "alice" }) as { nextSteps: string[] };
+    expect(userResult.nextSteps.join(" ")).toContain("Create or trigger the matching session");
+
+    const exact = setup(new FakeHub());
+    const exactResult = await exact.tools.get("bcdev_debug_attach")!.handler({ sessionId: 43210 }) as { nextSteps: string[] };
+    expect(exactResult.nextSteps.join(" ")).toContain("confirm attachment");
   });
 
   test("bcdev_debug_breakpoints returns verified server location metadata", async () => {
@@ -302,7 +327,10 @@ describe("tools", () => {
     expect(() => tools.get("bcdev_debug_sql")!.outputSchema.parse(insight)).not.toThrow();
 
     hub.onInvoke = (method) => (method === "GetVariables" ? [] : undefined);
-    await expect(tools.get("bcdev_debug_sql")!.handler({})).rejects.toThrow(/sqlInsight: true/);
+    const error = await tools.get("bcdev_debug_sql")!.handler({}).catch((caught) => caught);
+    expect(error).toBeInstanceOf(BcDevError);
+    expect(error).toMatchObject({ code: "SQL_INSIGHT_NOT_ENABLED", category: "state" });
+    expect((error as Error).message).toMatch(/sqlInsight: true/);
   });
 
   test("bcdev_source uses the REST endpoint and reports empty base-app content as a message", async () => {
@@ -337,6 +365,34 @@ describe("tools", () => {
     await tools.get("bcdev_debug_attach")!.handler({});
     const viaHub = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })) as Record<string, unknown>;
     expect(viaHub).toMatchObject({ content: "from hub", source: "hub" });
+  });
+
+  test("profiling next steps reflect unreachable, unsupported, and empty-capture results", async () => {
+    const unreachable = setup(hub, (async () => { throw new Error("offline"); }) as unknown as typeof fetch);
+    const unreachableStatus = await unreachable.tools.get("bcdev_profile_status")!.handler({
+      server: "http://localhost",
+      serverInstance: "BC",
+    }) as { reachable: boolean; nextSteps: string[] };
+    expect(unreachableStatus.reachable).toBe(false);
+    expect(unreachableStatus.nextSteps.join(" ")).toContain("Correct connectivity");
+
+    const unsupported = setup(new FakeHub(), (async () =>
+      new Response(JSON.stringify({ runtimeVersion: "2.0", webApiVersion: "2.0" }))) as unknown as typeof fetch);
+    const unsupportedStatus = await unsupported.tools.get("bcdev_profile_status")!.handler({
+      server: "http://localhost",
+      serverInstance: "BC",
+    }) as { sampleProfilingSupported: boolean; nextSteps: string[] };
+    expect(unsupportedStatus.sampleProfilingSupported).toBe(false);
+    expect(unsupportedStatus.nextSteps.join(" ")).toContain("supports the requested profile mode");
+
+    const emptyCapture = setup(new FakeHub(), (async (input: RequestInfo | URL) =>
+      input.toString().includes("attach")
+        ? new Response('"NextSessionOnTenant"')
+        : new Response(null, { headers: { "Content-Length": "0" } })) as unknown as typeof fetch);
+    await emptyCapture.tools.get("bcdev_profile_start")!.handler({ server: "http://localhost", serverInstance: "BC" });
+    const finished = await emptyCapture.tools.get("bcdev_profile_finish")!.handler({}) as { captured: boolean; nextSteps: string[] };
+    expect(finished.captured).toBe(false);
+    expect(finished.nextSteps.join(" ")).toContain("Start a new capture");
   });
 
   test("bcdev_debug_attach forwards precision break modes to the wire enums", async () => {
@@ -394,7 +450,7 @@ describe("tools", () => {
       kind: "sessionBound",
       sessionId: 43210,
       hostId: "11111111-1111-1111-1111-111111111111",
-      nextSteps: ["Trigger the target workload, then call bcdev_debug_wait for a break or completion event."],
+      nextSteps: ["Drive the operation you want to inspect, if it has not already begun, then call bcdev_debug_wait again."],
     });
     expect(() => tools.get("bcdev_debug_wait")!.outputSchema.parse(event)).not.toThrow();
   });
@@ -412,7 +468,10 @@ describe("tools", () => {
     expect(event).toMatchObject({ kind: "sessionBound", sessionId: null, hostId: null });
     expect(() => tools.get("bcdev_debug_wait")!.outputSchema.parse(event)).not.toThrow();
     const timedOut = await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 5 });
-    expect(timedOut).toEqual({ timedOut: true, nextSteps: ["Call bcdev_debug_wait again to keep waiting."] });
+    expect(timedOut).toEqual({
+      timedOut: true,
+      nextSteps: ["Confirm that the matching session or workload has been triggered, then call bcdev_debug_wait again."],
+    });
     expect(state.debug).not.toBeNull();
     expect(hub.invoked("GetNstSessionInfo")).toHaveLength(1);
   });
@@ -471,15 +530,15 @@ describe("tools", () => {
     expect(() => tools.get("bcdev_debug_wait")!.outputSchema.parse(event)).not.toThrow();
   });
 
-  test("bcdev_debug_run_tests: a synchronously-throwing background run surfaces a fatal event instead of an unhandled rejection", async () => {
-    const { state, tools } = setup(hub);
+  test("bcdev_debug_run_tests: a rejected background run surfaces a fatal event instead of an unhandled rejection", async () => {
+    const normalFactory = fakeHubFactory(hub);
+    const throwingFactory: ToolDeps["hubFactory"] = (url, options) => {
+      if (url.includes("TestRunnerHub")) throw new Error("could not create test hub");
+      return normalFactory(url, options);
+    };
+    const { state, tools } = setup(hub, undefined, throwingFactory);
     await tools.get("bcdev_debug_attach")!.handler({});
-    // "not a url at all" makes hubUrl()'s `new URL(c.server)` throw synchronously inside
-    // TestRunnerClient.run(), rejecting the floating background promise.
-    const started = (await tools.get("bcdev_debug_run_tests")!.handler({
-      codeunits: [{ id: 1 }],
-      server: "not a url at all",
-    })) as Record<string, unknown>;
+    const started = (await tools.get("bcdev_debug_run_tests")!.handler({ codeunits: [{ id: 1 }] })) as Record<string, unknown>;
     expect(started["started"]).toBe(true);
     const event = (await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 200 })) as Record<string, unknown>;
     expect(event["kind"]).toBe("fatal");
@@ -495,6 +554,56 @@ describe("tools", () => {
     expect(hub.stopped).toBe(true);
     const attach = (await tools.get("bcdev_debug_attach")!.handler({})) as Record<string, unknown>;
     expect(attach["attached"]).toBe(true);
+  });
+
+  test("a passing remote test result does not require a readable local AL project", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") {
+        queueMicrotask(() => {
+          hub.emit("TestCompleted", 50100, "A", 0, "", 5);
+          hub.emit("TestRunCompleted", { Tests: [] });
+        });
+      }
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({
+      project: "/definitely/missing/al-project",
+      environmentType: "OnPrem",
+      server: "http://localhost",
+      serverInstance: "BC",
+      codeunits: [{ id: 50100 }],
+    }) as Record<string, unknown>;
+    expect(result["summary"]).toMatchObject({ outcome: "passed", total: 1 });
+    expect(result["sourceMappingWarning"]).toBeUndefined();
+  });
+
+  test("local source-index failure is nonfatal when a failed stack needs mapping", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") {
+        queueMicrotask(() => {
+          hub.emit("TestCompleted", 50100, "A", 1, 'boom\nAL Callstack:\n"T"(CodeUnit 50100).A() line 7', 5);
+          hub.emit("TestRunCompleted", { Tests: [] });
+        });
+      }
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({
+      project: "/definitely/missing/al-project-with-stack",
+      environmentType: "OnPrem",
+      server: "http://localhost",
+      serverInstance: "BC",
+      codeunits: [{ id: 50100 }],
+    }) as {
+      summary: { outcome: string };
+      results: Array<{ failure?: { callStack: Array<{ file: string | null }> } }>;
+      sourceMappingWarning?: string;
+    };
+    expect(result.summary.outcome).toBe("failed");
+    expect(result.results[0]?.failure?.callStack[0]?.file).toBeNull();
+    expect(result.sourceMappingWarning).toContain("server test results are complete");
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
   });
 
   test("bcdev_debug_attach rolls back an unavailable exact session and allows retry", async () => {

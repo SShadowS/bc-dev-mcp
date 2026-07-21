@@ -14,6 +14,7 @@ import {
   connectionShape,
   mapBreakpoints,
   requireSession,
+  requireTestRunningSupport,
   resolve,
   runTestsOutputSchema,
   stackFrameSchema,
@@ -156,6 +157,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         const session = requireSession(state);
         if (state.testRunActive) throw new BcDevError("TEST_RUN_ACTIVE", "A test run is already running — wait for it to finish", "state");
         const { config, authorization } = resolve(params, deps);
+        await requireTestRunningSupport(config, authorization, deps);
         const debuggingContext = session.client.connectionId ?? "";
         state.testRunActive = true;
         void new TestRunnerClient(deps.hubFactory)
@@ -296,7 +298,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
           await client.getVariables(frameId),
           (path) => client.expandNode(frameId, path),
         );
-        if (!insight) throw new Error("SQL insight is off — re-attach with sqlInsight: true (bcdev_debug_attach)");
+        if (!insight) throw new BcDevError("SQL_INSIGHT_NOT_ENABLED", "SQL insight is off — re-attach with sqlInsight: true (bcdev_debug_attach)", "state");
         return insight;
       },
     },

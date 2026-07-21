@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { HubFactory } from "../../core/hubs/signalr-base";
 import { BcDevError } from "../../core/agent-errors";
 import type { BreakpointVerification } from "../../core/hubs/debugger-hub";
+import { fetchServerInfo, type DevServerInfo } from "../../core/server-info";
 import type { AuthorizationProvider, AuthorizationProviderFactory } from "../../core/authorization";
 import { resolveConnection } from "../../core/launch-config";
 import type { ConnectionConfig } from "../../core/types";
@@ -25,6 +26,45 @@ export interface ToolDefinition {
   outputSchema: z.ZodTypeAny;
   annotations: ToolAnnotations;
   handler(params: Record<string, unknown>): Promise<unknown>;
+}
+
+const serverInfoByDeps = new WeakMap<ToolDeps, Map<string, Promise<DevServerInfo>>>();
+
+function connectionCacheKey(config: ConnectionConfig): string {
+  return config.environmentType === "OnPrem"
+    ? `OnPrem|${config.server}|${config.serverInstance}|${config.port ?? 7049}|${config.tenant ?? "default"}`
+    : `${config.environmentType}|${config.environmentName}|${config.tenant}`;
+}
+
+export async function requireTestRunningSupport(
+  config: ConnectionConfig,
+  authorization: AuthorizationProvider,
+  deps: ToolDeps,
+): Promise<void> {
+  let byTarget = serverInfoByDeps.get(deps);
+  if (!byTarget) {
+    byTarget = new Map();
+    serverInfoByDeps.set(deps, byTarget);
+  }
+  const key = connectionCacheKey(config);
+  let pending = byTarget.get(key);
+  if (!pending) {
+    pending = fetchServerInfo(config, authorization, deps.fetchFn);
+    byTarget.set(key, pending);
+    void pending.catch(() => {
+      if (byTarget?.get(key) === pending) byTarget.delete(key);
+    });
+  }
+  const info = await pending;
+  if (!info.supportsTestRunning) {
+    throw new BcDevError(
+      "UNSUPPORTED_SERVER",
+      `Business Central developer API ${info.webApiVersion} does not support TestRunnerHub; version 7.0 or newer is required`,
+      "server",
+      false,
+      { webApiVersion: info.webApiVersion },
+    );
+  }
 }
 
 // Wire-derived data is always loose: unknown fields from BC must never fail output validation.
@@ -61,6 +101,7 @@ export const runTestsOutputSchema = z.looseObject({
     syntheticResults: z.number(),
     failedTests: z.array(z.object({ codeunitId: z.number(), method: z.string() })),
   }),
+  sourceMappingWarning: z.string().optional().describe("Nonfatal warning when local AL files could not be indexed; server test results remain complete"),
   coverage: z
     .array(
       z.looseObject({

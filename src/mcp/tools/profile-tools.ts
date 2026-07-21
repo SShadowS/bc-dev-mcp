@@ -85,7 +85,7 @@ export function createProfileTools(
       },
       outputSchema: z.object({ debuggingContext: z.string(), attachKind: z.string(), hint: z.string(), converterAvailable: z.boolean().optional() }),
       handler: async (params) => {
-        if (state.profile) throw new Error("Profile capture already active — call bcdev_profile_finish first");
+        if (state.profile) throw new BcDevError("PROFILE_ACTIVE", "Profile capture already active — call bcdev_profile_finish first", "state");
         const { config, authorization } = resolve(params, deps);
         const snapshotPort = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
         const kind = (params["kind"] as "sampling" | "instrumentation" | undefined) ?? "sampling";

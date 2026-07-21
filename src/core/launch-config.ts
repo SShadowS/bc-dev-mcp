@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { BcDevError } from "./agent-errors";
 import type { ConnectionConfig, ConnectionOverrides } from "./types";
 
 // Strips // and /* */ comments plus trailing commas, respecting string literals.
@@ -121,32 +122,32 @@ export function resolveConnection(
   const environmentType = merged.environmentType ?? (merged.server ? "OnPrem" : undefined);
   if (environmentType === "Sandbox" || environmentType === "Production") {
     if (merged.authentication && merged.authentication !== "AAD" && merged.authentication !== "EntraId") {
-      throw new Error(`Authentication ${merged.authentication} is not supported for Business Central cloud; use Entra ID`);
+      throw new BcDevError("CONFIGURATION_ERROR", `Authentication ${merged.authentication} is not supported for Business Central cloud; use Entra ID`, "configuration");
     }
     const environmentName = merged.environmentName;
     const tenant = merged.tenant ?? env["BC_DEV_ENTRA_TENANT"];
     const missing: string[] = [];
     if (!environmentName) missing.push("environmentName (.vscode/launch.json or tool param)");
     if (!tenant) missing.push("tenant (.vscode/launch.json, tool param, or BC_DEV_ENTRA_TENANT)");
-    if (missing.length > 0) throw new Error(`Missing Entra connection settings: ${missing.join(", ")}`);
+    if (missing.length > 0) throw new BcDevError("CONFIGURATION_ERROR", `Missing Entra connection settings: ${missing.join(", ")}`, "configuration");
     return { environmentType, authentication: "EntraId", environmentName: environmentName!, tenant: tenant! };
   }
 
   if (environmentType !== undefined && environmentType !== "OnPrem") {
-    throw new Error(`Unsupported Business Central environmentType: ${String(environmentType)}`);
+    throw new BcDevError("CONFIGURATION_ERROR", `Unsupported Business Central environmentType: ${String(environmentType)}`, "configuration");
   }
   // Before auth modes were modeled, the server ignored launch.json authentication and used the
   // Basic credentials from the environment. Preserve that on-prem upgrade path when both are
   // present; without explicit Basic credentials, unsupported Windows/AAD modes still fail closed.
   if (merged.authentication && merged.authentication !== "UserPassword" && !(merged.username && merged.password)) {
-    throw new Error(`On-premises authentication ${merged.authentication} is not supported; select UserPassword explicitly`);
+    throw new BcDevError("CONFIGURATION_ERROR", `On-premises authentication ${merged.authentication} is not supported; select UserPassword explicitly`, "configuration");
   }
   const missing: string[] = [];
   if (!merged.server) missing.push("server (tool param or .vscode/launch.json)");
   if (!merged.serverInstance) missing.push("serverInstance (tool param or .vscode/launch.json)");
   if (!merged.username) missing.push("username (BC_DEV_USER env var or tool param)");
   if (!merged.password) missing.push("password (BC_DEV_PASSWORD env var or tool param)");
-  if (missing.length > 0) throw new Error(`Missing connection settings: ${missing.join(", ")}`);
+  if (missing.length > 0) throw new BcDevError("CONFIGURATION_ERROR", `Missing connection settings: ${missing.join(", ")}`, "configuration");
   return {
     environmentType: "OnPrem",
     authentication: "UserPassword",

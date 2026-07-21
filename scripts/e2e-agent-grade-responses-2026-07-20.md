@@ -22,6 +22,15 @@ BC28 evidence, including CRLF input, source mapping, unrecognized/localized-line
 fallback, raw-output preservation, and synthetic-row exclusion. No app was published or tenant data
 changed solely to manufacture a failure for this check.
 
+## Review-correction rerun
+
+The corrected branch was rerun against the same SaaS Sandbox after making source mapping lazy and
+adding the cached developer-metadata feature preflight. The MCP contract check passed, metadata
+reported test-running support, an ordinary published test passed with its structured summary, and a
+debug-bound test returned `testRunFinished`, `sessionBound`, and `detached` with the enriched result.
+The run exited successfully. The already-installed failure probe again did not fail, so no new live
+call-stack claim is made.
+
 ## Additional observations
 
 - The selected published object did not expose deployed source through the Sandbox REST route;
@@ -32,4 +41,4 @@ changed solely to manufacture a failure for this check.
   result contract still arrived correctly. Breakpoint and variable response validation therefore
   used a WebClient workload, which produced a stable live pause.
 - The temporary harnesses were stored only under ignored `scratch/`. All debugger connections were
-  detached or closed, and no cross-fork PR or push was created.
+  detached or closed. No cross-fork PR was created.

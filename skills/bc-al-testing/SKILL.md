@@ -32,6 +32,9 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
   `failure.callStack`; parsed frames use 1-based `line` and include local `file` when the
   object maps to this project. `failure.parsed: false` means the server format was opaque or
   localized — use the unchanged `output` text. Every frame also retains `raw`.
+- **Local mapping is best-effort.** Passing runs without coverage do not scan the AL tree. When
+  mapping is needed, the project index is reused; if the directory is missing or unreadable, the
+  server result still returns with `file: null` and `sourceMappingWarning`.
 - **Follow the response, not a memorized script.** Every success includes `nextSteps`; an empty
   array is valid when the run is complete. An MCP error's text is JSON with stable
   `error.code`, `retryable`, and recovery `nextSteps` (and no `structuredContent`).
