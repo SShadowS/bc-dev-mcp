@@ -27,7 +27,14 @@ const profileJson = JSON.stringify({
 });
 
 function deps(fetchFn: typeof fetch): ToolDeps {
-  return { hubFactory: (() => { throw new Error("no hub in profile tests"); }) as never, authorizationFactory: createAuthorizationProviderFactory(), fetchFn, env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" }, cwd: mkdtempSync(join(tmpdir(), "bcprof-")) };
+  return {
+    hubFactory: (() => { throw new Error("no hub in profile tests"); }) as never,
+    authorizationFactory: createAuthorizationProviderFactory(),
+    fetchFn,
+    env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
+    cwd: mkdtempSync(join(tmpdir(), "bcprof-")),
+    gitChanges: async (_project, baseRef) => ({ baseRef, mergeBase: "a".repeat(40), head: "workingTree", files: [] }),
+  };
 }
 const conn = { server: "http://bc", serverInstance: "BC", tenant: "default" };
 

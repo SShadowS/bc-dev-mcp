@@ -24,7 +24,14 @@ function findEocd(buf: Buffer): number {
 function readCentralDirectory(buf: Buffer): CentralEntry[] {
   const eocd = findEocd(buf);
   const count = buf.readUInt16LE(eocd + 10);
-  let off = buf.readUInt32LE(eocd + 16);
+  const centralSize = buf.readUInt32LE(eocd + 12);
+  const storedCentralOffset = buf.readUInt32LE(eocd + 16);
+  const actualCentralOffset = eocd - centralSize;
+  // WIRE: AL compiler .app packages (AL Development Tools 17.0.34.45391) carry a NAVX
+  // preamble before their ZIP payload. ZIP offsets remain relative to that payload, so derive
+  // and retain the preamble length from the actual end-of-central-directory position.
+  const archiveBase = actualCentralOffset - storedCentralOffset;
+  let off = actualCentralOffset;
   const entries: CentralEntry[] = [];
   for (let i = 0; i < count; i++) {
     if (buf.readUInt32LE(off) !== CD_SIG) throw new Error("corrupt zip central directory");
@@ -33,7 +40,7 @@ function readCentralDirectory(buf: Buffer): CentralEntry[] {
     const nameLen = buf.readUInt16LE(off + 28);
     const extraLen = buf.readUInt16LE(off + 30);
     const commentLen = buf.readUInt16LE(off + 32);
-    const localHeaderOffset = buf.readUInt32LE(off + 42);
+    const localHeaderOffset = archiveBase + buf.readUInt32LE(off + 42);
     const name = buf.toString("utf8", off + 46, off + 46 + nameLen);
     entries.push({ name, method, compressedSize, localHeaderOffset });
     off += 46 + nameLen + extraLen + commentLen;

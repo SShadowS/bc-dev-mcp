@@ -12,6 +12,7 @@ export type AgentErrorCode =
   | "PROFILE_ACTIVE"
   | "SQL_INSIGHT_NOT_ENABLED"
   | "TOOL_DISABLED"
+  | "GIT_ERROR"
   | "TIMEOUT"
   | "SERVER_REJECTED"
   | "PROTOCOL_ERROR"

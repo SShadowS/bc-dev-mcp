@@ -11,6 +11,7 @@ with its working directory set to the AL project.
 - [x] TestRunnerHub `Initialize(company, debuggingContext, coverageMode:int)` accepted. <!-- 2026-07-03: confirmed against BC28 -->
 - [x] `TestCompleted` args arrive as (int, string, int status, string, long ms) — statuses 0/1/2 map to passed/failed/skipped. <!-- 2026-07-03: 0 (passed) and 1 (failed) confirmed live with real data against BC28; 2 (skipped) not observed (no skipped tests encountered) -->
 - [x] `TestRunCompleted` coverage payload for `coverage: "procedure"`: record actual JSON, confirm `Tests[].CoveredProcedures[].{ObjectType,ObjectId,MethodId}` casing. <!-- 2026-07-03: confirmed against BC28; wire also carries an unused `OwningApp` GUID field -->
+- [x] `TestRunCompleted` `Tests[].ApplicationObjectId/MethodId` identifies the executed test procedure itself, separately from `CoveredProcedures`. <!-- 2026-07-21 SaaS Sandbox: two selected public demo test methods matched their locally calculated codeunit/method identities; see scripts/e2e-coverage-gap-analysis-2026-07-21.md -->
 - [x] `coverage: "line"`: dump raw payload to decide the v2 schema (spec flags this unproven). <!-- 2026-07-03: dumped against BC28 — structurally identical to "procedure" mode for the codeunit tested, no distinct line-level schema observed -->
 - [x] DebuggerHub `Attach` + `DebugAdapterConfigurationDone` accepted (no hub exception). <!-- 2026-07-03 round 4 (fixes 38dc476 + 56f32de + 1f4a77d): Attach(SessionId:-1) accepted cleanly; ConfigurationDone is only accepted AFTER the debugger binds a session (HubConnected/at-break) and the deferred send on HubConnected now fires and returns OK on the wire — verified with an invoke-logging hubFactory proxy, and confirmed effective: breakOnError:false suppressed all break events on a run that breaks 12+ times under breakOnError:true. See "Round 4" in scripts/e2e-results-2026-07-03.md -->
 - [x] `AddBreakpoint({ObjectType,ObjectNumber},{Line,Column},condition)` returns a `BreakpointId`. <!-- 2026-07-03 round 2: full BreakpointDefinition returned (raw probe, at-break); BreakpointId can be NEGATIVE (hash). Caveat: succeeds even for objects not deployed on the server, then poisons the session — mismatch #8 -->
@@ -111,6 +112,21 @@ token, authorization header, or authenticated URL values. Evidence belongs in
 - [x] Source-mapping failures identify call-stack and/or coverage file fields precisely and do not partially map the result. <!-- missing-project procedure-coverage and call-stack cases unit-tested 2026-07-21 -->
 - [x] The response decorator rejects non-object output schemas and replaces payload-supplied `nextSteps` with locally generated guidance. <!-- unit-tested 2026-07-21 -->
 - [x] Error redaction removes URL userinfo as well as authentication query/header material; passing test rows omit the optional `failure` key. <!-- unit-tested 2026-07-21 -->
+
+## Coverage gap analysis (SaaS Sandbox)
+
+Run against Sandbox only. Use a disposable Git project and never record tenant, environment,
+company, user, token, authorization header, authenticated URL, or raw server payload values.
+Evidence belongs in `scripts/e2e-coverage-gap-analysis-2026-07-21.md`.
+
+- [x] `coverageAgainst` without `coverage` sends procedure coverage and returns schema-valid `coverageGaps`. <!-- 2026-07-21 SaaS Sandbox -->
+- [x] The Git comparison covers the base merge commit through the working tree, including committed, staged, unstaged, and nonignored untracked AL files; pure deletions anchor to surviving procedure lines. <!-- deterministic temporary-repository tests 2026-07-21 -->
+- [x] A narrow selected run classifies two changed executable procedures as one covered and one uncovered, with zero unknowns. <!-- 2026-07-21 SaaS Sandbox -->
+- [x] Rerunning with the broader method selection changes the same result to two covered and zero uncovered/unknown. <!-- 2026-07-21 SaaS Sandbox -->
+- [x] Every live `covered` classification matches the raw `ApplicationObjectId/MethodId` returned for its selected test; no name-only join is used. <!-- 2026-07-21 SaaS Sandbox -->
+- [x] The calculated ID for the public demo's parameterized, Decimal-returning procedure matches its raw nested `CoveredProcedures` identity. <!-- 2026-07-21 SaaS Sandbox -->
+- [x] Compiler method-ID vectors, dependency package subtype resolution, cache reuse, aborted-run conservatism, unknown signatures, and incompatible coverage modes are deterministic unit tests. <!-- 2026-07-21 -->
+- [x] No Production call or app publish was made; the disposable local Git project was removed after validation. <!-- 2026-07-21 -->
 
 ## Profiling (snapshot Sampling)
 

@@ -113,6 +113,13 @@ describe("zip reader", () => {
     expect(out!.equals(content)).toBe(true);
   });
 
+  test("extracts entries when an application-package preamble precedes the ZIP", () => {
+    const zip = Buffer.from(buildZip([{ name: "SymbolReference.json", content: Buffer.from('{"Codeunits":[]}') }]));
+    const withPreamble = Buffer.concat([Buffer.alloc(40, 0x5a), zip]);
+    expect(listEntryNames(withPreamble)).toEqual(["SymbolReference.json"]);
+    expect(extractEntry(withPreamble, "SymbolReference.json")?.toString("utf8")).toBe('{"Codeunits":[]}');
+  });
+
   test("throws on an unsupported compression method", () => {
     const zip = buildZip([{ name: "weird.bin", content: Buffer.from("payload"), method: 12 }]);
     expect(() => extractEntry(zip, "weird.bin")).toThrow(/unsupported zip compression method/);

@@ -9,6 +9,7 @@ import type { AuthorizationProvider, AuthorizationProviderFactory } from "../../
 import { resolveConnection } from "../../core/launch-config";
 import type { ConnectionConfig } from "../../core/types";
 import { DEFAULT_DEV_PORT } from "../../core/urls";
+import type { GitChangeSet } from "../../core/git-changes";
 import { DebugSession, ServerState } from "../state";
 
 export interface ToolDeps {
@@ -20,6 +21,7 @@ export interface ToolDeps {
   serverInfoCacheTtlMs?: number;
   serverInfoTimeoutMs?: number;
   now?: () => number;
+  gitChanges: (project: string, baseRef: string) => Promise<GitChangeSet>;
 }
 
 export interface ToolDefinition {
@@ -153,6 +155,41 @@ export const runTestsOutputSchema = z.looseObject({
     .optional(),
   runAborted: z.boolean().optional(),
   abortReason: z.string().optional(),
+  coverageGaps: z.object({
+    baseRef: z.string().describe("Requested Git base ref"),
+    mergeBase: z.string().describe("Resolved merge-base commit used for the comparison"),
+    head: z.literal("workingTree").describe("Comparison includes committed branch, staged, unstaged, and untracked AL changes"),
+    complete: z.boolean().describe("false when any changed procedure remains unknown or the test run aborted"),
+    summary: z.object({
+      changedFiles: z.number().describe("Changed AL files in the Git comparison"),
+      changedProcedures: z.number().describe("Current executable procedures intersecting changed lines"),
+      covered: z.number().describe("Changed procedures exercised by this test run"),
+      uncovered: z.number().describe("Resolved changed procedures not exercised by this complete test run"),
+      unknown: z.number().describe("Changed procedures whose coverage status cannot be proven"),
+    }).describe("Coverage-gap counts"),
+    procedures: z.array(z.object({
+      status: z.enum(["covered", "uncovered", "unknown"]).describe("Coverage status for this selected run"),
+      file: z.string().describe("Absolute local AL source file"),
+      relativeFile: z.string().describe("AL source file relative to project"),
+      objectType: z.number().describe("Business Central object type integer"),
+      objectId: z.number().describe("AL object ID"),
+      objectName: z.string().describe("AL object name"),
+      name: z.string().describe("AL procedure name"),
+      startLine: z.number().describe("1-based procedure start line"),
+      endLine: z.number().describe("1-based procedure end line"),
+      methodId: z.number().nullable().describe("Compiler method ID, or null when exact identity is unknown"),
+      changedRanges: z.array(z.object({
+        start: z.number().describe("1-based first changed line within the procedure"),
+        end: z.number().describe("1-based last changed line within the procedure"),
+      }).describe("Changed source range")).describe("Changed ranges intersecting this procedure"),
+      coveredBy: z.array(z.object({
+        testObjectId: z.number().describe("Test codeunit ID reported by Business Central"),
+        testMethodId: z.number().describe("Test method ID reported by Business Central"),
+      }).describe("Covering test identity")).describe("Selected tests that exercised this procedure"),
+      warning: z.string().optional().describe("Reason this procedure is unknown"),
+    }).describe("Changed procedure coverage result")).describe("Changed executable procedures"),
+    warnings: z.array(z.string()).describe("Nonfatal identity or completeness warnings"),
+  }).optional().describe("Changed-procedure coverage analysis when coverageAgainst was requested"),
 });
 
 export const variableNodeSchema = z.looseObject({

@@ -16,9 +16,17 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
         : [];
     case "bcdev_test_run": {
       const summary = result["summary"] as Record<string, unknown> | undefined;
-      if (summary?.["outcome"] === "failed") return ["Call bcdev_debug_attach, then bcdev_debug_run_tests for the failed methods."];
-      if (summary?.["outcome"] === "aborted") return ["Call bcdev_status, correct the abort cause, and retry bcdev_test_run."];
-      return [];
+      const steps: string[] = [];
+      if (summary?.["outcome"] === "failed") steps.push("Call bcdev_debug_attach, then bcdev_debug_run_tests for the failed methods.");
+      if (summary?.["outcome"] === "aborted") steps.push("Call bcdev_status, correct the abort cause, and retry bcdev_test_run.");
+      const gaps = result["coverageGaps"] as { summary?: Record<string, unknown> } | undefined;
+      if (Number(gaps?.summary?.["uncovered"] ?? 0) > 0) {
+        steps.push("Add or select tests that exercise the uncovered changed procedures, then rerun bcdev_test_run with the same coverageAgainst ref.");
+      }
+      if (Number(gaps?.summary?.["unknown"] ?? 0) > 0) {
+        steps.push("Resolve the coverageGaps warnings before treating changed-procedure coverage as a complete gate.");
+      }
+      return steps;
     }
     case "bcdev_debug_attach":
       return params["sessionId"] === undefined

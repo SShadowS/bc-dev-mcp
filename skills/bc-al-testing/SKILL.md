@@ -16,6 +16,8 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
 3. `bcdev_test_run { codeunits: [{ id: <codeunitId> }] }` — runs on the server, returns
    a run `summary` plus per-method `passed | failed | skipped`, duration, and failure output.
    Restrict with `methods: ["Name"]`; pick the company with `company`.
+4. To check changed-code coverage, add `coverageAgainst: "origin/main"`. This implies
+   `coverage: "procedure"` and adds `coverageGaps` to the same result.
 
 ## Facts that save you time
 
@@ -24,6 +26,14 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
 - **Coverage:** pass `coverage: "procedure"` (validated against real BC). `"line"` is
   unproven — do not trust it without independent verification. Covered procedures map
   back to local source files when the object IDs exist in the project.
+- **Changed-procedure gaps:** `coverageAgainst` resolves the ref's merge base with `HEAD` and
+  compares it with the working tree, including committed branch changes, staged/unstaged edits,
+  and nonignored untracked `.al` files. Each current executable procedure intersecting changed
+  lines is `covered`, `uncovered`, or `unknown` in `coverageGaps`.
+- **Read gap states conservatively.** `uncovered` means an exact compiler method identity was
+  absent from a complete run. An unresolved signature or aborted run is `unknown`, never a proven
+  gap. Follow `warnings` before using the result as a gate. Broaden the selected tests and rerun
+  with the same `coverageAgainst` ref to close gaps.
 - **Tests run in codeunit declaration order**, not the order of your `methods` array.
 - **Synthetic results:** the run summary can contain an extra entry with an empty
   method name (a server-side quirk, e.g. after watch evaluations). `summary` excludes

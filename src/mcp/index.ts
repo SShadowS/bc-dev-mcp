@@ -4,6 +4,7 @@ import { signalrHubFactory } from "../core/hubs/signalr-base";
 import { createAuthorizationProviderFactory } from "../core/authorization";
 import { buildServer } from "./server";
 import { ServerState } from "./state";
+import { collectGitChanges } from "../core/git-changes";
 
 const server = buildServer(new ServerState(), {
   hubFactory: signalrHubFactory,
@@ -11,6 +12,7 @@ const server = buildServer(new ServerState(), {
   fetchFn: fetch,
   env: process.env,
   cwd: process.cwd(),
+  gitChanges: collectGitChanges,
 });
 
 await server.connect(new StdioServerTransport());
