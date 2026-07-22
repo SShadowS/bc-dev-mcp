@@ -68,11 +68,14 @@ function normalizeRelativePath(path: string): string {
 }
 
 function parseDiffPath(line: string): string | null {
-  // `git diff` separates the path from its (usually empty) timestamp with a tab.
+  // `git diff` separates the path from its (usually empty) timestamp with a tab. The caller
+  // forces a/b prefixes; fail closed if configuration or a future Git version violates that.
   const value = line.slice(4).split("\t", 1)[0]!;
   if (value === "/dev/null") return null;
-  const withoutPrefix = value.startsWith("b/") ? value.slice(2) : value;
-  return withoutPrefix;
+  if (!value.startsWith("b/")) {
+    throw gitFailure("Git diff returned an unexpected destination path prefix", { path: value });
+  }
+  return value.slice(2);
 }
 
 function mergeRanges(ranges: ChangedLineRange[]): ChangedLineRange[] {
@@ -171,6 +174,7 @@ export async function collectGitChanges(
       git(repoRoot, [
         "-c", "core.quotePath=false",
         "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-renames",
+        "--src-prefix=a/", "--dst-prefix=b/",
         mergeBase, "--", alPathspec,
       ]),
       git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z", "--", alPathspec]),

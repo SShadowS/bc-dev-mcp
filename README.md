@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-522%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-534%20passing-green)]()
 
 ## Overview
 
@@ -71,7 +71,7 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 
 1. `bcdev_status` — verify reachability, auth, and that test running is supported.
 2. `bcdev_test_discover` — list test codeunits and `[Test]` methods from local `.al` files.
-3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results. Add `coverageAgainst: "origin/main"` to classify every changed executable procedure as `covered`, `uncovered`, or `unknown`.
+3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results. Add `coverageAgainst: "origin/main"` for changed-procedure analysis. After publishing the current changed objects to the target, also pass `changesDeployed: true` to permit `covered`/`uncovered` classifications; without that explicit assertion, changed procedures remain `unknown`.
 4. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
 
 Debugger attach returns as soon as Business Central accepts the request; binding is asynchronous. With no selector it binds the next session of the `breakOnNext` client type. Pass `userId` to filter that next session by Business Central user, or pass a known positive `sessionId` to attach to an existing NST session. `sessionId` and `userId` are mutually exclusive; exact `sessionId` targeting takes precedence over `breakOnNext`. `bcdev_debug_wait` reports `{ kind: "sessionBound", sessionId, hostId }` after binding; `hostId` may be null when Business Central omits that optional field. If identity lookup fails, it reports a nonfatal warning-form `sessionBound` event and debugging remains active. If Business Central emits a fatal user-filter rejection before `sessionBound`, the debugger tears down without binding or delivering breaks and reports an actionable `fatal` event.
@@ -206,10 +206,13 @@ resolves the ref's merge base with `HEAD`, compares that commit with the current
 automatically selects procedure coverage. `coverageGaps` reports each current executable procedure
 intersecting those changed lines as `covered`, `uncovered`, or `unknown`, including the exact source
 span, changed ranges, compiler method ID, and covering test identities. An `uncovered` result is only
-emitted when the compiler identity is exact and a complete run omitted it; unresolved signatures and
-aborted runs remain `unknown` instead of becoming false gaps. Dependency symbols are read from
-`.alpackages` and cached per server composition. Use the same base ref when rerunning a broader test
-selection to close the reported gaps.
+emitted when the compiler identity is exact, the caller explicitly confirms the current changes are
+deployed with `changesDeployed: true`, and a complete run omitted it. TestRunnerHub does not return an
+artifact or source hash, so `coverageGaps.deployment` distinguishes that caller assertion from tool
+verification. Without the assertion, unresolved signatures, incomplete parsing, or an aborted run,
+the affected result remains `unknown` and `complete` is false. Conditional compilation follows
+`app.json` preprocessor symbols, and dependency identities preserve namespace qualification from
+`.alpackages`. Use the same base ref when rerunning a broader test selection to close reported gaps.
 
 Breakpoint additions include `verification.status` (`verified`, `relocated`, or `unverified`) and
 the resolved object, method, and 1-based span when Business Central supplies them. An all-zero

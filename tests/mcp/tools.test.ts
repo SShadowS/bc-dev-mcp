@@ -198,7 +198,7 @@ describe("tools", () => {
     expect(state.testRunActive).toBe(false);
   });
 
-  test("coverageAgainst implies procedure coverage and reports a covered changed procedure", async () => {
+  test("coverageAgainst with a deployment assertion implies procedure coverage and reports a covered changed procedure", async () => {
     const methodId = calculateProcedureMethodId("A", { navTypeKind: 0, symbolKind: 2 }, [], 16).methodId!;
     const { tools } = setup(hub, undefined, undefined, {
       gitChanges: async (_project, baseRef) => ({
@@ -222,9 +222,11 @@ describe("tools", () => {
     const result = await tools.get("bcdev_test_run")!.handler({
       codeunits: [{ id: 50100 }],
       coverageAgainst: "origin/main",
+      changesDeployed: true,
     }) as {
       coverageGaps: {
         complete: boolean;
+        deployment: { status: string; verified: boolean };
         summary: { covered: number; uncovered: number; unknown: number };
         procedures: Array<{ name: string; status: string; methodId: number; coveredBy: unknown[] }>;
       };
@@ -233,6 +235,7 @@ describe("tools", () => {
     expect(hub.invoked("Initialize")[0]?.args[2]).toBe(2);
     expect(result.coverageGaps).toMatchObject({
       complete: true,
+      deployment: { status: "asserted", verified: false },
       summary: { covered: 1, uncovered: 0, unknown: 0 },
     });
     expect(result.coverageGaps.procedures[0]).toMatchObject({
@@ -262,6 +265,7 @@ describe("tools", () => {
       codeunits: [{ id: 50100 }],
       coverageAgainst: "origin/main",
       coverage: "procedure",
+      changesDeployed: true,
     }) as {
       coverageGaps: { summary: { uncovered: number }; procedures: Array<{ status: string }> };
       nextSteps: string[];
@@ -269,6 +273,42 @@ describe("tools", () => {
     expect(result.coverageGaps.summary.uncovered).toBe(1);
     expect(result.coverageGaps.procedures[0]?.status).toBe("uncovered");
     expect(result.nextSteps.join(" ")).toContain("same coverageAgainst ref");
+  });
+
+  test("coverageAgainst without a deployment assertion remains unknown and gives publish guidance", async () => {
+    const methodId = calculateProcedureMethodId("A", { navTypeKind: 0, symbolKind: 2 }, [], 16).methodId!;
+    const { tools } = setup(hub, undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef,
+        mergeBase: "e".repeat(40),
+        head: "workingTree",
+        files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
+      }),
+    });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", {
+        Tests: [{
+          ApplicationObjectId: 50100,
+          MethodId: 77,
+          CoveredProcedures: [{ ObjectType: 5, ObjectId: 50100, MethodId: methodId }],
+        }],
+      }));
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "origin/main",
+    }) as {
+      coverageGaps: { complete: boolean; deployment: { status: string }; summary: { unknown: number }; procedures: Array<{ status: string }> };
+      nextSteps: string[];
+    };
+    expect(result.coverageGaps).toMatchObject({
+      complete: false,
+      deployment: { status: "unverified" },
+      summary: { unknown: 1 },
+      procedures: [{ status: "unknown" }],
+    });
+    expect(result.nextSteps.join(" ")).toContain("changesDeployed: true");
   });
 
   test("coverageAgainst rejects incompatible coverage before Git or RunTests and releases the lock", async () => {
@@ -290,6 +330,17 @@ describe("tools", () => {
       expect(state.testRunActive).toBe(false);
     }
     expect(gitCalls).toBe(0);
+    expect(hub.invoked("RunTests")).toHaveLength(0);
+  });
+
+  test("changesDeployed is rejected without coverageAgainst", async () => {
+    const { state, tools } = setup(hub);
+    const error = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      changesDeployed: true,
+    }).catch((caught) => caught);
+    expect(error).toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(state.testRunActive).toBe(false);
     expect(hub.invoked("RunTests")).toHaveLength(0);
   });
 

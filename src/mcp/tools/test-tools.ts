@@ -103,17 +103,28 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
         coverageAgainst: z.string().min(1).optional().describe(
           "Git base ref for changed-procedure gap analysis (for example origin/main). Compares its merge-base with HEAD to the current working tree, includes untracked AL files, and requires/implies procedure coverage.",
         ),
+        changesDeployed: z.literal(true).optional().describe(
+          "Explicit assertion that the current working-tree versions of changed AL objects are deployed to this server. Required for covered/uncovered classifications because procedure coverage does not carry an app or source hash.",
+        ),
       },
       handler: async (params) => {
         claimTestRun(state);
         try {
           const { config, authorization, project } = resolve(params, deps);
           const coverageAgainst = params["coverageAgainst"] as string | undefined;
+          const changesDeployed = params["changesDeployed"] === true;
           const requestedCoverage = params["coverage"] as CoverageMode | undefined;
           if (coverageAgainst !== undefined && requestedCoverage !== undefined && requestedCoverage !== "procedure") {
             throw new BcDevError(
               "INVALID_ARGUMENT",
               "coverageAgainst requires coverage: 'procedure' (or omit coverage to select procedure coverage automatically)",
+              "validation",
+            );
+          }
+          if (changesDeployed && coverageAgainst === undefined) {
+            throw new BcDevError(
+              "INVALID_ARGUMENT",
+              "changesDeployed is only valid together with coverageAgainst",
               "validation",
             );
           }
@@ -123,7 +134,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             : await deps.gitChanges(project, coverageAgainst).then(async (changes) => ({
                 changes,
                 discovered: changes.files.length === 0
-                  ? { procedures: [], warnings: [] }
+                  ? { procedures: [], warnings: [], complete: true }
                   : await discoverAlProcedureIdentities(
                       project,
                       changes.files.map((file) => file.relativeFile),
@@ -167,6 +178,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
               gapPreparation.discovered,
               result.coverage ?? [],
               result.runAborted === true,
+              changesDeployed,
             );
           }
           return result;

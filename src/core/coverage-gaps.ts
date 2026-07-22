@@ -41,10 +41,14 @@ function coveredProcedureTests(coverage: CoverageEntry[]): Map<string, Array<{ t
 
 export function analyzeCoverageGaps(
   changes: GitChangeSet,
-  discovered: { procedures: AlProcedureIdentity[]; warnings?: string[] },
+  discovered: { procedures: AlProcedureIdentity[]; warnings?: string[]; complete?: boolean },
   coverage: CoverageEntry[],
   runAborted = false,
+  changesDeployed = false,
 ): CoverageGapAnalysis {
+  // WIRE: TestRunCompleted carries test/procedure object and method identities, but no package
+  // version, artifact hash, or source hash. Deployment freshness therefore must be asserted by
+  // the caller and is never represented as tool-verified by this payload.
   const changeByFile = new Map(changes.files.map((file) => [file.relativeFile, file.ranges]));
   const coveredBy = coveredProcedureTests(coverage);
   const procedures: CoverageGapProcedure[] = [];
@@ -60,7 +64,13 @@ export function analyzeCoverageGaps(
       : (coveredBy.get(procedureKey(procedure.objectType, procedure.objectId, procedure.methodId)) ?? []);
     let status: CoverageGapProcedure["status"];
     let warning = procedure.identityWarning;
-    if (tests.length > 0) status = "covered";
+    if (!changesDeployed) {
+      status = "unknown";
+      warning = [
+        warning,
+        "Current working-tree changes were not asserted as deployed, so server coverage cannot prove this local procedure was exercised.",
+      ].filter((part): part is string => part !== undefined).join(" ");
+    } else if (tests.length > 0) status = "covered";
     else if (procedure.methodId === null) status = "unknown";
     else if (runAborted) {
       status = "unknown";
@@ -91,11 +101,21 @@ export function analyzeCoverageGaps(
   const covered = procedures.filter((procedure) => procedure.status === "covered").length;
   const uncovered = procedures.filter((procedure) => procedure.status === "uncovered").length;
   const unknown = procedures.filter((procedure) => procedure.status === "unknown").length;
+  if (procedures.length > 0 && !changesDeployed) {
+    warnings.push("Deployment is unverified. Publish the current changed objects, then rerun with changesDeployed: true only after confirming that deployment.");
+  }
+  if (discovered.complete === false) {
+    warnings.push("AL procedure discovery was incomplete; coverageGaps cannot be used as a complete gate.");
+  }
   return {
     baseRef: changes.baseRef,
     mergeBase: changes.mergeBase,
     head: changes.head,
-    complete: !runAborted && unknown === 0,
+    deployment: {
+      status: changesDeployed ? "asserted" : "unverified",
+      verified: false,
+    },
+    complete: discovered.complete !== false && !runAborted && unknown === 0,
     summary: {
       changedFiles: changes.files.length,
       changedProcedures: procedures.length,

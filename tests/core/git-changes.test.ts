@@ -35,6 +35,15 @@ describe("Git AL changes", () => {
     ].join("\n"))).toEqual([]);
   });
 
+  test("rejects an unexpected diff prefix instead of silently losing the changed file", () => {
+    expect(() => parseUnifiedAlDiff([
+      "diff --git c/src/Foo.al w/src/Foo.al",
+      "--- c/src/Foo.al",
+      "+++ w/src/Foo.al",
+      "@@ -1 +1 @@",
+    ].join("\n"))).toThrow(/unexpected destination path prefix/);
+  });
+
   test("rejects blank and option-shaped refs", () => {
     for (const ref of ["", "   ", "--output=/tmp/x", "main\nother"]) {
       expect(() => validateGitRef(ref)).toThrow(/coverageAgainst/);
@@ -50,6 +59,7 @@ describe("Git AL changes", () => {
     run("init", "-q");
     run("config", "user.email", "test@example.com");
     run("config", "user.name", "Test");
+    run("config", "diff.mnemonicPrefix", "true");
     const committed = join(project, "Committed.al");
     const staged = join(project, "Staged.al");
     const unstaged = join(project, "Unstaged.al");

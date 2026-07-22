@@ -41,7 +41,7 @@ describe("coverage gap analysis", () => {
     }, [
       { testObjectId: 60000, testMethodId: 1, coveredProcedures: [{ objectType: 5, objectId: 50100, methodId: 100 }] },
       { testObjectId: 60001, testMethodId: 2, coveredProcedures: [{ objectType: 5, objectId: 50100, methodId: 100 }] },
-    ]);
+    ], false, true);
 
     expect(result.summary).toEqual({ changedFiles: 2, changedProcedures: 3, covered: 1, uncovered: 1, unknown: 1 });
     expect(result.complete).toBe(false);
@@ -65,7 +65,7 @@ describe("coverage gap analysis", () => {
       ],
     }, [
       { testObjectId: 60000, testMethodId: 1, coveredProcedures: [{ objectType: 5, objectId: 50100, methodId: 100 }] },
-    ], true);
+    ], true, true);
     expect(result.procedures.map((entry) => entry.status)).toEqual(["covered", "unknown"]);
     expect(result.summary).toMatchObject({ covered: 1, uncovered: 0, unknown: 1 });
     expect(result.complete).toBe(false);
@@ -76,7 +76,7 @@ describe("coverage gap analysis", () => {
       procedures: [procedure({ objectId: 60000, name: "ChangedTest", methodId: 77 })],
     }, [
       { testObjectId: 60000, testMethodId: 77, coveredProcedures: [] },
-    ]);
+    ], false, true);
     expect(result.procedures[0]).toMatchObject({
       name: "ChangedTest",
       status: "covered",
@@ -88,5 +88,31 @@ describe("coverage gap analysis", () => {
     const result = analyzeCoverageGaps(changes, { procedures: [] }, []);
     expect(result.complete).toBe(true);
     expect(result.summary).toEqual({ changedFiles: 2, changedProcedures: 0, covered: 0, uncovered: 0, unknown: 0 });
+  });
+
+  test("retains server evidence but refuses a complete classification without a deployment assertion", () => {
+    const result = analyzeCoverageGaps(changes, {
+      procedures: [procedure({ name: "LocallyChanged", methodId: 100, identityWarning: "signature caveat retained" })],
+      complete: true,
+    }, [
+      { testObjectId: 60000, testMethodId: 1, coveredProcedures: [{ objectType: 5, objectId: 50100, methodId: 100 }] },
+    ]);
+    expect(result).toMatchObject({
+      complete: false,
+      deployment: { status: "unverified", verified: false },
+      summary: { covered: 0, uncovered: 0, unknown: 1 },
+    });
+    expect(result.procedures[0]).toMatchObject({
+      status: "unknown",
+      coveredBy: [{ testObjectId: 60000, testMethodId: 1 }],
+    });
+    expect(result.procedures[0]?.warning).toContain("signature caveat retained");
+    expect(result.warnings.join(" ")).toContain("changesDeployed: true");
+  });
+
+  test("keeps complete false when AL procedure discovery was incomplete", () => {
+    const result = analyzeCoverageGaps(changes, { procedures: [], complete: false, warnings: ["parser stopped"] }, [], false, true);
+    expect(result.complete).toBe(false);
+    expect(result.warnings.join(" ")).toContain("procedure discovery was incomplete");
   });
 });

@@ -121,11 +121,11 @@ Evidence belongs in `scripts/e2e-coverage-gap-analysis-2026-07-21.md`.
 
 - [x] `coverageAgainst` without `coverage` sends procedure coverage and returns schema-valid `coverageGaps`. <!-- 2026-07-21 SaaS Sandbox -->
 - [x] The Git comparison covers the base merge commit through the working tree, including committed, staged, unstaged, and nonignored untracked AL files; pure deletions anchor to surviving procedure lines. <!-- deterministic temporary-repository tests 2026-07-21 -->
-- [x] A narrow selected run classifies two changed executable procedures as one covered and one uncovered, with zero unknowns. <!-- 2026-07-21 SaaS Sandbox -->
-- [x] Rerunning with the broader method selection changes the same result to two covered and zero uncovered/unknown. <!-- 2026-07-21 SaaS Sandbox -->
+- [x] Without `changesDeployed`, matching server method IDs remain retained evidence but every changed procedure is `unknown` and `complete:false`. <!-- deterministic handler test + SaaS Sandbox rerun 2026-07-22; one passing test, one retained covering identity -->
+- [ ] Publish the exact changed fixture to Sandbox, pass `changesDeployed:true`, and validate narrow one-covered/one-uncovered then broad two-covered transitions.
 - [x] Every live `covered` classification matches the raw `ApplicationObjectId/MethodId` returned for its selected test; no name-only join is used. <!-- 2026-07-21 SaaS Sandbox -->
 - [x] The calculated ID for the public demo's parameterized, Decimal-returning procedure matches its raw nested `CoveredProcedures` identity. <!-- 2026-07-21 SaaS Sandbox -->
-- [x] Compiler method-ID vectors, dependency package subtype resolution, cache reuse, aborted-run conservatism, unknown signatures, and incompatible coverage modes are deterministic unit tests. <!-- 2026-07-21 -->
+- [x] Quoted keyword identifiers, fail-closed parser errors, conditional compilation, nested SymbolReference namespaces, system-codeunit IDs, forced Git prefixes, deployment assertions, cache reuse, aborted-run conservatism, unknown signatures, and incompatible coverage modes are deterministic tests. <!-- 2026-07-22 -->
 - [x] No Production call or app publish was made; the disposable local Git project was removed after validation. <!-- 2026-07-21 -->
 
 ## Profiling (snapshot Sampling)

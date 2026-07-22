@@ -124,6 +124,10 @@ export interface CoverageGapAnalysis {
   baseRef: string;
   mergeBase: string;
   head: "workingTree";
+  deployment: {
+    status: "asserted" | "unverified";
+    verified: false;
+  };
   complete: boolean;
   summary: {
     changedFiles: number;

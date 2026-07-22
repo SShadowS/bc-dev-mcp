@@ -133,7 +133,7 @@ describe("AL procedure identities", () => {
     mkdirSync(join(project, "src"));
     writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "16.0" }));
     writeFileSync(join(project, "src", "Types.al"), [
-      "interface 50120 IFoo",
+      "interface IFoo",
       "{",
       "    procedure DeclaredOnly();",
       "}",
@@ -168,6 +168,33 @@ describe("AL procedure identities", () => {
     expect(found.procedures[3]?.name).toBe("Overload");
     expect(found.procedures[4]?.name).toBe("Overload");
     expect(found.procedures[3]?.methodId).not.toBe(found.procedures[4]?.methodId);
+  });
+
+  test("recognizes valid unnumbered interfaces while excluding their declaration-only methods", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-procedures-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "16.0" }));
+    writeFileSync(join(project, "Interfaces.al"), [
+      "namespace Demo.Contracts;",
+      "interface IFoo",
+      "{",
+      "    procedure DeclaredOnly();",
+      "}",
+      "codeunit 50100 Worker",
+      "{",
+      "    procedure UsesInterface(Value: Interface IFoo)",
+      "    begin",
+      "    end;",
+      "}",
+    ].join("\n"));
+    const found = await discoverAlProcedureIdentities(project, ["Interfaces.al"]);
+    expect(found.complete).toBe(true);
+    expect(found.procedures).toHaveLength(1);
+    expect(found.procedures[0]).toMatchObject({ name: "UsesInterface" });
+    expect(found.procedures[0]?.signature.parameters[0]?.type).toMatchObject({
+      subtypeName: "IFoo",
+      subtypeId: 0,
+    });
+    expect(found.procedures[0]?.methodId).toBeNumber();
   });
 
   test("resolves dependency subtypes from a preambled app package and reuses the package cache", async () => {
@@ -209,6 +236,137 @@ describe("AL procedure identities", () => {
     const uncached = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
     expect(uncached.warnings).toHaveLength(1);
     expect(uncached.procedures[0]).toMatchObject({ methodId: null });
+  });
+
+  test("does not treat a quoted keyword identifier as procedure control flow", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-procedures-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "16.0" }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "codeunit 50100 Worker",
+      "{",
+      "    procedure UsesQuotedKeyword()",
+      "    var",
+      '        "end": Integer;',
+      "    begin",
+      '        "end" := 1;',
+      '        "end" += 1;',
+      "    end;",
+      "}",
+    ].join("\n"));
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+    expect(found.complete).toBe(true);
+    expect(found.warnings).toEqual([]);
+    expect(found.procedures[0]).toMatchObject({ name: "UsesQuotedKeyword", startLine: 3, endLine: 9 });
+  });
+
+  test("evaluates app.json preprocessor symbols and excludes inactive procedures", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-procedures-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "16.0", preprocessorSymbols: ["ACTIVE"] }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "#define LOCAL_ACTIVE",
+      "codeunit 50100 Worker",
+      "{",
+      "#if ACTIVE and LOCAL_ACTIVE",
+      "    procedure Active()",
+      "    begin",
+      "    end;",
+      "#else",
+      "    procedure Inactive()",
+      "    begin",
+      "    end;",
+      "#endif",
+      "}",
+    ].join("\n"));
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+    expect(found.complete).toBe(true);
+    expect(found.procedures.map((procedure) => procedure.name)).toEqual(["Active"]);
+    expect(found.procedures[0]).toMatchObject({ startLine: 5, endLine: 7 });
+  });
+
+  test("fails discovery closed for an unsupported preprocessor expression", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-procedures-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "16.0", preprocessorSymbols: ["ACTIVE"] }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "codeunit 50100 Worker",
+      "{",
+      "#if ACTIVE = TRUE",
+      "    procedure Conditional()",
+      "    begin",
+      "    end;",
+      "#endif",
+      "}",
+    ].join("\n"));
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+    expect(found.complete).toBe(false);
+    expect(found.warnings.join(" ")).toContain("unsupported #if expression");
+  });
+
+  test("resolves an explicitly qualified dependency subtype without falling back to a local name collision", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-procedures-"));
+    mkdirSync(join(project, ".alpackages"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
+    writeFileSync(join(project, "Setup.Table.al"), [
+      "namespace Local.App;",
+      "table 50140 Setup",
+      "{",
+      "}",
+    ].join("\n"));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "namespace Local.App;",
+      "codeunit 50100 Worker",
+      "{",
+      "    procedure ReadExternal(Value: Record Other.App.Setup)",
+      "    begin",
+      "    end;",
+      "}",
+    ].join("\n"));
+    writeFileSync(
+      join(project, ".alpackages", "dependency.app"),
+      symbolPackage({
+        Namespaces: [{ Name: "Other", Namespaces: [{ Name: "App", Tables: [{ Id: 18, Name: "Setup" }] }] }],
+      }),
+    );
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+    expect(found.complete).toBe(true);
+    expect(found.procedures[0]?.signature.parameters[0]?.type).toMatchObject({
+      subtypeName: "Setup",
+      subtypeId: 18,
+    });
+    expect(found.procedures[0]?.methodId).toBeNumber();
+  });
+
+  test("applies the compiler's reserved system-codeunit method-id adjustment", () => {
+    const raw = calculateProcedureMethodId("SystemWork2", { navTypeKind: 0, symbolKind: 2 }, [], 17).methodId!;
+    const adjusted = calculateProcedureMethodId(
+      "SystemWork2",
+      { navTypeKind: 0, symbolKind: 2 },
+      [],
+      17,
+      false,
+      { objectType: 5, objectId: 2_000_000_001 },
+    ).methodId!;
+    expect(raw).toBe(-816293482);
+    expect(adjusted).toBe(816293482);
+    expect(adjusted).toBe(Math.abs(raw) % 1_250_000_000);
+    expect(adjusted).toBeGreaterThanOrEqual(0);
+    expect(adjusted).toBeLessThan(1_250_000_000);
+  });
+
+  test("marks an unparseable changed procedure incomplete instead of silently omitting it", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-procedures-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "16.0" }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "codeunit 50100 Worker",
+      "{",
+      "    procedure Broken(Value: Integer",
+      "    begin",
+      "    end;",
+      "}",
+    ].join("\n"));
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+    expect(found.complete).toBe(false);
+    expect(found.procedures).toEqual([]);
+    expect(found.warnings.join(" ")).toContain("unable to parse procedure 'Broken' parameter list");
   });
 
   test("reports an unreadable AL project as a typed configuration error", async () => {

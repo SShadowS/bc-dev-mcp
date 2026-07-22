@@ -1,5 +1,30 @@
 # Coverage gap analysis — SaaS Sandbox evidence (2026-07-21)
 
+> **2026-07-22 correction:** this run validated the Git-to-compiler-identity-to-TestRunnerHub join,
+> but it did not validate that the edited local bodies were deployed. Because no app was published,
+> the historical `covered`/`complete` labels below are not evidence that the local changed code ran.
+> The corrected contract retains those method-ID matches but reports changed procedures `unknown`
+> and `complete: false` unless the caller explicitly confirms the current objects are deployed with
+> `changesDeployed: true`. A replacement live run using the exact published fixture remains open in
+> `scripts/e2e.md`.
+
+## Correction rerun (2026-07-22)
+
+The corrected handler was rerun against the same SaaS Sandbox class of target without publishing or
+changing an app. One selected test passed and Business Central returned one matching method identity.
+The tool retained that positive evidence in `coveredBy` but returned:
+
+- `deployment: { status: "unverified", verified: false }`;
+- the changed procedure as `unknown`;
+- `complete: false` and `summary.unknown: 1`;
+- a next step requiring publication confirmation before using `changesDeployed: true`.
+
+This closes the stale-deployment false-positive: matching wire identity alone can no longer produce a
+green changed-code gate. The separate asserted-deployment live scenario remains open because this
+correction rerun deliberately made no external app change. No Production endpoint was called, and
+tenant, environment, company, user, token, authorization, authenticated URL, session, and raw payload
+values were not retained.
+
 Roadmap item 5 was validated through the real `bcdev_test_run` handler and TestRunnerHub against a
 Business Central SaaS Sandbox. No Production endpoint was called and no app was published or
 changed. Tenant, environment, company, user, tokens, authorization values, authenticated URLs, and
@@ -14,14 +39,14 @@ had to collect the working-tree diff, discover the changed procedures, calculate
 method IDs, request procedure coverage, and produce one schema-valid result. The temporary project
 was removed in a `finally` block.
 
-## Results
+## Historical pre-correction results
 
 | Scenario | Changed | Covered | Uncovered | Unknown | Complete |
 |---|---:|---:|---:|---:|---|
 | Narrow selection (one of the two methods) | 2 | 1 | 1 | 0 | yes |
 | Broader selection (both methods) | 2 | 2 | 0 | 0 | yes |
 
-For both runs, every procedure marked `covered` was cross-checked in memory against the raw
+For both runs, every procedure historically marked `covered` was cross-checked in memory against the raw
 `Tests[].ApplicationObjectId/MethodId` identity returned by Business Central. The procedure absent
 from the narrow selection was the sole `uncovered` result; it moved to `covered` in the broader run.
 No names, source-text matching, or inferred object ownership were used for that join.
@@ -41,6 +66,10 @@ parameterless test-method identities used for the two gap transitions.
 - exact covered/uncovered/unknown classification, including aborted-run conservatism;
 - incompatible coverage modes and Git failures release the singleton test-run lock before any
   remote `RunTests` call.
+
+The 2026-07-22 correction adds deterministic coverage for deployment assertions, quoted keyword
+identifiers, fail-closed parser errors, `app.json` conditional compilation, nested dependency
+namespaces, reserved system-codeunit method IDs, and Git mnemonic-prefix configuration.
 
 The full suite, typecheck, build, and embedded-skill drift results are recorded in the branch commit
 and pull-request validation summary when the branch is proposed.

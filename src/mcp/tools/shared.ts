@@ -159,7 +159,11 @@ export const runTestsOutputSchema = z.looseObject({
     baseRef: z.string().describe("Requested Git base ref"),
     mergeBase: z.string().describe("Resolved merge-base commit used for the comparison"),
     head: z.literal("workingTree").describe("Comparison includes committed branch, staged, unstaged, and untracked AL changes"),
-    complete: z.boolean().describe("false when any changed procedure remains unknown or the test run aborted"),
+    deployment: z.object({
+      status: z.enum(["asserted", "unverified"]).describe("asserted only when the caller confirmed that current changed objects are deployed"),
+      verified: z.literal(false).describe("The TestRunnerHub payload contains no artifact hash, so deployment is caller-asserted rather than tool-verified"),
+    }).describe("Deployment-freshness basis for the coverage classification"),
+    complete: z.boolean().describe("false when deployment is unasserted, discovery is incomplete, a changed procedure remains unknown, or the test run aborted"),
     summary: z.object({
       changedFiles: z.number().describe("Changed AL files in the Git comparison"),
       changedProcedures: z.number().describe("Current executable procedures intersecting changed lines"),
