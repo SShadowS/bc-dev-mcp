@@ -126,7 +126,10 @@ Evidence belongs in `scripts/e2e-coverage-gap-analysis-2026-07-21.md`.
 - [x] Every live `covered` classification matches the raw `ApplicationObjectId/MethodId` returned for its selected test; no name-only join is used. <!-- 2026-07-21 SaaS Sandbox -->
 - [x] The calculated ID for the public demo's parameterized, Decimal-returning procedure matches its raw nested `CoveredProcedures` identity. <!-- 2026-07-21 SaaS Sandbox -->
 - [x] Compiler-grounded vectors cover `[TryFunction]`'s implicit Boolean return and length-preserving invariant casing for quoted identifiers. <!-- 2026-07-24: alc 18/runtime 17 fixture; see tests/fixtures/coverage-gap/ -->
-- [x] A missing procedure-coverage payload retains positive evidence but makes absent identities `unknown`; it never infers `uncovered`. <!-- deterministic hub/core/MCP tests 2026-07-24 -->
+- [x] A missing procedure-coverage payload retains positive evidence but makes absent identities `unknown`; it never infers `uncovered`. An empty `Tests` collection for a group that did execute tests is treated the same way. <!-- deterministic hub/core/MCP tests 2026-07-25 -->
+- [x] Changed code lines carrying no method identity (properties, field/control declarations, global variables, object headers, namespace/using) are counted, warned with their exact lines, and force `complete:false`. <!-- deterministic discovery/analysis/MCP tests 2026-07-25 -->
+- [x] `coverageAgainst` refuses a project without `app.json` instead of assuming the newest runtime. <!-- deterministic test 2026-07-25 -->
+- [ ] Confirm on a live run whether Business Central ever returns an empty `Tests` collection for a group whose tests executed with procedure coverage enabled (currently treated as incomplete evidence).
 - [x] Quoted keyword identifiers, fail-closed parser errors, conditional compilation, nested SymbolReference namespaces, system-codeunit IDs, forced Git prefixes, deployment assertions, cache reuse, aborted-run conservatism, unknown signatures, and incompatible coverage modes are deterministic tests. <!-- 2026-07-22 -->
 - [ ] Validate trigger method identities in live `CoveredProcedures`; until then a changed trigger is detected and forces `complete:false`.
 - [ ] Validate whether `CoveredProcedures` attributes tableextension/pageextension/reportextension methods to the extension object type/ID used by local discovery.

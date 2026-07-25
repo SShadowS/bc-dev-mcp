@@ -213,9 +213,15 @@ that omitted it. TestRunnerHub does not return an artifact or source hash, so
 assertion, with unresolved signatures, incomplete parsing or coverage, or an aborted run, the
 affected result remains `unknown` and `complete` is false. Trigger spans are detected but their
 coverage identities are not yet independently validated, so a changed trigger also forces an
-explicit incomplete result instead of disappearing from the gate. Conditional compilation follows
-`app.json` preprocessor symbols, and dependency identities preserve namespace qualification from
-`.alpackages`. Use the same base ref when rerunning a broader test selection to close reported gaps.
+explicit incomplete result instead of disappearing from the gate. Changed code that carries no
+method identity at all — object and field properties, field and control declarations, global
+variables, object headers, `namespace`/`using` declarations — is counted in
+`summary.unattributedChanges`, listed in `warnings` with its exact lines, and also forces
+`complete: false`: procedure coverage can never prove those lines were exercised. Conditional
+compilation follows `app.json` preprocessor symbols (the manifest is required — the runtime it
+pins selects method-ID hash variants), and dependency identities preserve namespace qualification
+from `.alpackages`. Use the same base ref when rerunning a broader test selection to close
+reported gaps.
 
 Breakpoint additions include `verification.status` (`verified`, `relocated`, or `unverified`) and
 the resolved object, method, and 1-based span when Business Central supplies them. An all-zero

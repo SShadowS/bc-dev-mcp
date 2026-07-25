@@ -185,6 +185,86 @@ describe("AL procedure identities", () => {
     }]);
   });
 
+  test("reports object code lines outside every procedure and trigger as unattributed", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-unattributed-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
+    writeFileSync(join(project, "Cust.Table.al"), [
+      "table 50100 MyCust",                    // 1
+      "{",                                     // 2
+      "    // a comment",                      // 3
+      "",                                      // 4
+      "    fields",                            // 5
+      "    {",                                 // 6
+      "        field(1; Name; Text[50]) { }",  // 7
+      "    }",                                 // 8
+      "",                                      // 9
+      "    procedure Helper()",                // 10
+      "    begin",                             // 11
+      "        Message('x');",                 // 12
+      "    end;",                              // 13
+      "}",                                     // 14
+    ].join("\n"));
+
+    const found = await discoverAlProcedureIdentities(project, ["Cust.Table.al"]);
+
+    expect(found.unattributedCode).toMatchObject([{
+      relativeFile: "Cust.Table.al",
+      objectId: 50100,
+      objectName: "MyCust",
+    }]);
+    // Punctuation-only lines (braces, stray parentheses) cannot change behaviour on their own.
+    expect(found.unattributedCode[0]?.lines).toEqual([1, 5, 7]);
+  });
+
+  test("refuses discovery when the project has no app.json to pin the runtime", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-no-manifest-"));
+    writeFileSync(join(project, "Worker.Codeunit.al"), "codeunit 50100 Worker\n{\n}\n");
+
+    await expect(discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"])).rejects.toThrow(/app\.json/);
+  });
+
+  test("fails closed on a comma-grouped parameter list that the AL compiler rejects", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-parameters-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "codeunit 50100 Worker",
+      "{",
+      "    procedure Work(First, Second: Integer)",
+      "    begin",
+      "    end;",
+      "}",
+    ].join("\n"));
+
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+
+    expect(found.complete).toBe(false);
+    expect(found.warnings.join(" ")).toContain("parameter");
+    expect(found.procedures[0]?.methodId).toBeNull();
+  });
+
+  test("reports file-level code outside every AL object as unattributed", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-unattributed-file-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "namespace My.App;",       // 1
+      "using Other.App;",        // 2
+      "",                        // 3
+      "codeunit 50100 Worker",   // 4
+      "{",                       // 5
+      "    procedure Helper()",  // 6
+      "    begin",               // 7
+      "    end;",                // 8
+      "}",                       // 9
+    ].join("\n"));
+
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+
+    expect(found.unattributedCode.map((entry) => [entry.objectId, entry.lines])).toEqual([
+      [null, [1, 2]],
+      [50100, [4]],
+    ]);
+  });
+
   test("excludes declaration-only interface procedures and marks unresolved subtypes unknown", async () => {
     const project = mkdtempSync(join(tmpdir(), "bcmcp-procedures-"));
     mkdirSync(join(project, "src"));

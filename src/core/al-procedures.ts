@@ -16,6 +16,7 @@ interface ObjectSpan {
   typeName: string;
   objectId: number;
   name: string;
+  start: number;
   open: number;
   close: number;
 }
@@ -102,14 +103,31 @@ export interface AlUnsupportedExecutable {
   warning: string;
 }
 
+/**
+ * Code lines that belong to no procedure and no trigger — object and field properties, field and
+ * control declarations, global variables, the object header, and file-level `namespace`/`using`
+ * declarations (reported with null object identity). They carry no method identity, so procedure
+ * coverage can never prove a change to them was exercised.
+ */
+export interface AlUnattributedCode {
+  objectType: number | null;
+  objectId: number | null;
+  objectName: string | null;
+  file: string;
+  relativeFile: string;
+  lines: number[];
+}
+
 export interface AlProcedureDiscoveryResult {
   procedures: AlProcedureIdentity[];
   unsupportedExecutables: AlUnsupportedExecutable[];
+  unattributedCode: AlUnattributedCode[];
   warnings: string[];
   complete: boolean;
 }
 
 interface ParsedProcedure {
+  unresolvedParameters?: boolean;
   object: ObjectSpan;
   name: string;
   startLine: number;
@@ -126,6 +144,11 @@ interface ParsedUnsupportedExecutable {
   startLine: number;
   endLine: number;
   warning: string;
+}
+
+interface ParsedUnattributedCode {
+  object: ObjectSpan | null;
+  lines: number[];
 }
 
 const SKIP_DIRS = new Set([".alpackages", ".git", ".vscode", "node_modules"]);
@@ -613,6 +636,7 @@ function objectSpans(tokens: Token[]): ObjectSpan[] {
       typeName,
       objectId: isInterface ? 0 : Number(tokens[i + 1]!.text),
       name: tokens[nameIndex]!.text,
+      start: i,
       open,
       close,
     });
@@ -724,8 +748,13 @@ function parseType(tokensInput: Token[], catalog: SubtypeCatalog, context: Resol
   return { navTypeKind, symbolKind: SYMBOL_KIND.named!, length };
 }
 
-function parseParameters(tokens: Token[], catalog: SubtypeCatalog, context: ResolutionContext): ParsedParameter[] {
+function parseParameters(
+  tokens: Token[],
+  catalog: SubtypeCatalog,
+  context: ResolutionContext,
+): { parameters: ParsedParameter[]; warnings: string[] } {
   const parameters: ParsedParameter[] = [];
+  const warnings: string[] = [];
   for (const group of splitTopLevel(tokens, ";")) {
     let square = 0;
     const colon = group.findIndex((token) => {
@@ -736,11 +765,18 @@ function parseParameters(tokens: Token[], catalog: SubtypeCatalog, context: Reso
     if (colon < 0) continue;
     const names = group.slice(0, colon).filter((token) => token.text === "," || isIdentifier(token));
     const isVar = isKeyword(names[0], "var");
-    const count = names.filter((token) => token.text !== "," && !isKeyword(token, "var")).length;
-    const type = parseType(group.slice(colon + 1), catalog, context);
-    for (let i = 0; i < count; i++) parameters.push({ isVar, type });
+    const declared = names.filter((token) => token.text !== "," && !isKeyword(token, "var"));
+    // Each AL parameter carries its own type (alc rejects `First, Second: Integer` with AL0104),
+    // so a comma-grouped name list means this source is not what the server compiled.
+    if (declared.length !== 1) {
+      warnings.push(
+        `line ${group[0]?.line ?? 0}: unable to parse parameter declaration '${group.map((token) => token.text).join(" ")}'`,
+      );
+      continue;
+    }
+    parameters.push({ isVar, type: parseType(group.slice(colon + 1), catalog, context) });
   }
-  return parameters;
+  return { parameters, warnings };
 }
 
 function procedureEnd(tokens: Token[], begin: number, limit: number): number {
@@ -763,6 +799,7 @@ function parseProcedures(
 ): {
   procedures: ParsedProcedure[];
   unsupportedExecutables: ParsedUnsupportedExecutable[];
+  unattributedCode: ParsedUnattributedCode[];
   complete: boolean;
   warnings: string[];
 } {
@@ -872,12 +909,15 @@ function parseProcedures(
       const returnType = declaration.attributes.has("tryfunction")
         ? { navTypeKind: NAV_TYPE.boolean!, symbolKind: SYMBOL_KIND.named! }
         : parseType(returnTokens, catalog, context);
+      const parsedParameters = parseParameters(tokens.slice(openParen + 1, closeParen), catalog, context);
+      warnings.push(...parsedParameters.warnings);
       procedures.push({
         object,
         name,
         startLine: tokens[declaration.index]!.line,
         endLine: tokens[end]!.line,
-        parameters: parseParameters(tokens.slice(openParen + 1, closeParen), catalog, context),
+        parameters: parsedParameters.parameters,
+        unresolvedParameters: parsedParameters.warnings.length > 0,
         returnType,
         eventLike,
       });
@@ -891,7 +931,32 @@ function parseProcedures(
       warnings.push(`line ${token.line}: ${token.lower} declaration was outside a recognized AL object`);
     }
   }
-  return { procedures, unsupportedExecutables, complete: warnings.length === 0, warnings };
+  // Only lines carrying a name, keyword, or literal can change behaviour on their own; a line
+  // holding nothing but punctuation (a brace, a continuation parenthesis) cannot.
+  const semantic = (token: Token): boolean => token.kind !== "symbol";
+  const unattributedCode: ParsedUnattributedCode[] = [];
+  for (const object of objects) {
+    const members = [...procedures, ...unsupportedExecutables]
+      .filter((member) => member.object === object)
+      .map((member) => ({ start: member.startLine, end: member.endLine }));
+    const lines = new Set<number>();
+    for (let index = object.start; index <= object.close; index++) {
+      const line = tokens[index]!.line;
+      if (!semantic(tokens[index]!)) continue;
+      if (members.some((member) => line >= member.start && line <= member.end)) continue;
+      lines.add(line);
+    }
+    if (lines.size > 0) unattributedCode.push({ object, lines: [...lines].sort((a, b) => a - b) });
+  }
+  const fileLevel = new Set<number>();
+  for (let index = 0; index < tokens.length; index++) {
+    if (objects.some((object) => index >= object.start && index <= object.close)) continue;
+    if (!semantic(tokens[index]!)) continue;
+    fileLevel.add(tokens[index]!.line);
+  }
+  if (fileLevel.size > 0) unattributedCode.push({ object: null, lines: [...fileLevel].sort((a, b) => a - b) });
+  unattributedCode.sort((left, right) => (left.lines[0] ?? 0) - (right.lines[0] ?? 0));
+  return { procedures, unsupportedExecutables, unattributedCode, complete: warnings.length === 0, warnings };
 }
 
 function upperInvariantUtf16(value: string): string {
@@ -1166,8 +1231,16 @@ async function projectSettings(project: string): Promise<{ runtimeMajor: number;
   try {
     text = await readFile(join(project, "app.json"), "utf8");
   } catch (error) {
+    // The runtime selects hash variants, so guessing it for a directory that is not an AL app
+    // yields confidently wrong method IDs. Refuse instead.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { runtimeMajor: Number.MAX_SAFE_INTEGER, preprocessorSymbols: new Set() };
+      throw new BcDevError(
+        "CONFIGURATION_ERROR",
+        "The AL project has no app.json, so coverage gap analysis cannot pin the runtime that determines method identities",
+        "configuration",
+        false,
+        { project },
+      );
     }
     throw new BcDevError(
       "CONFIGURATION_ERROR",
@@ -1243,6 +1316,7 @@ export async function discoverAlProcedureIdentities(
   const wanted = new Set(relativeFiles.map((file) => resolve(project, file)));
   const procedures: AlProcedureIdentity[] = [];
   const unsupportedExecutables: AlUnsupportedExecutable[] = [];
+  const unattributedCode: AlUnattributedCode[] = [];
   let complete = true;
   const foundWanted = new Set<string>();
   for (const { file, source, context, complete: preprocessingComplete, warnings: preprocessingWarnings } of allSources) {
@@ -1268,15 +1342,27 @@ export async function discoverAlProcedureIdentities(
         warning: executable.warning,
       });
     }
+    for (const parsed of parsedFile.unattributedCode) {
+      unattributedCode.push({
+        objectType: parsed.object?.objectType ?? null,
+        objectId: parsed.object?.objectId ?? null,
+        objectName: parsed.object?.name ?? null,
+        file,
+        relativeFile,
+        lines: parsed.lines,
+      });
+    }
     for (const parsed of parsedFile.procedures) {
-      const identity = calculateProcedureMethodId(
-        parsed.name,
-        parsed.returnType,
-        parsed.parameters,
-        settings.runtimeMajor,
-        parsed.eventLike,
-        { objectType: parsed.object.objectType, objectId: parsed.object.objectId },
-      );
+      const identity = parsed.unresolvedParameters
+        ? { methodId: null, warning: "unable to parse the parameter list" }
+        : calculateProcedureMethodId(
+          parsed.name,
+          parsed.returnType,
+          parsed.parameters,
+          settings.runtimeMajor,
+          parsed.eventLike,
+          { objectType: parsed.object.objectType, objectId: parsed.object.objectId },
+        );
       procedures.push({
         objectType: parsed.object.objectType,
         objectId: parsed.object.objectId,
@@ -1299,6 +1385,7 @@ export async function discoverAlProcedureIdentities(
   return {
     procedures,
     unsupportedExecutables,
+    unattributedCode,
     warnings: [...new Set(warnings)],
     complete,
   };

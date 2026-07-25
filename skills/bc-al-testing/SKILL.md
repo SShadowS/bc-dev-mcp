@@ -42,6 +42,12 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
   are detected and force `complete: false` until their coverage identities are independently
   validated. Follow `warnings` before using the result as a gate. Broaden the selected tests and
   rerun with the same `coverageAgainst` ref to close gaps.
+- **Changed lines without a procedure identity block the gate.** Properties, field and control
+  declarations, global variables, object headers, and `namespace`/`using` lines are counted in
+  `coverageGaps.summary.unattributedChanges`, listed with their exact lines in `warnings`, and set
+  `complete: false`. Review them yourself; procedure coverage cannot speak about them.
+- **`coverageAgainst` requires an `app.json`** in the AL project — its runtime selects the
+  method-ID hash variant, so the analysis refuses to guess for a non-app directory.
 - **Tests run in codeunit declaration order**, not the order of your `methods` array.
 - **Synthetic results:** the run summary can contain an extra entry with an empty
   method name (a server-side quirk, e.g. after watch evaluations). `summary` excludes

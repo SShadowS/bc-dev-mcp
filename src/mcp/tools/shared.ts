@@ -167,7 +167,7 @@ export const runTestsOutputSchema = z.looseObject({
       verified: z.literal(false).describe("The TestRunnerHub payload contains no artifact hash, so deployment is caller-asserted rather than tool-verified"),
     }).describe("Deployment-freshness basis for the coverage classification"),
     complete: z.boolean().describe(
-      "false when deployment is unasserted, discovery or coverage is incomplete, a changed trigger has no validated identity, a changed procedure remains unknown, or the test run aborted",
+      "false when deployment is unasserted, discovery or coverage is incomplete, a changed trigger has no validated identity, changed lines carry no procedure identity, a changed procedure remains unknown, or the test run aborted",
     ),
     summary: z.object({
       changedFiles: z.number().describe("Changed AL files in the Git comparison"),
@@ -175,6 +175,9 @@ export const runTestsOutputSchema = z.looseObject({
       covered: z.number().describe("Changed procedures exercised by this test run"),
       uncovered: z.number().describe("Resolved changed procedures not exercised by this complete test run"),
       unknown: z.number().describe("Changed procedures whose coverage status cannot be proven"),
+      unattributedChanges: z.number().describe(
+        "Changed code regions carrying no procedure identity (properties, field and control declarations, global variables, object headers, namespace and using declarations); each is listed in warnings and forces complete:false",
+      ),
     }).describe("Coverage-gap counts"),
     procedures: z.array(z.object({
       status: z.enum(["covered", "uncovered", "unknown"]).describe("Coverage status for this selected run"),

@@ -136,6 +136,7 @@ export interface CoverageGapAnalysis {
     covered: number;
     uncovered: number;
     unknown: number;
+    unattributedChanges: number;
   };
   procedures: CoverageGapProcedure[];
   warnings: string[];

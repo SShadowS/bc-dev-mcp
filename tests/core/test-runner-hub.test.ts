@@ -84,6 +84,48 @@ describe("TestRunnerClient.run", () => {
     expect(result.coverageComplete).toBe(true);
   });
 
+  test("marks requested coverage incomplete when executed tests return an empty Tests payload", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") {
+        queueMicrotask(() => {
+          hub.emit("TestCompleted", 50100, "PostInvoice", 0, "", 1);
+          hub.emit("TestRunCompleted", { Tests: [] });
+        });
+      }
+      return undefined;
+    };
+
+    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(
+      config,
+      auth,
+      [{ id: 50100 }],
+      { coverage: "procedure" },
+    );
+
+    expect(result.results).toHaveLength(1);
+    expect(result.coverage).toEqual([]);
+    expect(result.coverageComplete).toBe(false);
+  });
+
+  test("keeps requested coverage complete when a group without executed tests returns an empty Tests payload", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      return undefined;
+    };
+
+    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(
+      config,
+      auth,
+      [{ id: 50100 }],
+      { coverage: "procedure" },
+    );
+
+    expect(result.results).toEqual([]);
+    expect(result.coverageComplete).toBe(true);
+  });
+
   test("marks requested coverage incomplete when TestRunCompleted omits its Tests payload", async () => {
     const hub = new FakeHub();
     hub.onInvoke = (method) => {

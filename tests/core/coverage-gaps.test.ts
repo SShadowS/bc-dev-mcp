@@ -30,7 +30,54 @@ function procedure(overrides: Partial<AlProcedureIdentity>): AlProcedureIdentity
   };
 }
 
+const unattributedChanges: GitChangeSet = {
+  baseRef: "origin/main",
+  mergeBase: "b".repeat(40),
+  head: "workingTree",
+  files: [{ relativeFile: "src/Foo.al", ranges: [{ start: 3, end: 4 }] }],
+};
+
+const unattributedFoo = {
+  objectType: 5,
+  objectId: 50100,
+  objectName: "Foo",
+  file: "/repo/src/Foo.al",
+  relativeFile: "src/Foo.al",
+  lines: [1, 2, 4, 12],
+};
+
 describe("coverage gap analysis", () => {
+  test("fails closed when changed code lines belong to no procedure and no trigger", () => {
+    const result = analyzeCoverageGaps(
+      unattributedChanges,
+      { procedures: [], unattributedCode: [unattributedFoo] },
+      [],
+      false,
+      true,
+      true,
+    );
+
+    expect(result.complete).toBe(false);
+    expect(result.summary.unattributedChanges).toBe(1);
+    expect(result.warnings.join(" ")).toContain("src/Foo.al");
+    expect(result.warnings.join(" ")).toContain("4");
+  });
+
+  test("keeps the gate complete when changed lines carry no unattributed code", () => {
+    const result = analyzeCoverageGaps(
+      { ...unattributedChanges, files: [{ relativeFile: "src/Foo.al", ranges: [{ start: 5, end: 9 }] }] },
+      { procedures: [], unattributedCode: [unattributedFoo] },
+      [],
+      false,
+      true,
+      true,
+    );
+
+    expect(result.complete).toBe(true);
+    expect(result.summary.unattributedChanges).toBe(0);
+    expect(result.warnings).toEqual([]);
+  });
+
   test("classifies changed procedures and aggregates the tests that covered them", () => {
     const result = analyzeCoverageGaps(changes, {
       procedures: [
@@ -44,7 +91,7 @@ describe("coverage gap analysis", () => {
       { testObjectId: 60001, testMethodId: 2, coveredProcedures: [{ objectType: 5, objectId: 50100, methodId: 100 }] },
     ], false, true);
 
-    expect(result.summary).toEqual({ changedFiles: 2, changedProcedures: 3, covered: 1, uncovered: 1, unknown: 1 });
+    expect(result.summary).toEqual({ changedFiles: 2, changedProcedures: 3, covered: 1, uncovered: 1, unknown: 1, unattributedChanges: 0 });
     expect(result.complete).toBe(false);
     expect(result.procedures.map((entry) => [entry.name, entry.status])).toEqual([
       ["Covered", "covered"],
@@ -88,7 +135,7 @@ describe("coverage gap analysis", () => {
   test("reports a complete empty result when changed files contain no executable procedures", () => {
     const result = analyzeCoverageGaps(changes, { procedures: [] }, []);
     expect(result.complete).toBe(true);
-    expect(result.summary).toEqual({ changedFiles: 2, changedProcedures: 0, covered: 0, uncovered: 0, unknown: 0 });
+    expect(result.summary).toEqual({ changedFiles: 2, changedProcedures: 0, covered: 0, uncovered: 0, unknown: 0, unattributedChanges: 0 });
   });
 
   test("retains server evidence but refuses a complete classification without a deployment assertion", () => {
@@ -136,7 +183,7 @@ describe("coverage gap analysis", () => {
     }, [], false, true);
 
     expect(result.complete).toBe(false);
-    expect(result.summary).toEqual({ changedFiles: 2, changedProcedures: 0, covered: 0, uncovered: 0, unknown: 0 });
+    expect(result.summary).toEqual({ changedFiles: 2, changedProcedures: 0, covered: 0, uncovered: 0, unknown: 0, unattributedChanges: 0 });
     expect(result.warnings.join(" ")).toContain("trigger OnRun");
     expect(result.warnings.join(" ")).toContain("cannot be used as a complete gate");
   });
@@ -155,7 +202,7 @@ describe("coverage gap analysis", () => {
     const result = analyzeCoverageGaps(triggerChanges, discovered, [], false, true);
 
     expect(result.complete).toBe(false);
-    expect(result.summary).toEqual({ changedFiles: 1, changedProcedures: 0, covered: 0, uncovered: 0, unknown: 0 });
+    expect(result.summary).toEqual({ changedFiles: 1, changedProcedures: 0, covered: 0, uncovered: 0, unknown: 0, unattributedChanges: 0 });
     expect(result.warnings.join(" ")).toContain("trigger OnInsert");
   });
 

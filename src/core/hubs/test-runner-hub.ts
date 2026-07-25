@@ -43,6 +43,7 @@ export class TestRunnerClient {
     const coverage: CoverageEntry[] = [];
     let coverageComplete = true;
     let groupIndex = 0;
+    let groupResultBaseline = 0;
     let settled = false;
 
     return await new Promise<RunTestsResult>((resolvePromise) => {
@@ -70,6 +71,7 @@ export class TestRunnerClient {
           return;
         }
         groupIndex++;
+        groupResultBaseline = results.length;
         // WIRE: RunTests(codeunitId, testMethods[]) (lmt-decomp HubBasedTestRunnerService.RunTestInternal)
         await hub.invoke("RunTests", group.id, group.methods ?? []).catch((err) => finish(String(err)));
       };
@@ -89,8 +91,11 @@ export class TestRunnerClient {
         const payload = normalizeKeys<{ tests?: WireCoverageForTest[] }>(args[0] ?? {});
         // WIRE: procedure coverage is carried by each TestRunCompleted payload's Tests
         // collection (lmt-decomp HubBasedTestRunnerService plus live BC28/SaaS payloads).
-        // A missing collection is not equivalent to an explicitly empty Tests array.
-        if (opts.coverage && opts.coverage !== "none" && !Array.isArray(payload.tests)) {
+        // A missing collection is not evidence of no coverage; neither is an empty collection
+        // for a group that did execute tests — every executed test reports its own identity.
+        if (opts.coverage && opts.coverage !== "none" &&
+            (!Array.isArray(payload.tests) ||
+             (payload.tests.length === 0 && results.length > groupResultBaseline))) {
           coverageComplete = false;
         }
         for (const t of payload.tests ?? []) {

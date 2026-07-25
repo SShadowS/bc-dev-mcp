@@ -17,6 +17,7 @@ function makeProject(): string {
     join(dir, ".vscode", "launch.json"),
     JSON.stringify({ configurations: [{ type: "al", request: "launch", server: "http://localhost", serverInstance: "BC" }] }),
   );
+  writeFileSync(join(dir, "app.json"), JSON.stringify({ runtime: "16.0" }));
   writeFileSync(
     join(dir, "T.Codeunit.al"),
     'codeunit 50100 "T"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure A()\n    begin\n    end;\n}\n',
@@ -246,6 +247,10 @@ describe("tools", () => {
     });
     expect(result.nextSteps).toEqual([]);
     expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
+    const parsed = tools.get("bcdev_test_run")!.outputSchema.parse(result) as {
+      coverageGaps: { summary: { unattributedChanges: number } };
+    };
+    expect(parsed.coverageGaps.summary.unattributedChanges).toBe(0);
   });
 
   test("coverageAgainst reports uncovered changed procedures and gives rerun guidance", async () => {
@@ -273,6 +278,36 @@ describe("tools", () => {
     expect(result.coverageGaps.summary.uncovered).toBe(1);
     expect(result.coverageGaps.procedures[0]?.status).toBe("uncovered");
     expect(result.nextSteps.join(" ")).toContain("same coverageAgainst ref");
+  });
+
+  test("coverageAgainst fails closed and guides review when changed lines carry no procedure identity", async () => {
+    const { tools } = setup(hub, undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef,
+        mergeBase: "e".repeat(40),
+        head: "workingTree",
+        files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 3, end: 3 }] }],
+      }),
+    });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      return undefined;
+    };
+
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "origin/main",
+      changesDeployed: true,
+    }) as {
+      coverageGaps: { complete: boolean; summary: { unattributedChanges: number }; warnings: string[] };
+      nextSteps: string[];
+    };
+
+    expect(result.coverageGaps.complete).toBe(false);
+    expect(result.coverageGaps.summary.unattributedChanges).toBe(1);
+    expect(result.coverageGaps.warnings.join(" ")).toContain("belong to no procedure or trigger");
+    expect(result.nextSteps.join(" ")).toContain("no procedure identity");
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
   });
 
   test("coverageAgainst reports unknown rather than uncovered when the coverage payload is missing", async () => {

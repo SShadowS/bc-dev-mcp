@@ -1,4 +1,4 @@
-import type { AlProcedureIdentity, AlUnsupportedExecutable } from "./al-procedures";
+import type { AlProcedureIdentity, AlUnattributedCode, AlUnsupportedExecutable } from "./al-procedures";
 import type { GitChangeSet, ChangedLineRange } from "./git-changes";
 import type { CoverageEntry, CoverageGapAnalysis, CoverageGapProcedure } from "./types";
 import { AL_OBJECT_TYPE } from "./al-objects";
@@ -11,6 +11,16 @@ function intersectRanges(
   return ranges
     .filter((range) => range.end >= startLine && range.start <= endLine)
     .map((range) => ({ start: Math.max(range.start, startLine), end: Math.min(range.end, endLine) }));
+}
+
+function intersectLines(ranges: ChangedLineRange[], lines: number[]): number[] {
+  return lines.filter((line) => ranges.some((range) => line >= range.start && line <= range.end));
+}
+
+function objectLabel(entry: AlUnattributedCode): string {
+  if (entry.objectId === null) return "file-level declarations";
+  const typeName = Object.keys(AL_OBJECT_TYPE).find((name) => AL_OBJECT_TYPE[name] === entry.objectType);
+  return `${typeName ?? `objectType ${entry.objectType}`} ${entry.objectId} ${entry.objectName}`;
 }
 
 function procedureKey(objectType: number, objectId: number, methodId: number): string {
@@ -44,6 +54,7 @@ export function analyzeCoverageGaps(
   discovered: {
     procedures: AlProcedureIdentity[];
     unsupportedExecutables?: AlUnsupportedExecutable[];
+    unattributedCode?: AlUnattributedCode[];
     warnings?: string[];
     complete?: boolean;
   },
@@ -68,6 +79,20 @@ export function analyzeCoverageGaps(
     warnings.push(
       `${executable.relativeFile}:${executable.startLine} ${executable.kind} ${executable.name}: ` +
       `${executable.warning} Changed lines ${changedRanges.map((range) => `${range.start}-${range.end}`).join(", ")} remain unknown.`,
+    );
+  }
+  // Procedure coverage can only speak about procedures. Changed code that carries no method
+  // identity — properties, field and control declarations, global variables, object headers,
+  // namespace and using declarations — is reported and blocks `complete` rather than being
+  // silently excluded from the gate.
+  const changedUnattributed = (discovered.unattributedCode ?? []).flatMap((entry) => {
+    const lines = intersectLines(changeByFile.get(entry.relativeFile) ?? [], entry.lines);
+    return lines.length === 0 ? [] : [{ entry, lines }];
+  });
+  for (const { entry, lines } of changedUnattributed) {
+    warnings.push(
+      `${entry.relativeFile}:${lines[0]} ${objectLabel(entry)}: changed lines ${lines.join(", ")} ` +
+      `belong to no procedure or trigger, so procedure coverage cannot prove they were exercised.`,
     );
   }
 
@@ -130,6 +155,9 @@ export function analyzeCoverageGaps(
   if (changedUnsupportedExecutables.length > 0) {
     warnings.push("Changed executable triggers have unvalidated coverage identities; coverageGaps cannot be used as a complete gate.");
   }
+  if (changedUnattributed.length > 0) {
+    warnings.push("Changed lines carry no procedure identity; coverageGaps cannot be used as a complete gate.");
+  }
   return {
     baseRef: changes.baseRef,
     mergeBase: changes.mergeBase,
@@ -138,13 +166,15 @@ export function analyzeCoverageGaps(
       status: changesDeployed ? "asserted" : "unverified",
       verified: false,
     },
-    complete: discovered.complete !== false && !runAborted && unknown === 0 && changedUnsupportedExecutables.length === 0,
+    complete: discovered.complete !== false && !runAborted && unknown === 0 &&
+      changedUnsupportedExecutables.length === 0 && changedUnattributed.length === 0,
     summary: {
       changedFiles: changes.files.length,
       changedProcedures: procedures.length,
       covered,
       uncovered,
       unknown,
+      unattributedChanges: changedUnattributed.length,
     },
     procedures,
     warnings: [...new Set(warnings)],

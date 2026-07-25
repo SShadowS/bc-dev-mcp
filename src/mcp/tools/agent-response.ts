@@ -32,7 +32,11 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       } else if (Number(gaps?.summary?.["unknown"] ?? 0) > 0) {
         steps.push("Resolve the coverageGaps warnings before treating changed-procedure coverage as a complete gate.");
       }
-      if (gaps?.complete === false && Number(gaps?.summary?.["unknown"] ?? 0) === 0) {
+      if (Number(gaps?.summary?.["unattributedChanges"] ?? 0) > 0) {
+        steps.push("Review the changed lines with no procedure identity listed in coverageGaps warnings; procedure coverage cannot gate them.");
+      }
+      if (gaps?.complete === false && Number(gaps?.summary?.["unknown"] ?? 0) === 0 &&
+          Number(gaps?.summary?.["unattributedChanges"] ?? 0) === 0) {
         steps.push("Review coverageGaps warnings and resolve incomplete discovery or an aborted run before using the result as a gate.");
       }
       return steps;
