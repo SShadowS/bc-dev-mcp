@@ -176,9 +176,10 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             result.coverageGaps = analyzeCoverageGaps(
               gapPreparation.changes,
               gapPreparation.discovered,
-              result.coverage ?? [],
+              result.coverage,
               result.runAborted === true,
               changesDeployed,
+              result.coverageComplete === true,
             );
           }
           return result;

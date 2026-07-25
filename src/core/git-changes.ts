@@ -109,7 +109,7 @@ export function parseUnifiedAlDiff(diff: string): ChangedAlFile[] {
     // A deletion has no new-side lines. Anchor both sides of the deletion so a surviving
     // procedure still intersects when code was removed immediately before its `end;`.
     const range = newCount === 0
-      ? { start: Math.max(1, newStart - 1), end: Math.max(1, newStart) }
+      ? { start: Math.max(1, newStart), end: newStart + 1 }
       : { start: newStart, end: newStart + newCount - 1 };
     byFile.get(currentFile)!.push(range);
   }
@@ -128,10 +128,14 @@ function projectPrefix(repoRoot: string, project: string): string {
   return rel;
 }
 
-function stripProjectPrefix(path: string, prefix: string): string | null {
+function stripProjectPrefix(path: string, prefix: string, caseInsensitive: boolean): string | null {
   const normalized = normalizeRelativePath(path);
   if (prefix === "") return normalized;
-  return normalized.startsWith(`${prefix}/`) ? normalized.slice(prefix.length + 1) : null;
+  const expected = `${prefix}/`;
+  const matches = caseInsensitive
+    ? normalized.toLowerCase().startsWith(expected.toLowerCase())
+    : normalized.startsWith(expected);
+  return matches ? normalized.slice(expected.length) : null;
 }
 
 async function untrackedFile(relativeFile: string, project: string): Promise<ChangedAlFile> {
@@ -155,6 +159,7 @@ export async function collectGitChanges(
     throw gitFailure("The AL project is not inside a readable Git repository", { project }, error);
   }
   const prefix = projectPrefix(repoRoot, project);
+  const caseInsensitivePaths = process.platform === "win32";
   let mergeBase: string;
   try {
     mergeBase = (await git(project, ["merge-base", baseRef, "HEAD"])).trim();
@@ -169,7 +174,7 @@ export async function collectGitChanges(
   let rawDiff: string;
   let rawUntracked: string;
   try {
-    const alPathspec = prefix === "" ? ":(glob)**/*.al" : `:(glob)${prefix}/**/*.al`;
+    const alPathspec = prefix === "" ? ":(glob,icase)**/*.al" : `:(glob,icase)${prefix}/**/*.al`;
     [rawDiff, rawUntracked] = await Promise.all([
       git(repoRoot, [
         "-c", "core.quotePath=false",
@@ -186,16 +191,30 @@ export async function collectGitChanges(
 
   const tracked = parseUnifiedAlDiff(rawDiff)
     .map((entry) => {
-      const relativeFile = stripProjectPrefix(entry.relativeFile, prefix);
-      return relativeFile === null ? null : { ...entry, relativeFile };
-    })
-    .filter((entry): entry is ChangedAlFile => entry !== null);
+      const relativeFile = stripProjectPrefix(entry.relativeFile, prefix, caseInsensitivePaths);
+      if (relativeFile === null) {
+        throw gitFailure("Git returned a tracked AL path outside the requested project", {
+          path: entry.relativeFile,
+          projectPrefix: prefix,
+        });
+      }
+      return { ...entry, relativeFile };
+    });
   const known = new Set(tracked.map((entry) => entry.relativeFile));
   const untrackedPaths = rawUntracked
     .split("\0")
     .filter((path) => path !== "" && path.toLowerCase().endsWith(".al"))
-    .map((path) => stripProjectPrefix(path, prefix))
-    .filter((path): path is string => path !== null && !known.has(path));
+    .map((path) => {
+      const relativeFile = stripProjectPrefix(path, prefix, caseInsensitivePaths);
+      if (relativeFile === null) {
+        throw gitFailure("Git returned an untracked AL path outside the requested project", {
+          path,
+          projectPrefix: prefix,
+        });
+      }
+      return relativeFile;
+    })
+    .filter((path) => !known.has(path));
   let untracked: ChangedAlFile[];
   try {
     untracked = await Promise.all(untrackedPaths.map((path) => untrackedFile(path, project)));

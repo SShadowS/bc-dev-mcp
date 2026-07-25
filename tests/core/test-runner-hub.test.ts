@@ -81,6 +81,25 @@ describe("TestRunnerClient.run", () => {
     expect(result.coverage).toEqual([
       { testObjectId: 50100, testMethodId: 1, coveredProcedures: [{ objectType: 5, objectId: 50000, methodId: 7 }] },
     ]);
+    expect(result.coverageComplete).toBe(true);
+  });
+
+  test("marks requested coverage incomplete when TestRunCompleted omits its Tests payload", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", {}));
+      return undefined;
+    };
+
+    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(
+      config,
+      auth,
+      [{ id: 50100 }],
+      { coverage: "procedure" },
+    );
+
+    expect(result.coverage).toEqual([]);
+    expect(result.coverageComplete).toBe(false);
   });
 
   test("passes debuggingContext to Initialize", async () => {

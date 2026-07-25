@@ -1,5 +1,25 @@
 # Coverage gap analysis — SaaS Sandbox evidence (2026-07-21)
 
+## Compiler-backed review corrections (2026-07-24)
+
+An independent review compared the method-ID engine with Microsoft AL compiler 18 at runtime 17
+across the three repository demo apps and a purpose-built adversarial app compiled against BC28
+symbols. Forty-nine of 52 checked signatures matched. The correction captures the compiler-emitted
+IDs for the misses in `tests/fixtures/coverage-gap/compiler-method-ids.json` and adds deterministic
+coverage for:
+
+- `[TryFunction]` methods using their implicit Boolean return (`TryDivide` = `1393946970`);
+- length-preserving .NET invariant casing for legal quoted identifiers
+  (`"Größe"` = `-1116888289`);
+- changed trigger spans forcing `complete: false` until trigger coverage identities are validated;
+- pure-deletion hunks anchoring the surviving line below the deletion;
+- scoped Git paths failing closed instead of being dropped, plus case-insensitive `.al` extensions;
+- missing procedure-coverage payloads producing `unknown`, never `uncovered`.
+
+This was a compiler-backed and deterministic correction pass, not a new SaaS run. The existing live
+deployment-assertion and extension-object attribution checks remain explicitly open in
+`scripts/e2e.md`.
+
 > **2026-07-22 correction:** this run validated the Git-to-compiler-identity-to-TestRunnerHub join,
 > but it did not validate that the edited local bodies were deployed. Because no app was published,
 > the historical `covered`/`complete` labels below are not evidence that the local changed code ran.

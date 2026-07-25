@@ -1,0 +1,26 @@
+{
+  "provenance": {
+    "compiler": "Microsoft AL Language compiler 18",
+    "runtime": "17.0",
+    "captured": "2026-07-24",
+    "field": "compiler-emitted method ID",
+    "notes": "Captured by the 2026-07-24 compiler-backed PR review from equivalent repository-owned and adversarial signatures compiled against BC28 symbols. SplitAmount was also observed in a SaaS TestRunCompleted CoveredProcedures entry."
+  },
+  "vectors": [
+    {
+      "source": "src/CompilerVectors.Codeunit.al",
+      "name": "TryDivide",
+      "methodId": 1393946970
+    },
+    {
+      "source": "src/CompilerVectors.Codeunit.al",
+      "name": "Größe",
+      "methodId": -1116888289
+    },
+    {
+      "source": "../../../demos/hello-bug/src/DemoPayment.Codeunit.al",
+      "name": "SplitAmount",
+      "methodId": 616839936
+    }
+  ]
+}

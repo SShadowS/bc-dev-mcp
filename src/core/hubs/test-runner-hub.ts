@@ -41,6 +41,7 @@ export class TestRunnerClient {
 
     const results: TestMethodResult[] = [];
     const coverage: CoverageEntry[] = [];
+    let coverageComplete = true;
     let groupIndex = 0;
     let settled = false;
 
@@ -49,7 +50,10 @@ export class TestRunnerClient {
         if (settled) return;
         settled = true;
         const result: RunTestsResult = { results };
-        if (opts.coverage && opts.coverage !== "none") result.coverage = coverage;
+        if (opts.coverage && opts.coverage !== "none") {
+          result.coverage = coverage;
+          result.coverageComplete = coverageComplete;
+        }
         if (aborted !== undefined) {
           result.runAborted = true;
           result.abortReason = aborted;
@@ -83,6 +87,12 @@ export class TestRunnerClient {
 
       hub.on("TestRunCompleted", (...args) => {
         const payload = normalizeKeys<{ tests?: WireCoverageForTest[] }>(args[0] ?? {});
+        // WIRE: procedure coverage is carried by each TestRunCompleted payload's Tests
+        // collection (lmt-decomp HubBasedTestRunnerService plus live BC28/SaaS payloads).
+        // A missing collection is not equivalent to an explicitly empty Tests array.
+        if (opts.coverage && opts.coverage !== "none" && !Array.isArray(payload.tests)) {
+          coverageComplete = false;
+        }
         for (const t of payload.tests ?? []) {
           coverage.push({
             testObjectId: t.applicationObjectId,

@@ -89,8 +89,22 @@ export interface AlProcedureIdentity {
   signature: { returnType: AlTypeRef; parameters: ParsedParameter[]; eventLike: boolean };
 }
 
+export interface AlUnsupportedExecutable {
+  objectType: number;
+  objectId: number;
+  objectName: string;
+  kind: "trigger";
+  name: string;
+  file: string;
+  relativeFile: string;
+  startLine: number;
+  endLine: number;
+  warning: string;
+}
+
 export interface AlProcedureDiscoveryResult {
   procedures: AlProcedureIdentity[];
+  unsupportedExecutables: AlUnsupportedExecutable[];
   warnings: string[];
   complete: boolean;
 }
@@ -103,6 +117,15 @@ interface ParsedProcedure {
   parameters: ParsedParameter[];
   returnType: AlTypeRef;
   eventLike: boolean;
+}
+
+interface ParsedUnsupportedExecutable {
+  object: ObjectSpan;
+  kind: "trigger";
+  name: string;
+  startLine: number;
+  endLine: number;
+  warning: string;
 }
 
 const SKIP_DIRS = new Set([".alpackages", ".git", ".vscode", "node_modules"]);
@@ -737,13 +760,65 @@ function parseProcedures(
   source: string,
   catalog: SubtypeCatalog,
   context: ResolutionContext,
-): { procedures: ParsedProcedure[]; complete: boolean; warnings: string[] } {
+): {
+  procedures: ParsedProcedure[];
+  unsupportedExecutables: ParsedUnsupportedExecutable[];
+  complete: boolean;
+  warnings: string[];
+} {
   const tokens = tokenize(source);
   const procedures: ParsedProcedure[] = [];
+  const unsupportedExecutables: ParsedUnsupportedExecutable[] = [];
   const warnings: string[] = [];
   const objects = objectSpans(tokens);
   for (const object of objects) {
     for (let i = object.open + 1; i < object.close; i++) {
+      if (isKeyword(tokens[i], "trigger")) {
+        const name = tokens[i + 1]?.text;
+        if (!name || !isIdentifier(tokens[i + 1])) {
+          warnings.push(`line ${tokens[i]!.line}: unable to parse trigger name`);
+          continue;
+        }
+        let openParen = i + 2;
+        while (openParen < object.close && tokens[openParen]!.text !== "(") {
+          if (isKeyword(tokens[openParen], "procedure") || isKeyword(tokens[openParen], "trigger")) break;
+          openParen++;
+        }
+        if (openParen >= object.close || tokens[openParen]!.text !== "(") {
+          warnings.push(`line ${tokens[i]!.line}: unable to parse trigger '${name}' parameter list`);
+          continue;
+        }
+        const closeParen = matching(tokens, openParen, "(", ")", object.close);
+        if (closeParen < 0) {
+          warnings.push(`line ${tokens[i]!.line}: unable to parse trigger '${name}' parameter list`);
+          continue;
+        }
+        let begin = closeParen + 1;
+        while (begin < object.close && !isKeyword(tokens[begin], "begin")) {
+          if (isKeyword(tokens[begin], "procedure") || isKeyword(tokens[begin], "trigger")) break;
+          begin++;
+        }
+        if (begin >= object.close || !isKeyword(tokens[begin], "begin")) {
+          warnings.push(`line ${tokens[i]!.line}: unable to find executable body for trigger '${name}'`);
+          continue;
+        }
+        const end = procedureEnd(tokens, begin, object.close);
+        if (end < 0) {
+          warnings.push(`line ${tokens[i]!.line}: unable to find the end of trigger '${name}'`);
+          continue;
+        }
+        const declaration = declarationStart(tokens, i);
+        unsupportedExecutables.push({
+          object,
+          kind: "trigger",
+          name,
+          startLine: tokens[declaration.index]!.line,
+          endLine: tokens[end]!.line,
+          warning: "Trigger method identities are not yet validated against Business Central procedure coverage.",
+        });
+        i = end;
+        continue;
+      }
       if (!isKeyword(tokens[i], "procedure")) continue;
       if (object.typeName === "interface") continue;
       const name = tokens[i + 1]?.text;
@@ -792,13 +867,18 @@ function parseProcedures(
       const eventLike = [...declaration.attributes].some((attribute) =>
         attribute === "integrationevent" || attribute === "businessevent" || attribute === "internalevent" ||
         attribute === "eventsubscriber" || attribute.endsWith("handler"));
+      // WIRE: alc 18/runtime 17 emits a [TryFunction] MethodId using an implicit Boolean
+      // return even though the AL declaration has no return type (compiler fixture: TryDivide).
+      const returnType = declaration.attributes.has("tryfunction")
+        ? { navTypeKind: NAV_TYPE.boolean!, symbolKind: SYMBOL_KIND.named! }
+        : parseType(returnTokens, catalog, context);
       procedures.push({
         object,
         name,
         startLine: tokens[declaration.index]!.line,
         endLine: tokens[end]!.line,
         parameters: parseParameters(tokens.slice(openParen + 1, closeParen), catalog, context),
-        returnType: parseType(returnTokens, catalog, context),
+        returnType,
         eventLike,
       });
       i = end;
@@ -806,12 +886,22 @@ function parseProcedures(
   }
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!;
-    if (!isKeyword(token, "procedure")) continue;
+    if (!isKeyword(token, "procedure") && !isKeyword(token, "trigger")) continue;
     if (!objects.some((object) => index > object.open && index < object.close)) {
-      warnings.push(`line ${token.line}: procedure declaration was outside a recognized AL object`);
+      warnings.push(`line ${token.line}: ${token.lower} declaration was outside a recognized AL object`);
     }
   }
-  return { procedures, complete: warnings.length === 0, warnings };
+  return { procedures, unsupportedExecutables, complete: warnings.length === 0, warnings };
+}
+
+function upperInvariantUtf16(value: string): string {
+  let result = "";
+  for (let index = 0; index < value.length; index++) {
+    const unit = value[index]!;
+    const upper = unit.toUpperCase();
+    result += upper.length === 1 ? upper : unit;
+  }
+  return result;
 }
 
 function fnvUtf16(value: string): number {
@@ -880,10 +970,9 @@ function subtypeHash(type: AlTypeRef, runtimeMajor: number, recursive = false): 
   return 1;
 }
 
-// WIRE: procedure coverage reports MethodId. This calculation follows AL compiler
-// MethodSymbol.CalculateMethodIdForNewVersions, TypeSymbolExtensions.GetSubTypeHashCodeForNewVersions,
-// and Utilities.Hash (AL Development Tools 17.0.34.45391). Cross-checked against compiler-emitted
-// SymbolReference.json IDs and the BC28 TestRunCompleted coverage payload.
+// WIRE: procedure coverage reports compiler-generated MethodId values. The calculation is
+// black-box validated against alc 18/runtime 17 compiler output and a BC28 TestRunCompleted
+// payload; compiler-grounded vectors and provenance live under tests/fixtures/coverage-gap/.
 export function calculateProcedureMethodId(
   name: string,
   returnType: AlTypeRef,
@@ -895,7 +984,9 @@ export function calculateProcedureMethodId(
   if (returnType.navTypeKind === null || returnType.unresolved) {
     return { methodId: null, warning: returnType.unresolved ?? "unresolved return type" };
   }
-  let hash = combine(fnvUtf16(name.toUpperCase()), returnType.navTypeKind);
+  // WIRE: alc uses .NET's simple, length-preserving invariant char mapping for method names.
+  // JavaScript's full mapping expands legal quoted identifiers such as ß and produces a wrong ID.
+  let hash = combine(fnvUtf16(upperInvariantUtf16(name)), returnType.navTypeKind);
   const requiresSubtype = !eventLike && parameters.some((parameter) => {
     const key = typeKey(parameter.type);
     return key !== null && SUBTYPE_KIND.has(key);
@@ -1151,6 +1242,7 @@ export async function discoverAlProcedureIdentities(
   const warnings = await addDependencySymbols(catalog, project, cache);
   const wanted = new Set(relativeFiles.map((file) => resolve(project, file)));
   const procedures: AlProcedureIdentity[] = [];
+  const unsupportedExecutables: AlUnsupportedExecutable[] = [];
   let complete = true;
   const foundWanted = new Set<string>();
   for (const { file, source, context, complete: preprocessingComplete, warnings: preprocessingWarnings } of allSources) {
@@ -1162,6 +1254,20 @@ export async function discoverAlProcedureIdentities(
     const parsedFile = parseProcedures(source, catalog, context);
     if (!parsedFile.complete) complete = false;
     warnings.push(...parsedFile.warnings.map((warning) => `${relativeFile}:${warning}`));
+    for (const executable of parsedFile.unsupportedExecutables) {
+      unsupportedExecutables.push({
+        objectType: executable.object.objectType,
+        objectId: executable.object.objectId,
+        objectName: executable.object.name,
+        kind: executable.kind,
+        name: executable.name,
+        file,
+        relativeFile,
+        startLine: executable.startLine,
+        endLine: executable.endLine,
+        warning: executable.warning,
+      });
+    }
     for (const parsed of parsedFile.procedures) {
       const identity = calculateProcedureMethodId(
         parsed.name,
@@ -1190,5 +1296,10 @@ export async function discoverAlProcedureIdentities(
     complete = false;
     warnings.push(`${relative(project, missing).split("\\").join("/")}: changed AL file was not readable during procedure discovery`);
   }
-  return { procedures, warnings: [...new Set(warnings)], complete };
+  return {
+    procedures,
+    unsupportedExecutables,
+    warnings: [...new Set(warnings)],
+    complete,
+  };
 }

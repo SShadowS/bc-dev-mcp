@@ -153,6 +153,9 @@ export const runTestsOutputSchema = z.looseObject({
       }),
     )
     .optional(),
+  coverageComplete: z.boolean().optional().describe(
+    "true when every requested test group returned a procedure-coverage payload; false means absence cannot prove a procedure uncovered",
+  ),
   runAborted: z.boolean().optional(),
   abortReason: z.string().optional(),
   coverageGaps: z.object({
@@ -163,7 +166,9 @@ export const runTestsOutputSchema = z.looseObject({
       status: z.enum(["asserted", "unverified"]).describe("asserted only when the caller confirmed that current changed objects are deployed"),
       verified: z.literal(false).describe("The TestRunnerHub payload contains no artifact hash, so deployment is caller-asserted rather than tool-verified"),
     }).describe("Deployment-freshness basis for the coverage classification"),
-    complete: z.boolean().describe("false when deployment is unasserted, discovery is incomplete, a changed procedure remains unknown, or the test run aborted"),
+    complete: z.boolean().describe(
+      "false when deployment is unasserted, discovery or coverage is incomplete, a changed trigger has no validated identity, a changed procedure remains unknown, or the test run aborted",
+    ),
     summary: z.object({
       changedFiles: z.number().describe("Changed AL files in the Git comparison"),
       changedProcedures: z.number().describe("Current executable procedures intersecting changed lines"),
@@ -192,7 +197,7 @@ export const runTestsOutputSchema = z.looseObject({
       }).describe("Covering test identity")).describe("Selected tests that exercised this procedure"),
       warning: z.string().optional().describe("Reason this procedure is unknown"),
     }).describe("Changed procedure coverage result")).describe("Changed executable procedures"),
-    warnings: z.array(z.string()).describe("Nonfatal identity or completeness warnings"),
+    warnings: z.array(z.string()).describe("Nonfatal identity, trigger, coverage-payload, or completeness warnings"),
   }).optional().describe("Changed-procedure coverage analysis when coverageAgainst was requested"),
 });
 

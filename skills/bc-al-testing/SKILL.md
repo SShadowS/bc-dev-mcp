@@ -37,9 +37,11 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
   when server coverage contains the same method ID. Set it only after publishing the current objects;
   inspect `coverageGaps.deployment` to distinguish the assertion from tool verification.
 - **Read gap states conservatively.** `uncovered` means an exact compiler method identity was
-  absent from a complete run. An unresolved signature or aborted run is `unknown`, never a proven
-  gap. Follow `warnings` before using the result as a gate. Broaden the selected tests and rerun
-  with the same `coverageAgainst` ref to close gaps.
+  absent from procedure coverage returned for every requested test group. An unresolved signature,
+  missing coverage payload, or aborted run is `unknown`, never a proven gap. Changed trigger spans
+  are detected and force `complete: false` until their coverage identities are independently
+  validated. Follow `warnings` before using the result as a gate. Broaden the selected tests and
+  rerun with the same `coverageAgainst` ref to close gaps.
 - **Tests run in codeunit declaration order**, not the order of your `methods` array.
 - **Synthetic results:** the run summary can contain an extra entry with an empty
   method name (a server-side quirk, e.g. after watch evaluations). `summary` excludes

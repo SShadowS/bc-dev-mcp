@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   AlProcedureDiscoveryCache,
   calculateProcedureMethodId,
@@ -43,7 +43,7 @@ function symbolPackage(symbols: unknown): Buffer {
 }
 
 describe("AL procedure identities", () => {
-  test("matches fixed method-ID vectors for public demo procedure signatures", () => {
+  test("matches compiler-grounded method-ID vectors for public demo procedure signatures", () => {
     expect(calculateProcedureMethodId(
       "SplitAmount",
       { navTypeKind: 12451847, symbolKind: 2 },
@@ -55,13 +55,19 @@ describe("AL procedure identities", () => {
     ).methodId).toBe(616839936);
     expect(calculateProcedureMethodId(
       "TryDivide",
-      { navTypeKind: 0, symbolKind: 2 },
+      { navTypeKind: 12451842, symbolKind: 2 },
       [
         { isVar: false, type: { navTypeKind: 12451847, symbolKind: 2 } },
         { isVar: false, type: { navTypeKind: 12451847, symbolKind: 2 } },
       ],
       17,
-    ).methodId).toBe(-463051059);
+    ).methodId).toBe(1393946970);
+    expect(calculateProcedureMethodId(
+      "Größe",
+      { navTypeKind: 0, symbolKind: 2 },
+      [],
+      17,
+    ).methodId).toBe(-1116888289);
   });
 
   test("matches a fixed method-ID vector for var Record and sized Text parameters", () => {
@@ -122,10 +128,61 @@ describe("AL procedure identities", () => {
       endLine: 13,
     });
     expect(found.procedures[0]?.methodId).toBe(1097008892);
+    expect(found.procedures[0]?.signature.returnType.navTypeKind).toBe(12451842);
     expect(found.procedures[1]).toMatchObject({ name: "Published", startLine: 15, endLine: 18 });
     expect(found.procedures[1]?.methodId).toBeNumber();
     expect(found.procedures[2]).toMatchObject({ name: "NoReturnWithLocals", startLine: 20, endLine: 25 });
     expect(found.procedures[2]?.signature.returnType.navTypeKind).toBe(0);
+  });
+
+  test("reproduces method IDs captured from an alc 18 runtime 17 fixture", async () => {
+    const fixtureProject = resolve("tests/fixtures/coverage-gap");
+    const groundTruth = JSON.parse(
+      readFileSync(join(fixtureProject, "compiler-method-ids.json"), "utf8"),
+    ) as { vectors: Array<{ source: string; name: string; methodId: number }> };
+    const expected = new Map(
+      groundTruth.vectors
+        .filter((vector) => vector.source.startsWith("src/"))
+        .map((vector) => [vector.name, vector.methodId]),
+    );
+
+    const found = await discoverAlProcedureIdentities(
+      fixtureProject,
+      ["src/CompilerVectors.Codeunit.al"],
+    );
+
+    expect(found.complete).toBe(true);
+    expect(found.unsupportedExecutables).toEqual([]);
+    expect(new Map(found.procedures.map((procedure) => [procedure.name, procedure.methodId]))).toEqual(expected);
+  });
+
+  test("discovers trigger spans as unsupported executable changes instead of silently omitting them", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-triggers-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "codeunit 50100 Worker",
+      "{",
+      "    trigger OnRun()",
+      "    begin",
+      "        Message('changed');",
+      "    end;",
+      "",
+      "    procedure Helper()",
+      "    begin",
+      "    end;",
+      "}",
+    ].join("\n"));
+
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+
+    expect(found.complete).toBe(true);
+    expect(found.procedures.map((procedure) => procedure.name)).toEqual(["Helper"]);
+    expect(found.unsupportedExecutables).toMatchObject([{
+      kind: "trigger",
+      name: "OnRun",
+      startLine: 3,
+      endLine: 6,
+    }]);
   });
 
   test("excludes declaration-only interface procedures and marks unresolved subtypes unknown", async () => {

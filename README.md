@@ -207,10 +207,13 @@ automatically selects procedure coverage. `coverageGaps` reports each current ex
 intersecting those changed lines as `covered`, `uncovered`, or `unknown`, including the exact source
 span, changed ranges, compiler method ID, and covering test identities. An `uncovered` result is only
 emitted when the compiler identity is exact, the caller explicitly confirms the current changes are
-deployed with `changesDeployed: true`, and a complete run omitted it. TestRunnerHub does not return an
-artifact or source hash, so `coverageGaps.deployment` distinguishes that caller assertion from tool
-verification. Without the assertion, unresolved signatures, incomplete parsing, or an aborted run,
-the affected result remains `unknown` and `complete` is false. Conditional compilation follows
+deployed with `changesDeployed: true`, and every requested test group returned procedure coverage
+that omitted it. TestRunnerHub does not return an artifact or source hash, so
+`coverageGaps.deployment` distinguishes that caller assertion from tool verification. Without the
+assertion, with unresolved signatures, incomplete parsing or coverage, or an aborted run, the
+affected result remains `unknown` and `complete` is false. Trigger spans are detected but their
+coverage identities are not yet independently validated, so a changed trigger also forces an
+explicit incomplete result instead of disappearing from the gate. Conditional compilation follows
 `app.json` preprocessor symbols, and dependency identities preserve namespace qualification from
 `.alpackages`. Use the same base ref when rerunning a broader test selection to close reported gaps.
 
@@ -254,7 +257,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 | `src/core/hubs/signalr-base.ts` | Hub seam: auth query params, key normalization, `HubProxy` |
 | `src/core/authorization.ts` | Shared Basic/Azure CLI authorization provider and token cache |
 | `src/core/git-changes.ts` | Merge-base-to-working-tree AL change ranges, including untracked files |
-| `src/core/al-procedures.ts` | Executable procedure spans and compiler-compatible method identities |
+| `src/core/al-procedures.ts` | Executable procedure/trigger spans and compiler-compatible procedure identities |
 | `src/core/coverage-gaps.ts` | Exact join between changed procedures and TestRunnerHub coverage evidence |
 | `scripts/e2e.md` | Real-server wire-assumption checklist + known server behaviours |
 

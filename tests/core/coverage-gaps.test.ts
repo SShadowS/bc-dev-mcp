@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
 import { analyzeCoverageGaps } from "../../src/core/coverage-gaps";
-import type { AlProcedureIdentity } from "../../src/core/al-procedures";
+import { discoverAlProcedureIdentities, type AlProcedureIdentity } from "../../src/core/al-procedures";
 import type { GitChangeSet } from "../../src/core/git-changes";
 
 const changes: GitChangeSet = {
@@ -114,5 +115,63 @@ describe("coverage gap analysis", () => {
     const result = analyzeCoverageGaps(changes, { procedures: [], complete: false, warnings: ["parser stopped"] }, [], false, true);
     expect(result.complete).toBe(false);
     expect(result.warnings.join(" ")).toContain("procedure discovery was incomplete");
+  });
+
+  test("fails closed when changed lines intersect a trigger with an unvalidated coverage identity", () => {
+    const result = analyzeCoverageGaps(changes, {
+      procedures: [],
+      unsupportedExecutables: [{
+        objectType: 5,
+        objectId: 50100,
+        objectName: "Foo",
+        kind: "trigger",
+        name: "OnRun",
+        file: "/repo/src/Foo.al",
+        relativeFile: "src/Foo.al",
+        startLine: 4,
+        endLine: 10,
+        warning: "Trigger method identities are not yet validated against Business Central procedure coverage.",
+      }],
+      complete: true,
+    }, [], false, true);
+
+    expect(result.complete).toBe(false);
+    expect(result.summary).toEqual({ changedFiles: 2, changedProcedures: 0, covered: 0, uncovered: 0, unknown: 0 });
+    expect(result.warnings.join(" ")).toContain("trigger OnRun");
+    expect(result.warnings.join(" ")).toContain("cannot be used as a complete gate");
+  });
+
+  test("fails the real trigger-zoo table change closed instead of returning an empty green gate", async () => {
+    const project = resolve("demos/trigger-zoo");
+    const relativeFile = "src/TriggerDemo.Table.al";
+    const discovered = await discoverAlProcedureIdentities(project, [relativeFile]);
+    const triggerChanges: GitChangeSet = {
+      baseRef: "origin/main",
+      mergeBase: "d".repeat(40),
+      head: "workingTree",
+      files: [{ relativeFile, ranges: [{ start: 30, end: 37 }] }],
+    };
+
+    const result = analyzeCoverageGaps(triggerChanges, discovered, [], false, true);
+
+    expect(result.complete).toBe(false);
+    expect(result.summary).toEqual({ changedFiles: 1, changedProcedures: 0, covered: 0, uncovered: 0, unknown: 0 });
+    expect(result.warnings.join(" ")).toContain("trigger OnInsert");
+  });
+
+  test("keeps positive evidence but never infers uncovered from a missing coverage payload", () => {
+    const result = analyzeCoverageGaps(changes, {
+      procedures: [
+        procedure({ name: "Covered", methodId: 100 }),
+        procedure({ name: "Maybe", methodId: 200, startLine: 18, endLine: 24 }),
+      ],
+    }, [
+      { testObjectId: 60000, testMethodId: 1, coveredProcedures: [{ objectType: 5, objectId: 50100, methodId: 100 }] },
+    ], false, true, false);
+
+    expect(result.procedures.map((entry) => entry.status)).toEqual(["covered", "unknown"]);
+    expect(result.summary).toMatchObject({ covered: 1, uncovered: 0, unknown: 1 });
+    expect(result.complete).toBe(false);
+    expect(result.procedures[1]?.warning).toContain("complete procedure-coverage payload");
   });
 });

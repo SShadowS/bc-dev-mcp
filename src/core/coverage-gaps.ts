@@ -1,4 +1,4 @@
-import type { AlProcedureIdentity } from "./al-procedures";
+import type { AlProcedureIdentity, AlUnsupportedExecutable } from "./al-procedures";
 import type { GitChangeSet, ChangedLineRange } from "./git-changes";
 import type { CoverageEntry, CoverageGapAnalysis, CoverageGapProcedure } from "./types";
 import { AL_OBJECT_TYPE } from "./al-objects";
@@ -41,18 +41,35 @@ function coveredProcedureTests(coverage: CoverageEntry[]): Map<string, Array<{ t
 
 export function analyzeCoverageGaps(
   changes: GitChangeSet,
-  discovered: { procedures: AlProcedureIdentity[]; warnings?: string[]; complete?: boolean },
-  coverage: CoverageEntry[],
+  discovered: {
+    procedures: AlProcedureIdentity[];
+    unsupportedExecutables?: AlUnsupportedExecutable[];
+    warnings?: string[];
+    complete?: boolean;
+  },
+  coverage: CoverageEntry[] | undefined,
   runAborted = false,
   changesDeployed = false,
+  coverageComplete = coverage !== undefined,
 ): CoverageGapAnalysis {
   // WIRE: TestRunCompleted carries test/procedure object and method identities, but no package
   // version, artifact hash, or source hash. Deployment freshness therefore must be asserted by
   // the caller and is never represented as tool-verified by this payload.
   const changeByFile = new Map(changes.files.map((file) => [file.relativeFile, file.ranges]));
-  const coveredBy = coveredProcedureTests(coverage);
+  const coveredBy = coveredProcedureTests(coverage ?? []);
   const procedures: CoverageGapProcedure[] = [];
   const warnings = [...(discovered.warnings ?? [])];
+  const changedUnsupportedExecutables = (discovered.unsupportedExecutables ?? []).flatMap((executable) => {
+    const ranges = changeByFile.get(executable.relativeFile) ?? [];
+    const changedRanges = intersectRanges(ranges, executable.startLine, executable.endLine);
+    return changedRanges.length === 0 ? [] : [{ executable, changedRanges }];
+  });
+  for (const { executable, changedRanges } of changedUnsupportedExecutables) {
+    warnings.push(
+      `${executable.relativeFile}:${executable.startLine} ${executable.kind} ${executable.name}: ` +
+      `${executable.warning} Changed lines ${changedRanges.map((range) => `${range.start}-${range.end}`).join(", ")} remain unknown.`,
+    );
+  }
 
   for (const procedure of discovered.procedures) {
     const ranges = changeByFile.get(procedure.relativeFile) ?? [];
@@ -75,6 +92,9 @@ export function analyzeCoverageGaps(
     else if (runAborted) {
       status = "unknown";
       warning = "The test run was aborted, so absence from its partial coverage cannot prove this procedure was not exercised.";
+    } else if (!coverageComplete) {
+      status = "unknown";
+      warning = "Business Central did not return a complete procedure-coverage payload, so absence from the available evidence cannot prove this procedure was not exercised.";
     } else status = "uncovered";
 
     if (status === "unknown" && warning) {
@@ -107,6 +127,9 @@ export function analyzeCoverageGaps(
   if (discovered.complete === false) {
     warnings.push("AL procedure discovery was incomplete; coverageGaps cannot be used as a complete gate.");
   }
+  if (changedUnsupportedExecutables.length > 0) {
+    warnings.push("Changed executable triggers have unvalidated coverage identities; coverageGaps cannot be used as a complete gate.");
+  }
   return {
     baseRef: changes.baseRef,
     mergeBase: changes.mergeBase,
@@ -115,7 +138,7 @@ export function analyzeCoverageGaps(
       status: changesDeployed ? "asserted" : "unverified",
       verified: false,
     },
-    complete: discovered.complete !== false && !runAborted && unknown === 0,
+    complete: discovered.complete !== false && !runAborted && unknown === 0 && changedUnsupportedExecutables.length === 0,
     summary: {
       changedFiles: changes.files.length,
       changedProcedures: procedures.length,

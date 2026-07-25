@@ -275,6 +275,45 @@ describe("tools", () => {
     expect(result.nextSteps.join(" ")).toContain("same coverageAgainst ref");
   });
 
+  test("coverageAgainst reports unknown rather than uncovered when the coverage payload is missing", async () => {
+    const { tools } = setup(hub, undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef,
+        mergeBase: "f".repeat(40),
+        head: "workingTree",
+        files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
+      }),
+    });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", {}));
+      return undefined;
+    };
+
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "origin/main",
+      changesDeployed: true,
+    }) as {
+      coverageComplete: boolean;
+      coverageGaps: {
+        complete: boolean;
+        summary: { uncovered: number; unknown: number };
+        procedures: Array<{ status: string; warning?: string }>;
+      };
+      nextSteps: string[];
+    };
+
+    expect(result.coverageComplete).toBe(false);
+    expect(result.coverageGaps).toMatchObject({
+      complete: false,
+      summary: { uncovered: 0, unknown: 1 },
+      procedures: [{ status: "unknown" }],
+    });
+    expect(result.coverageGaps.procedures[0]?.warning).toContain("complete procedure-coverage payload");
+    expect(result.nextSteps.join(" ")).toContain("coverageGaps warnings");
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
+  });
+
   test("coverageAgainst without a deployment assertion remains unknown and gives publish guidance", async () => {
     const methodId = calculateProcedureMethodId("A", { navTypeKind: 0, symbolKind: 2 }, [], 16).methodId!;
     const { tools } = setup(hub, undefined, undefined, {
