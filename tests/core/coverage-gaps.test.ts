@@ -164,7 +164,7 @@ describe("coverage gap analysis", () => {
     expect(result.warnings.join(" ")).toContain("procedure discovery was incomplete");
   });
 
-  test("fails closed when changed lines intersect a trigger with an unvalidated coverage identity", () => {
+  test("fails closed when changed lines intersect a trigger without a locally classified identity", () => {
     const result = analyzeCoverageGaps(changes, {
       procedures: [],
       unsupportedExecutables: [{
@@ -177,7 +177,7 @@ describe("coverage gap analysis", () => {
         relativeFile: "src/Foo.al",
         startLine: 4,
         endLine: 10,
-        warning: "Trigger method identities are not yet validated against Business Central procedure coverage.",
+        warning: "Trigger method identities are not classified by local discovery.",
       }],
       complete: true,
     }, [], false, true);

@@ -212,16 +212,20 @@ that omitted it. TestRunnerHub does not return an artifact or source hash, so
 `coverageGaps.deployment` distinguishes that caller assertion from tool verification. Without the
 assertion, with unresolved signatures, incomplete parsing or coverage, or an aborted run, the
 affected result remains `unknown` and `complete` is false. Trigger spans are detected but their
-coverage identities are not yet independently validated, so a changed trigger also forces an
-explicit incomplete result instead of disappearing from the gate. Changed code that carries no
+coverage identities are not yet classified by local discovery, so a changed trigger also forces an
+explicit incomplete result instead of disappearing from the gate. SaaS validation confirmed that
+Business Central reports codeunit `OnRun`, table `OnInsert`, report `OnPreReport`, and page
+`OnOpenPage` under their owning object identities with the compiler's trigger-specific method-ID
+hash; nested trigger scopes still need separate identity handling. Changed code that carries no
 method identity at all — object and field properties, field and control declarations, global
-variables, object headers, `namespace`/`using` declarations — is counted in
+variables, object headers, `namespace`/`using` declarations, and semantic preprocessor directives
+outside method spans — is counted in
 `summary.unattributedChanges`, listed in `warnings` with its exact lines, and also forces
 `complete: false`: procedure coverage can never prove those lines were exercised. Conditional
-compilation follows `app.json` preprocessor symbols (the manifest is required — the runtime it
-pins selects method-ID hash variants), and dependency identities preserve namespace qualification
-from `.alpackages`. Use the same base ref when rerunning a broader test selection to close
-reported gaps.
+compilation follows `app.json` preprocessor symbols (the manifest and its explicit `runtime` are
+required because the runtime selects method-ID hash variants), and dependency identities preserve
+namespace qualification from `.alpackages`. Use the same base ref when rerunning a broader test
+selection to close reported gaps.
 
 Breakpoint additions include `verification.status` (`verified`, `relocated`, or `unverified`) and
 the resolved object, method, and 1-based span when Business Central supplies them. An all-zero

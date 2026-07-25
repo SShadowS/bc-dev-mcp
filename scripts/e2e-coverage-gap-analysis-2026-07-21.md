@@ -1,5 +1,44 @@
 # Coverage gap analysis — SaaS Sandbox evidence (2026-07-21)
 
+## Asserted-deployment and identity rerun (2026-07-25)
+
+The exact working-tree fixture was compiled at runtime 17, published to a Business Central SaaS
+Sandbox, and exercised through the branch's real `bcdev_test_run` handler. The local Git repository
+contained two body-only changes relative to `HEAD`, and the published app contained those exact
+values. Both calls used `coverageAgainst: "HEAD"` and `changesDeployed: true`.
+
+| Scenario | Changed | Covered | Uncovered | Unknown | Unattributed | Complete |
+|---|---:|---:|---:|---:|---:|---|
+| Narrow selection (`FirstTest`) | 2 | 1 | 1 | 0 | 0 | yes |
+| Broader selection (`FirstTest`, `SecondTest`) | 2 | 2 | 0 | 0 | 0 | yes |
+
+Every selected test passed, every group returned a nonempty procedure-coverage collection, and each
+covered result matched the raw Business Central object/method identity. The body-only diff produced
+no unattributed-change warning, so the strict fallback did not make an ordinary executable edit
+unusable.
+
+The same fixture validated extension-object attribution. Procedures declared on a table extension,
+page extension, and report extension were reported as object types 15, 14, and 22 respectively,
+with the extension object IDs and all three locally calculated method IDs matching exactly.
+
+Trigger coverage was validated with the fixture's codeunit `OnRun` and the repository's current
+trigger-zoo table `OnInsert`, report `OnPreReport`, and page `OnOpenPage`. Business Central reported
+each trigger under its owning object type and ID. All four method IDs matched the compiler rule:
+calculate the ordinary implicit trigger signature, then combine it with the FNV hash of the
+upper-invariant trigger metadata name. The compiler's scoped metadata name for nested triggers
+still requires separate local handling, so changed triggers continue to force `complete: false`
+rather than being classified optimistically.
+
+For the coverage-payload edge case, every group that executed a real test returned a nonempty
+`Tests` collection. Requesting a nonexistent method produced only Business Central's synthetic
+blank-method codeunit rollup and omitted the `Tests` property; the tool correctly reported
+`coverageComplete: false`. A live executed group returning an explicit empty `Tests` array was not
+observed.
+
+No Production endpoint was called. Tenant, environment, company, user, token, authorization,
+authenticated URL, session, and host values were not retained. Fixture object IDs and method IDs
+were checked in memory; the evidence records only their non-sensitive type and match results.
+
 ## Compiler-backed review corrections (2026-07-24)
 
 An independent review compared the method-ID engine with Microsoft AL compiler 18 at runtime 17
@@ -44,6 +83,8 @@ green changed-code gate. The separate asserted-deployment live scenario remains 
 correction rerun deliberately made no external app change. No Production endpoint was called, and
 tenant, environment, company, user, token, authorization, authenticated URL, session, and raw payload
 values were not retained.
+
+## Original 2026-07-21 run
 
 Roadmap item 5 was validated through the real `bcdev_test_run` handler and TestRunnerHub against a
 Business Central SaaS Sandbox. No Production endpoint was called and no app was published or

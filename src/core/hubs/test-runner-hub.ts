@@ -89,13 +89,20 @@ export class TestRunnerClient {
 
       hub.on("TestRunCompleted", (...args) => {
         const payload = normalizeKeys<{ tests?: WireCoverageForTest[] }>(args[0] ?? {});
+        // WIRE: SaaS BC28 emits a trailing TestCompleted row with method:"" as a codeunit
+        // rollup even when a requested method does not exist and no test method executes.
+        // That synthetic row must not turn an otherwise complete empty Tests collection into
+        // "executed tests returned no coverage."
+        const groupExecutedTests = results
+          .slice(groupResultBaseline)
+          .some((result) => result.method.trim() !== "");
         // WIRE: procedure coverage is carried by each TestRunCompleted payload's Tests
         // collection (lmt-decomp HubBasedTestRunnerService plus live BC28/SaaS payloads).
         // A missing collection is not evidence of no coverage; neither is an empty collection
         // for a group that did execute tests — every executed test reports its own identity.
         if (opts.coverage && opts.coverage !== "none" &&
             (!Array.isArray(payload.tests) ||
-             (payload.tests.length === 0 && results.length > groupResultBaseline))) {
+             (payload.tests.length === 0 && groupExecutedTests))) {
           coverageComplete = false;
         }
         for (const t of payload.tests ?? []) {

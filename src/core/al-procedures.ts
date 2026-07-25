@@ -45,6 +45,7 @@ interface PreparedSource {
   file: string;
   source: string;
   context: ResolutionContext;
+  semanticDirectiveLines: number[];
   complete: boolean;
   warnings: string[];
 }
@@ -106,8 +107,9 @@ export interface AlUnsupportedExecutable {
 /**
  * Code lines that belong to no procedure and no trigger — object and field properties, field and
  * control declarations, global variables, the object header, and file-level `namespace`/`using`
- * declarations (reported with null object identity). They carry no method identity, so procedure
- * coverage can never prove a change to them was exercised.
+ * declarations or semantic preprocessor directives (reported with null object identity when they
+ * sit outside an object). They carry no method identity, so procedure coverage can never prove a
+ * change to them was exercised.
  */
 export interface AlUnattributedCode {
   objectType: number | null;
@@ -420,11 +422,12 @@ function scanPreprocessorLine(line: string, initial: boolean): { inBlock: boolea
 function preprocessSource(
   source: string,
   symbols: Set<string>,
-): { source: string; complete: boolean; warnings: string[] } {
+): { source: string; semanticDirectiveLines: number[]; complete: boolean; warnings: string[] } {
   const lines = source.split(/\r?\n/);
   const output: string[] = [];
   const stack: ConditionalFrame[] = [];
   const warnings: string[] = [];
+  const semanticDirectiveLines: number[] = [];
   const activeSymbols = new Set(symbols);
   let inBlockComment = false;
   let seenCode = false;
@@ -438,6 +441,9 @@ function preprocessSource(
     if (directive) {
       const name = directive[1]!.toLowerCase();
       const expression = directive[2]!.trim();
+      if (["if", "elif", "elseif", "else", "endif", "define", "undef"].includes(name)) {
+        semanticDirectiveLines.push(lineNumber);
+      }
       if (name === "if") {
         const condition = evaluatePreprocessorExpression(expression, activeSymbols);
         if (condition === null) warnings.push(`line ${lineNumber}: unsupported #if expression '${expression}'`);
@@ -492,7 +498,12 @@ function preprocessSource(
     }
   }
   for (const frame of stack) warnings.push(`line ${frame.line}: #if has no matching #endif`);
-  return { source: output.join("\n"), complete: warnings.length === 0, warnings };
+  return {
+    source: output.join("\n"),
+    semanticDirectiveLines,
+    complete: warnings.length === 0,
+    warnings,
+  };
 }
 
 function tokenize(source: string): Token[] {
@@ -796,6 +807,7 @@ function parseProcedures(
   source: string,
   catalog: SubtypeCatalog,
   context: ResolutionContext,
+  semanticDirectiveLines: number[] = [],
 ): {
   procedures: ParsedProcedure[];
   unsupportedExecutables: ParsedUnsupportedExecutable[];
@@ -851,7 +863,7 @@ function parseProcedures(
           name,
           startLine: tokens[declaration.index]!.line,
           endLine: tokens[end]!.line,
-          warning: "Trigger method identities are not yet validated against Business Central procedure coverage.",
+          warning: "Trigger method identities are not classified by local discovery.",
         });
         i = end;
         continue;
@@ -935,6 +947,8 @@ function parseProcedures(
   // holding nothing but punctuation (a brace, a continuation parenthesis) cannot.
   const semantic = (token: Token): boolean => token.kind !== "symbol";
   const unattributedCode: ParsedUnattributedCode[] = [];
+  const memberSpans = [...procedures, ...unsupportedExecutables]
+    .map((member) => ({ start: member.startLine, end: member.endLine }));
   for (const object of objects) {
     const members = [...procedures, ...unsupportedExecutables]
       .filter((member) => member.object === object)
@@ -955,6 +969,18 @@ function parseProcedures(
     fileLevel.add(tokens[index]!.line);
   }
   if (fileLevel.size > 0) unattributedCode.push({ object: null, lines: [...fileLevel].sort((a, b) => a - b) });
+  for (const line of semanticDirectiveLines) {
+    if (memberSpans.some((member) => line >= member.start && line <= member.end)) continue;
+    const object = objects.find((candidate) =>
+      line >= tokens[candidate.start]!.line && line <= tokens[candidate.close]!.line) ?? null;
+    const existing = unattributedCode.find((entry) => entry.object === object);
+    if (existing) {
+      if (!existing.lines.includes(line)) existing.lines.push(line);
+      existing.lines.sort((a, b) => a - b);
+    } else {
+      unattributedCode.push({ object, lines: [line] });
+    }
+  }
   unattributedCode.sort((left, right) => (left.lines[0] ?? 0) - (right.lines[0] ?? 0));
   return { procedures, unsupportedExecutables, unattributedCode, complete: warnings.length === 0, warnings };
 }
@@ -1264,16 +1290,19 @@ async function projectSettings(project: string): Promise<{ runtimeMajor: number;
       { cause: error },
     );
   }
-  const runtimeText = app.runtime === undefined ? "" : String(app.runtime);
-  if (runtimeText !== "" && !/^\d+(?:\.\d+)*$/.test(runtimeText)) {
-    throw new BcDevError("CONFIGURATION_ERROR", `Invalid AL runtime '${runtimeText}' in app.json`, "configuration");
+  if (typeof app.runtime !== "string" || !/^\d+(?:\.\d+)*$/.test(app.runtime)) {
+    throw new BcDevError(
+      "CONFIGURATION_ERROR",
+      "app.json must declare a numeric runtime string for coverage gap analysis",
+      "configuration",
+    );
   }
   if (app.preprocessorSymbols !== undefined &&
       (!Array.isArray(app.preprocessorSymbols) || app.preprocessorSymbols.some((symbol) => typeof symbol !== "string"))) {
     throw new BcDevError("CONFIGURATION_ERROR", "app.json preprocessorSymbols must be an array of strings", "configuration");
   }
   return {
-    runtimeMajor: runtimeText === "" ? Number.MAX_SAFE_INTEGER : Number(runtimeText.split(".")[0]),
+    runtimeMajor: Number(app.runtime.split(".")[0]),
     preprocessorSymbols: new Set((app.preprocessorSymbols as string[] | undefined)?.map((symbol) => symbol.toUpperCase()) ?? []),
   };
 }
@@ -1296,6 +1325,7 @@ export async function discoverAlProcedureIdentities(
         file,
         source: preprocessed.source,
         context: resolutionContext(tokenize(preprocessed.source)),
+        semanticDirectiveLines: preprocessed.semanticDirectiveLines,
         complete: preprocessed.complete,
         warnings: preprocessed.warnings,
       };
@@ -1319,13 +1349,20 @@ export async function discoverAlProcedureIdentities(
   const unattributedCode: AlUnattributedCode[] = [];
   let complete = true;
   const foundWanted = new Set<string>();
-  for (const { file, source, context, complete: preprocessingComplete, warnings: preprocessingWarnings } of allSources) {
+  for (const {
+    file,
+    source,
+    context,
+    semanticDirectiveLines,
+    complete: preprocessingComplete,
+    warnings: preprocessingWarnings,
+  } of allSources) {
     if (!wanted.has(file)) continue;
     foundWanted.add(file);
     const relativeFile = relative(project, file).split("\\").join("/");
     if (!preprocessingComplete) complete = false;
     warnings.push(...preprocessingWarnings.map((warning) => `${relativeFile}:${warning}`));
-    const parsedFile = parseProcedures(source, catalog, context);
+    const parsedFile = parseProcedures(source, catalog, context, semanticDirectiveLines);
     if (!parsedFile.complete) complete = false;
     warnings.push(...parsedFile.warnings.map((warning) => `${relativeFile}:${warning}`));
     for (const executable of parsedFile.unsupportedExecutables) {

@@ -39,15 +39,16 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
 - **Read gap states conservatively.** `uncovered` means an exact compiler method identity was
   absent from procedure coverage returned for every requested test group. An unresolved signature,
   missing coverage payload, or aborted run is `unknown`, never a proven gap. Changed trigger spans
-  are detected and force `complete: false` until their coverage identities are independently
-  validated. Follow `warnings` before using the result as a gate. Broaden the selected tests and
-  rerun with the same `coverageAgainst` ref to close gaps.
+  are detected and force `complete: false` because local discovery does not yet classify trigger
+  identities, including nested trigger scopes. Follow `warnings` before using the result as a gate.
+  Broaden the selected tests and rerun with the same `coverageAgainst` ref to close gaps.
 - **Changed lines without a procedure identity block the gate.** Properties, field and control
   declarations, global variables, object headers, and `namespace`/`using` lines are counted in
-  `coverageGaps.summary.unattributedChanges`, listed with their exact lines in `warnings`, and set
-  `complete: false`. Review them yourself; procedure coverage cannot speak about them.
-- **`coverageAgainst` requires an `app.json`** in the AL project — its runtime selects the
-  method-ID hash variant, so the analysis refuses to guess for a non-app directory.
+  `coverageGaps.summary.unattributedChanges`, as are semantic preprocessor directives outside
+  method spans. They are listed with their exact lines in `warnings` and set `complete: false`.
+  Review them yourself; procedure coverage cannot speak about them.
+- **`coverageAgainst` requires an `app.json` with an explicit `runtime`** in the AL project — the
+  runtime selects the method-ID hash variant, so the analysis refuses to guess.
 - **Tests run in codeunit declaration order**, not the order of your `methods` array.
 - **Synthetic results:** the run summary can contain an extra entry with an empty
   method name (a server-side quirk, e.g. after watch evaluations). `summary` excludes

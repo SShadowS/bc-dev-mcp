@@ -111,7 +111,13 @@ describe("TestRunnerClient.run", () => {
   test("keeps requested coverage complete when a group without executed tests returns an empty Tests payload", async () => {
     const hub = new FakeHub();
     hub.onInvoke = (method) => {
-      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      if (method === "RunTests") {
+        queueMicrotask(() => {
+          // WIRE: BC emits this synthetic codeunit rollup even when no requested test exists.
+          hub.emit("TestCompleted", 50100, "", 0, "", 0);
+          hub.emit("TestRunCompleted", { Tests: [] });
+        });
+      }
       return undefined;
     };
 
@@ -122,7 +128,9 @@ describe("TestRunnerClient.run", () => {
       { coverage: "procedure" },
     );
 
-    expect(result.results).toEqual([]);
+    expect(result.results).toEqual([
+      { codeunitId: 50100, method: "", status: "passed", durationMs: 0, output: "" },
+    ]);
     expect(result.coverageComplete).toBe(true);
   });
 

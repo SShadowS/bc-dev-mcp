@@ -83,8 +83,8 @@ export function analyzeCoverageGaps(
   }
   // Procedure coverage can only speak about procedures. Changed code that carries no method
   // identity — properties, field and control declarations, global variables, object headers,
-  // namespace and using declarations — is reported and blocks `complete` rather than being
-  // silently excluded from the gate.
+  // namespace/using, and semantic preprocessor directives outside method spans — is reported and
+  // blocks `complete` rather than being silently excluded from the gate.
   const changedUnattributed = (discovered.unattributedCode ?? []).flatMap((entry) => {
     const lines = intersectLines(changeByFile.get(entry.relativeFile) ?? [], entry.lines);
     return lines.length === 0 ? [] : [{ entry, lines }];
@@ -153,7 +153,7 @@ export function analyzeCoverageGaps(
     warnings.push("AL procedure discovery was incomplete; coverageGaps cannot be used as a complete gate.");
   }
   if (changedUnsupportedExecutables.length > 0) {
-    warnings.push("Changed executable triggers have unvalidated coverage identities; coverageGaps cannot be used as a complete gate.");
+    warnings.push("Changed executable triggers have no locally classified coverage identity; coverageGaps cannot be used as a complete gate.");
   }
   if (changedUnattributed.length > 0) {
     warnings.push("Changed lines carry no procedure identity; coverageGaps cannot be used as a complete gate.");

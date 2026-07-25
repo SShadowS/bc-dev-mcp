@@ -223,6 +223,14 @@ describe("AL procedure identities", () => {
     await expect(discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"])).rejects.toThrow(/app\.json/);
   });
 
+  test("refuses discovery when app.json does not declare a runtime", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-no-runtime-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ name: "Missing Runtime" }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), "codeunit 50100 Worker\n{\n}\n");
+
+    await expect(discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"])).rejects.toThrow(/runtime/);
+  });
+
   test("fails closed on a comma-grouped parameter list that the AL compiler rejects", async () => {
     const project = mkdtempSync(join(tmpdir(), "bcmcp-parameters-"));
     writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
@@ -263,6 +271,53 @@ describe("AL procedure identities", () => {
       [null, [1, 2]],
       [50100, [4]],
     ]);
+  });
+
+  test("reports semantic preprocessor directives outside method spans as unattributed", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-unattributed-directives-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "#define FEATURE",          // 1
+      "#if FEATURE",             // 2
+      "codeunit 50100 Worker",   // 3
+      "{",                       // 4
+      "    procedure Helper()",  // 5
+      "    begin",               // 6
+      "    end;",                // 7
+      "}",                       // 8
+      "#endif",                  // 9
+    ].join("\n"));
+
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+
+    expect(found.complete).toBe(true);
+    expect(found.unattributedCode.map((entry) => [entry.objectId, entry.lines])).toEqual([
+      [null, [1, 2, 9]],
+      [50100, [3]],
+    ]);
+  });
+
+  test("keeps semantic preprocessor directives inside a procedure attributed to that procedure", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-method-directives-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "codeunit 50100 Worker",
+      "{",
+      "    procedure Helper()",
+      "    begin",
+      "#if FEATURE",
+      "        Message('feature');",
+      "#endif",
+      "    end;",
+      "}",
+    ].join("\n"));
+
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+
+    expect(found.complete).toBe(true);
+    expect(found.procedures[0]).toMatchObject({ name: "Helper", startLine: 3, endLine: 8 });
+    expect(found.unattributedCode.flatMap((entry) => entry.lines)).not.toContain(5);
+    expect(found.unattributedCode.flatMap((entry) => entry.lines)).not.toContain(7);
   });
 
   test("excludes declaration-only interface procedures and marks unresolved subtypes unknown", async () => {
