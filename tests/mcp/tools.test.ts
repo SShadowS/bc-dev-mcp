@@ -7,6 +7,8 @@ import { BcDevError } from "../../src/core/agent-errors";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
+import type { GitChangeSet } from "../../src/core/git-changes";
+import { calculateProcedureMethodId } from "../../src/core/al-procedures";
 
 function makeProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "bcmcp-tools-"));
@@ -15,6 +17,7 @@ function makeProject(): string {
     join(dir, ".vscode", "launch.json"),
     JSON.stringify({ configurations: [{ type: "al", request: "launch", server: "http://localhost", serverInstance: "BC" }] }),
   );
+  writeFileSync(join(dir, "app.json"), JSON.stringify({ runtime: "16.0" }));
   writeFileSync(
     join(dir, "T.Codeunit.al"),
     'codeunit 50100 "T"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure A()\n    begin\n    end;\n}\n',
@@ -35,6 +38,12 @@ function setup(
     fetchFn: fetchFn ?? ((async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch),
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: makeProject(),
+    gitChanges: async (_project, baseRef): Promise<GitChangeSet> => ({
+      baseRef,
+      mergeBase: "a".repeat(40),
+      head: "workingTree",
+      files: [],
+    }),
     ...overrides,
   };
   const tools = new Map(createTools(state, deps).map((t) => [t.name, t]));
@@ -187,6 +196,238 @@ describe("tools", () => {
     };
     const result = (await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] })) as Record<string, unknown>;
     expect(result["results"]).toHaveLength(1);
+    expect(state.testRunActive).toBe(false);
+  });
+
+  test("coverageAgainst with a deployment assertion implies procedure coverage and reports a covered changed procedure", async () => {
+    const methodId = calculateProcedureMethodId("A", { navTypeKind: 0, symbolKind: 2 }, [], 16).methodId!;
+    const { tools } = setup(hub, undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef,
+        mergeBase: "b".repeat(40),
+        head: "workingTree",
+        files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
+      }),
+    });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", {
+        Tests: [{
+          ApplicationObjectId: 50100,
+          MethodId: 77,
+          CoveredProcedures: [{ ObjectType: 5, ObjectId: 50100, MethodId: methodId }],
+        }],
+      }));
+      return undefined;
+    };
+
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "origin/main",
+      changesDeployed: true,
+    }) as {
+      coverageGaps: {
+        complete: boolean;
+        deployment: { status: string; verified: boolean };
+        summary: { covered: number; uncovered: number; unknown: number };
+        procedures: Array<{ name: string; status: string; methodId: number; coveredBy: unknown[] }>;
+      };
+      nextSteps: string[];
+    };
+    expect(hub.invoked("Initialize")[0]?.args[2]).toBe(2);
+    expect(result.coverageGaps).toMatchObject({
+      complete: true,
+      deployment: { status: "asserted", verified: false },
+      summary: { covered: 1, uncovered: 0, unknown: 0 },
+    });
+    expect(result.coverageGaps.procedures[0]).toMatchObject({
+      name: "A",
+      status: "covered",
+      methodId,
+      coveredBy: [{ testObjectId: 50100, testMethodId: 77 }],
+    });
+    expect(result.nextSteps).toEqual([]);
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
+    const parsed = tools.get("bcdev_test_run")!.outputSchema.parse(result) as {
+      coverageGaps: { summary: { unattributedChanges: number } };
+    };
+    expect(parsed.coverageGaps.summary.unattributedChanges).toBe(0);
+  });
+
+  test("coverageAgainst reports uncovered changed procedures and gives rerun guidance", async () => {
+    const { tools } = setup(hub, undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef,
+        mergeBase: "c".repeat(40),
+        head: "workingTree",
+        files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
+      }),
+    });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "origin/main",
+      coverage: "procedure",
+      changesDeployed: true,
+    }) as {
+      coverageGaps: { summary: { uncovered: number }; procedures: Array<{ status: string }> };
+      nextSteps: string[];
+    };
+    expect(result.coverageGaps.summary.uncovered).toBe(1);
+    expect(result.coverageGaps.procedures[0]?.status).toBe("uncovered");
+    expect(result.nextSteps.join(" ")).toContain("same coverageAgainst ref");
+  });
+
+  test("coverageAgainst fails closed and guides review when changed lines carry no procedure identity", async () => {
+    const { tools } = setup(hub, undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef,
+        mergeBase: "e".repeat(40),
+        head: "workingTree",
+        files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 3, end: 3 }] }],
+      }),
+    });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      return undefined;
+    };
+
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "origin/main",
+      changesDeployed: true,
+    }) as {
+      coverageGaps: { complete: boolean; summary: { unattributedChanges: number }; warnings: string[] };
+      nextSteps: string[];
+    };
+
+    expect(result.coverageGaps.complete).toBe(false);
+    expect(result.coverageGaps.summary.unattributedChanges).toBe(1);
+    expect(result.coverageGaps.warnings.join(" ")).toContain("belong to no procedure or trigger");
+    expect(result.nextSteps.join(" ")).toContain("no procedure identity");
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
+  });
+
+  test("coverageAgainst reports unknown rather than uncovered when the coverage payload is missing", async () => {
+    const { tools } = setup(hub, undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef,
+        mergeBase: "f".repeat(40),
+        head: "workingTree",
+        files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
+      }),
+    });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", {}));
+      return undefined;
+    };
+
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "origin/main",
+      changesDeployed: true,
+    }) as {
+      coverageComplete: boolean;
+      coverageGaps: {
+        complete: boolean;
+        summary: { uncovered: number; unknown: number };
+        procedures: Array<{ status: string; warning?: string }>;
+      };
+      nextSteps: string[];
+    };
+
+    expect(result.coverageComplete).toBe(false);
+    expect(result.coverageGaps).toMatchObject({
+      complete: false,
+      summary: { uncovered: 0, unknown: 1 },
+      procedures: [{ status: "unknown" }],
+    });
+    expect(result.coverageGaps.procedures[0]?.warning).toContain("complete procedure-coverage payload");
+    expect(result.nextSteps.join(" ")).toContain("coverageGaps warnings");
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
+  });
+
+  test("coverageAgainst without a deployment assertion remains unknown and gives publish guidance", async () => {
+    const methodId = calculateProcedureMethodId("A", { navTypeKind: 0, symbolKind: 2 }, [], 16).methodId!;
+    const { tools } = setup(hub, undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef,
+        mergeBase: "e".repeat(40),
+        head: "workingTree",
+        files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
+      }),
+    });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", {
+        Tests: [{
+          ApplicationObjectId: 50100,
+          MethodId: 77,
+          CoveredProcedures: [{ ObjectType: 5, ObjectId: 50100, MethodId: methodId }],
+        }],
+      }));
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "origin/main",
+    }) as {
+      coverageGaps: { complete: boolean; deployment: { status: string }; summary: { unknown: number }; procedures: Array<{ status: string }> };
+      nextSteps: string[];
+    };
+    expect(result.coverageGaps).toMatchObject({
+      complete: false,
+      deployment: { status: "unverified" },
+      summary: { unknown: 1 },
+      procedures: [{ status: "unknown" }],
+    });
+    expect(result.nextSteps.join(" ")).toContain("changesDeployed: true");
+  });
+
+  test("coverageAgainst rejects incompatible coverage before Git or RunTests and releases the lock", async () => {
+    let gitCalls = 0;
+    const { state, tools } = setup(hub, undefined, undefined, {
+      gitChanges: async (_project, baseRef) => {
+        gitCalls++;
+        return { baseRef, mergeBase: "d".repeat(40), head: "workingTree", files: [] };
+      },
+    });
+    for (const coverage of ["none", "line"] as const) {
+      const error = await tools.get("bcdev_test_run")!.handler({
+        codeunits: [{ id: 50100 }],
+        coverageAgainst: "origin/main",
+        coverage,
+      }).catch((caught) => caught);
+      expect(error).toBeInstanceOf(BcDevError);
+      expect(error).toMatchObject({ code: "INVALID_ARGUMENT" });
+      expect(state.testRunActive).toBe(false);
+    }
+    expect(gitCalls).toBe(0);
+    expect(hub.invoked("RunTests")).toHaveLength(0);
+  });
+
+  test("changesDeployed is rejected without coverageAgainst", async () => {
+    const { state, tools } = setup(hub);
+    const error = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      changesDeployed: true,
+    }).catch((caught) => caught);
+    expect(error).toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(state.testRunActive).toBe(false);
+    expect(hub.invoked("RunTests")).toHaveLength(0);
+  });
+
+  test("a Git preparation failure occurs before the remote run and releases the lock", async () => {
+    const { state, tools } = setup(hub, undefined, undefined, {
+      gitChanges: async () => { throw new BcDevError("GIT_ERROR", "bad ref", "configuration"); },
+    });
+    const error = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "missing/ref",
+    }).catch((caught) => caught);
+    expect(error).toMatchObject({ code: "GIT_ERROR" });
+    expect(hub.invoked("RunTests")).toHaveLength(0);
     expect(state.testRunActive).toBe(false);
   });
 

@@ -97,8 +97,49 @@ export interface RunTestsResult {
   summary?: TestRunSummary;
   sourceMappingWarning?: string;
   coverage?: CoverageEntry[];
+  coverageComplete?: boolean;
   runAborted?: boolean;
   abortReason?: string;
+  coverageGaps?: CoverageGapAnalysis;
+}
+
+export type CoverageGapStatus = "covered" | "uncovered" | "unknown";
+
+export interface CoverageGapProcedure {
+  status: CoverageGapStatus;
+  file: string;
+  relativeFile: string;
+  objectType: number;
+  objectId: number;
+  objectName: string;
+  name: string;
+  startLine: number;
+  endLine: number;
+  methodId: number | null;
+  changedRanges: Array<{ start: number; end: number }>;
+  coveredBy: Array<{ testObjectId: number; testMethodId: number }>;
+  warning?: string;
+}
+
+export interface CoverageGapAnalysis {
+  baseRef: string;
+  mergeBase: string;
+  head: "workingTree";
+  deployment: {
+    status: "asserted" | "unverified";
+    verified: false;
+  };
+  complete: boolean;
+  summary: {
+    changedFiles: number;
+    changedProcedures: number;
+    covered: number;
+    uncovered: number;
+    unknown: number;
+    unattributedChanges: number;
+  };
+  procedures: CoverageGapProcedure[];
+  warnings: string[];
 }
 
 export interface BreakpointSpec {

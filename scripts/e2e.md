@@ -11,6 +11,7 @@ with its working directory set to the AL project.
 - [x] TestRunnerHub `Initialize(company, debuggingContext, coverageMode:int)` accepted. <!-- 2026-07-03: confirmed against BC28 -->
 - [x] `TestCompleted` args arrive as (int, string, int status, string, long ms) — statuses 0/1/2 map to passed/failed/skipped. <!-- 2026-07-03: 0 (passed) and 1 (failed) confirmed live with real data against BC28; 2 (skipped) not observed (no skipped tests encountered) -->
 - [x] `TestRunCompleted` coverage payload for `coverage: "procedure"`: record actual JSON, confirm `Tests[].CoveredProcedures[].{ObjectType,ObjectId,MethodId}` casing. <!-- 2026-07-03: confirmed against BC28; wire also carries an unused `OwningApp` GUID field -->
+- [x] `TestRunCompleted` `Tests[].ApplicationObjectId/MethodId` identifies the executed test procedure itself, separately from `CoveredProcedures`. <!-- 2026-07-21 SaaS Sandbox: two selected public demo test methods matched their locally calculated codeunit/method identities; see scripts/e2e-coverage-gap-analysis-2026-07-21.md -->
 - [x] `coverage: "line"`: dump raw payload to decide the v2 schema (spec flags this unproven). <!-- 2026-07-03: dumped against BC28 — structurally identical to "procedure" mode for the codeunit tested, no distinct line-level schema observed -->
 - [x] DebuggerHub `Attach` + `DebugAdapterConfigurationDone` accepted (no hub exception). <!-- 2026-07-03 round 4 (fixes 38dc476 + 56f32de + 1f4a77d): Attach(SessionId:-1) accepted cleanly; ConfigurationDone is only accepted AFTER the debugger binds a session (HubConnected/at-break) and the deferred send on HubConnected now fires and returns OK on the wire — verified with an invoke-logging hubFactory proxy, and confirmed effective: breakOnError:false suppressed all break events on a run that breaks 12+ times under breakOnError:true. See "Round 4" in scripts/e2e-results-2026-07-03.md -->
 - [x] `AddBreakpoint({ObjectType,ObjectNumber},{Line,Column},condition)` returns a `BreakpointId`. <!-- 2026-07-03 round 2: full BreakpointDefinition returned (raw probe, at-break); BreakpointId can be NEGATIVE (hash). Caveat: succeeds even for objects not deployed on the server, then poisons the session — mismatch #8 -->
@@ -111,6 +112,28 @@ token, authorization header, or authenticated URL values. Evidence belongs in
 - [x] Source-mapping failures identify call-stack and/or coverage file fields precisely and do not partially map the result. <!-- missing-project procedure-coverage and call-stack cases unit-tested 2026-07-21 -->
 - [x] The response decorator rejects non-object output schemas and replaces payload-supplied `nextSteps` with locally generated guidance. <!-- unit-tested 2026-07-21 -->
 - [x] Error redaction removes URL userinfo as well as authentication query/header material; passing test rows omit the optional `failure` key. <!-- unit-tested 2026-07-21 -->
+
+## Coverage gap analysis (SaaS Sandbox)
+
+Run against Sandbox only. Use a disposable Git project and never record tenant, environment,
+company, user, token, authorization header, authenticated URL, or raw server payload values.
+Evidence belongs in `scripts/e2e-coverage-gap-analysis-2026-07-21.md`.
+
+- [x] `coverageAgainst` without `coverage` sends procedure coverage and returns schema-valid `coverageGaps`. <!-- 2026-07-21 SaaS Sandbox -->
+- [x] The Git comparison covers the base merge commit through the working tree, including committed, staged, unstaged, and nonignored untracked AL files; `.al` matching is case-insensitive, pure deletions anchor to the surviving line below, and scoped paths fail closed instead of being dropped. <!-- deterministic temporary-repository tests 2026-07-24 -->
+- [x] Without `changesDeployed`, matching server method IDs remain retained evidence but every changed procedure is `unknown` and `complete:false`. <!-- deterministic handler test + SaaS Sandbox rerun 2026-07-22; one passing test, one retained covering identity -->
+- [x] Publish the exact changed fixture to Sandbox, pass `changesDeployed:true`, and validate narrow one-covered/one-uncovered then broad two-covered transitions. <!-- 2026-07-25 SaaS Sandbox; exact working-tree app published, narrow 2/1/1 and broad 2/2/0 with complete:true -->
+- [x] Every live `covered` classification matches the raw `ApplicationObjectId/MethodId` returned for its selected test; no name-only join is used. <!-- 2026-07-21 SaaS Sandbox -->
+- [x] The calculated ID for the public demo's parameterized, Decimal-returning procedure matches its raw nested `CoveredProcedures` identity. <!-- 2026-07-21 SaaS Sandbox -->
+- [x] Compiler-grounded vectors cover `[TryFunction]`'s implicit Boolean return and length-preserving invariant casing for quoted identifiers. <!-- 2026-07-24: alc 18/runtime 17 fixture; see tests/fixtures/coverage-gap/ -->
+- [x] A missing procedure-coverage payload retains positive evidence but makes absent identities `unknown`; it never infers `uncovered`. An empty `Tests` collection for a group that did execute tests is treated the same way. <!-- deterministic hub/core/MCP tests 2026-07-25 -->
+- [x] Changed code lines carrying no method identity (properties, field/control declarations, global variables, object headers, namespace/using, and semantic preprocessor directives outside method spans) are counted, warned with their exact lines, and force `complete:false`. <!-- deterministic discovery/analysis/MCP tests 2026-07-25 -->
+- [x] `coverageAgainst` refuses a project without `app.json` or without an explicit `runtime` instead of assuming the newest runtime. <!-- deterministic tests 2026-07-25 -->
+- [x] Probe empty coverage evidence live: every group that executed a test returned a nonempty `Tests` collection; a nonexistent method produced only the blank codeunit-rollup row and omitted `Tests` entirely, which correctly yielded `coverageComplete:false`. <!-- 2026-07-25 SaaS Sandbox; an executed group returning `Tests:[]` was not observed -->
+- [x] Quoted keyword identifiers, fail-closed parser errors, conditional compilation, nested SymbolReference namespaces, system-codeunit IDs, forced Git prefixes, deployment assertions, cache reuse, aborted-run conservatism, unknown signatures, and incompatible coverage modes are deterministic tests. <!-- 2026-07-22 -->
+- [x] Validate trigger method identities in live `CoveredProcedures`: codeunit `OnRun`, table `OnInsert`, report `OnPreReport`, and page `OnOpenPage` were attributed to their owning objects and matched the compiler's trigger-specific hash exactly. Local discovery remains conservative for trigger scopes and forces `complete:false`. <!-- 2026-07-25 SaaS Sandbox -->
+- [x] Validate whether `CoveredProcedures` attributes tableextension/pageextension/reportextension methods to the extension object type/ID used by local discovery. <!-- 2026-07-25 SaaS Sandbox: object types 15/14/22 and all three local method IDs matched exactly -->
+- [x] No Production call was made. The exact disposable fixture and current trigger-zoo demo were published only to Sandbox for the 2026-07-25 validation. <!-- tenant/environment/company/user/token/authorization/authenticated URL values not retained -->
 
 ## Profiling (snapshot Sampling)
 

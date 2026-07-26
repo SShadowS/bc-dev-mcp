@@ -81,6 +81,75 @@ describe("TestRunnerClient.run", () => {
     expect(result.coverage).toEqual([
       { testObjectId: 50100, testMethodId: 1, coveredProcedures: [{ objectType: 5, objectId: 50000, methodId: 7 }] },
     ]);
+    expect(result.coverageComplete).toBe(true);
+  });
+
+  test("marks requested coverage incomplete when executed tests return an empty Tests payload", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") {
+        queueMicrotask(() => {
+          hub.emit("TestCompleted", 50100, "PostInvoice", 0, "", 1);
+          hub.emit("TestRunCompleted", { Tests: [] });
+        });
+      }
+      return undefined;
+    };
+
+    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(
+      config,
+      auth,
+      [{ id: 50100 }],
+      { coverage: "procedure" },
+    );
+
+    expect(result.results).toHaveLength(1);
+    expect(result.coverage).toEqual([]);
+    expect(result.coverageComplete).toBe(false);
+  });
+
+  test("keeps requested coverage complete when a group without executed tests returns an empty Tests payload", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") {
+        queueMicrotask(() => {
+          // WIRE: BC emits this synthetic codeunit rollup even when no requested test exists.
+          hub.emit("TestCompleted", 50100, "", 0, "", 0);
+          hub.emit("TestRunCompleted", { Tests: [] });
+        });
+      }
+      return undefined;
+    };
+
+    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(
+      config,
+      auth,
+      [{ id: 50100 }],
+      { coverage: "procedure" },
+    );
+
+    expect(result.results).toEqual([
+      { codeunitId: 50100, method: "", status: "passed", durationMs: 0, output: "" },
+    ]);
+    expect(result.coverageComplete).toBe(true);
+  });
+
+  test("marks requested coverage incomplete when TestRunCompleted omits its Tests payload", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", {}));
+      return undefined;
+    };
+
+    const result = await new TestRunnerClient(fakeHubFactory(hub)).run(
+      config,
+      auth,
+      [{ id: 50100 }],
+      { coverage: "procedure" },
+    );
+
+    expect(result.coverage).toEqual([]);
+    expect(result.coverageComplete).toBe(false);
   });
 
   test("passes debuggingContext to Initialize", async () => {

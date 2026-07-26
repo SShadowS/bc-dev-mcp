@@ -8,6 +8,7 @@ import { buildServer, installSdkErrorFormatter, toToolResponse } from "../../src
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
+import type { GitChangeSet } from "../../src/core/git-changes";
 
 function makeProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "bcmcp-server-"));
@@ -28,6 +29,12 @@ async function connect() {
     fetchFn: (async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch,
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: makeProject(),
+    gitChanges: async (_project, baseRef): Promise<GitChangeSet> => ({
+      baseRef,
+      mergeBase: "a".repeat(40),
+      head: "workingTree",
+      files: [],
+    }),
   });
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

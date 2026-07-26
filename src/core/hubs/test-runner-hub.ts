@@ -41,7 +41,9 @@ export class TestRunnerClient {
 
     const results: TestMethodResult[] = [];
     const coverage: CoverageEntry[] = [];
+    let coverageComplete = true;
     let groupIndex = 0;
+    let groupResultBaseline = 0;
     let settled = false;
 
     return await new Promise<RunTestsResult>((resolvePromise) => {
@@ -49,7 +51,10 @@ export class TestRunnerClient {
         if (settled) return;
         settled = true;
         const result: RunTestsResult = { results };
-        if (opts.coverage && opts.coverage !== "none") result.coverage = coverage;
+        if (opts.coverage && opts.coverage !== "none") {
+          result.coverage = coverage;
+          result.coverageComplete = coverageComplete;
+        }
         if (aborted !== undefined) {
           result.runAborted = true;
           result.abortReason = aborted;
@@ -66,6 +71,7 @@ export class TestRunnerClient {
           return;
         }
         groupIndex++;
+        groupResultBaseline = results.length;
         // WIRE: RunTests(codeunitId, testMethods[]) (lmt-decomp HubBasedTestRunnerService.RunTestInternal)
         await hub.invoke("RunTests", group.id, group.methods ?? []).catch((err) => finish(String(err)));
       };
@@ -83,6 +89,22 @@ export class TestRunnerClient {
 
       hub.on("TestRunCompleted", (...args) => {
         const payload = normalizeKeys<{ tests?: WireCoverageForTest[] }>(args[0] ?? {});
+        // WIRE: SaaS BC28 emits a trailing TestCompleted row with method:"" as a codeunit
+        // rollup even when a requested method does not exist and no test method executes.
+        // That synthetic row must not turn an otherwise complete empty Tests collection into
+        // "executed tests returned no coverage."
+        const groupExecutedTests = results
+          .slice(groupResultBaseline)
+          .some((result) => result.method.trim() !== "");
+        // WIRE: procedure coverage is carried by each TestRunCompleted payload's Tests
+        // collection (lmt-decomp HubBasedTestRunnerService plus live BC28/SaaS payloads).
+        // A missing collection is not evidence of no coverage; neither is an empty collection
+        // for a group that did execute tests — every executed test reports its own identity.
+        if (opts.coverage && opts.coverage !== "none" &&
+            (!Array.isArray(payload.tests) ||
+             (payload.tests.length === 0 && groupExecutedTests))) {
+          coverageComplete = false;
+        }
         for (const t of payload.tests ?? []) {
           coverage.push({
             testObjectId: t.applicationObjectId,

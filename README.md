@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-503%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-534%20passing-green)]()
 
 ## Overview
 
@@ -16,7 +16,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | Transport | MCP over stdio |
 | Server requirement | BC dev API `WebApiVersion >= 7.0` (AL 18 platform, e.g. BC28) |
 | Auth | Azure CLI / Entra ID (SaaS) · UserPassword (on-prem / docker) |
-| Validation | Live E2E against BC28 (`scripts/e2e-results-2026-07-03.md`, `scripts/e2e-profile-results-2026-07-04.md`) |
+| Validation | Live E2E against BC28 and SaaS Sandbox (`scripts/e2e.md`) |
 
 ## Features
 
@@ -25,6 +25,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | **Agent-grade responses** | Every success returns schema-validated `structuredContent` plus contextual `nextSteps`; failures use stable, redacted JSON error bodies |
 | **Structured test runs** | Run-level pass/fail/abort counts, per-method duration, parsed AL call stacks, and local source mappings while retaining raw server output |
 | **Code coverage** | `procedure` mode, mapped back to local source files (`line` mode exists but is unproven against real BC) |
+| **Coverage gap analysis** | Cross a Git diff with exact procedure coverage to report which changed procedures the selected tests did and did not exercise |
 | **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
 | **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break on all or unhandled errors only, record-write breaks (optionally skipping temp records), stack + variables + watch, stepping, abort/release at a break |
 | **Debug-a-test** | Test run bound to the debug session — breakpoints fire during test execution |
@@ -37,6 +38,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 - A reachable BC server with dev API `WebApiVersion >= 7.0` (check with `bcdev_status`)
 - For SaaS: the standard Azure CLI, signed in to the launch configuration's tenant (`az login --tenant <tenant-id>`)
 - For on-premises: UserPassword credentials for the dev endpoint
+- Git on `PATH` and an AL project inside a repository when using `coverageAgainst`
 - Bun (to run from source) or Node 18+ (to run the built `dist/index.js`)
 
 ## Installation
@@ -69,7 +71,7 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 
 1. `bcdev_status` — verify reachability, auth, and that test running is supported.
 2. `bcdev_test_discover` — list test codeunits and `[Test]` methods from local `.al` files.
-3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results.
+3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results. Add `coverageAgainst: "origin/main"` for changed-procedure analysis. After publishing the current changed objects to the target, also pass `changesDeployed: true` to permit `covered`/`uncovered` classifications; without that explicit assertion, changed procedures remain `unknown`.
 4. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
 
 Debugger attach returns as soon as Business Central accepts the request; binding is asynchronous. With no selector it binds the next session of the `breakOnNext` client type. Pass `userId` to filter that next session by Business Central user, or pass a known positive `sessionId` to attach to an existing NST session. `sessionId` and `userId` are mutually exclusive; exact `sessionId` targeting takes precedence over `breakOnNext`. `bcdev_debug_wait` reports `{ kind: "sessionBound", sessionId, hostId }` after binding; `hostId` may be null when Business Central omits that optional field. If identity lookup fails, it reports a nonfatal warning-form `sessionBound` event and debugging remains active. If Business Central emits a fatal user-filter rejection before `sessionBound`, the debugger tears down without binding or delivering breaks and reports an actionable `fatal` event.
@@ -129,7 +131,7 @@ src/core/  (pure library — typed returns, injected deps)
 |------|---------|
 | `bcdev_status` | Preflight: reachability, auth, dev API version, feature gates |
 | `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files |
-| `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, and optional coverage |
+| `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, optional coverage, and Git-aware changed-procedure gaps |
 | `bcdev_debug_attach` | Arm next-session/user-filtered attach or target an existing NST session; optionally set breakpoints |
 | `bcdev_debug_run_tests` | Run tests with breakpoints live |
 | `bcdev_debug_wait` | Long-poll for session-bound / break / run-finished lifecycle events |
@@ -198,6 +200,33 @@ server and project, and an unreadable/missing project returns complete server re
 nonfatal `sourceMappingWarning` that identifies whether call-stack or coverage file mapping was
 unavailable.
 
+Pass `coverageAgainst` to `bcdev_test_run` for roadmap item 5's coverage-gap analysis. The tool
+resolves the ref's merge base with `HEAD`, compares that commit with the current working tree
+(committed branch changes, staged and unstaged edits, plus nonignored untracked AL files), and
+automatically selects procedure coverage. `coverageGaps` reports each current executable procedure
+intersecting those changed lines as `covered`, `uncovered`, or `unknown`, including the exact source
+span, changed ranges, compiler method ID, and covering test identities. An `uncovered` result is only
+emitted when the compiler identity is exact, the caller explicitly confirms the current changes are
+deployed with `changesDeployed: true`, and every requested test group returned procedure coverage
+that omitted it. TestRunnerHub does not return an artifact or source hash, so
+`coverageGaps.deployment` distinguishes that caller assertion from tool verification. Without the
+assertion, with unresolved signatures, incomplete parsing or coverage, or an aborted run, the
+affected result remains `unknown` and `complete` is false. Trigger spans are detected but their
+coverage identities are not yet classified by local discovery, so a changed trigger also forces an
+explicit incomplete result instead of disappearing from the gate. SaaS validation confirmed that
+Business Central reports codeunit `OnRun`, table `OnInsert`, report `OnPreReport`, and page
+`OnOpenPage` under their owning object identities with the compiler's trigger-specific method-ID
+hash; nested trigger scopes still need separate identity handling. Changed code that carries no
+method identity at all — object and field properties, field and control declarations, global
+variables, object headers, `namespace`/`using` declarations, and semantic preprocessor directives
+outside method spans — is counted in
+`summary.unattributedChanges`, listed in `warnings` with its exact lines, and also forces
+`complete: false`: procedure coverage can never prove those lines were exercised. Conditional
+compilation follows `app.json` preprocessor symbols (the manifest and its explicit `runtime` are
+required because the runtime selects method-ID hash variants), and dependency identities preserve
+namespace qualification from `.alpackages`. Use the same base ref when rerunning a broader test
+selection to close reported gaps.
+
 Breakpoint additions include `verification.status` (`verified`, `relocated`, or `unverified`) and
 the resolved object, method, and 1-based span when Business Central supplies them. An all-zero
 wire span is the value type's unset form and remains `unverified`; it is not reported as line 1.
@@ -237,6 +266,9 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 | `src/core/hubs/debugger-hub.ts` | DebuggerHub client (attach, breakpoints, stepping, inspection) |
 | `src/core/hubs/signalr-base.ts` | Hub seam: auth query params, key normalization, `HubProxy` |
 | `src/core/authorization.ts` | Shared Basic/Azure CLI authorization provider and token cache |
+| `src/core/git-changes.ts` | Merge-base-to-working-tree AL change ranges, including untracked files |
+| `src/core/al-procedures.ts` | Executable procedure/trigger spans and compiler-compatible procedure identities |
+| `src/core/coverage-gaps.ts` | Exact join between changed procedures and TestRunnerHub coverage evidence |
 | `scripts/e2e.md` | Real-server wire-assumption checklist + known server behaviours |
 
 ## Roadmap
@@ -247,7 +279,7 @@ Ordered by intent, not commitment:
 2. **Debugger power controls** — **shipped.** Live SQL cost at a break (`bcdev_debug_sql`), break on unhandled errors only / skip temp-record writes, abort or release a paused operation, read deployed source for off-disk objects (`bcdev_source`), un-truncated watch strings.
 3. **CPU profiling** (`bcdev_profile_*`) — **shipped.** Capture a sampling CPU profile (`.alcpuprofile`, V8 format) of a live session and get back a ranked AL-hotspot summary, not just a blob. Four tools (status/start/poll/finish), validated end-to-end against a live BC28 — a real profile with AL call frames captured through the tools (`scripts/e2e-profile-results-2026-07-04.md`). (Full snapshot recording for VS Code replay shares the same core and stays deferred.)
 4. **Entra ID auth** — **shipped.** Azure CLI-backed cloud sandbox/production access alongside explicit on-prem UserPassword.
-5. **Coverage gap analysis** — cross procedure coverage with `git diff`: which changed procedures have no test coverage.
+5. **Coverage gap analysis** — **shipped.** Pass `coverageAgainst` to `bcdev_test_run` to cross the merge-base-to-working-tree Git diff with exact procedure coverage and identify covered, uncovered, or unresolved changed procedures.
 6. **Test orchestration** — repeat runs, diff pass/fail sets, flag flaky tests.
 7. **Break-on-record-write triage** — arm write breaks on a table and auto-collect the stacks of everything that writes it.
 8. **BC native MCP passthrough** — a general-purpose front door to Business Central's own MCP endpoint. BC exposes runtime-troubleshooting and server-side profiling tools there that its shipped tooling only partially surfaces (one slice isn't exposed by any Microsoft client at all); a dynamic passthrough would make the full catalog reachable from any agent.
