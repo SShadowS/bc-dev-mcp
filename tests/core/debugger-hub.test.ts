@@ -46,6 +46,27 @@ describe("DebuggerClient", () => {
     expect(hub.invoked("DebugAdapterConfigurationDone")).toHaveLength(1);
   });
 
+  test("a rejected debugger configuration is fatal and never reports sessionBound", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "DebugAdapterConfigurationDone") throw new Error("configuration rejected");
+      if (method === "GetNstSessionInfo") return { SessionId: 10, HostId: null };
+      return undefined;
+    };
+    const { client, events } = await connected(hub, { breakOnRecordWrite: "nonTemporary" });
+    hub.emit("HubConnected");
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+
+    expect(events).toEqual([
+      { kind: "fatal", message: "Debugger configuration failed: configuration rejected" },
+    ]);
+    expect(hub.invoked("GetNstSessionInfo")).toHaveLength(0);
+    expect(hub.invoked("StopDebugging")).toHaveLength(1);
+    expect(hub.stopped).toBe(true);
+    expect(client.connectionId).toBeNull();
+  });
+
   test("break behaviour matrix maps booleans and precision modes to wire enums", async () => {
     const cases: Array<[DebugAttachOptions, { BreakOnError: boolean; BreakOnErrorBehaviour: number; BreakOnRecordWrite: boolean; BreakOnRecordWriteBehaviour: number }]> = [
       // WIRE enums: Unspecified=0, None=1, All=2, ExcludeTry|ExcludeTemporary=3
@@ -300,6 +321,21 @@ describe("DebuggerClient", () => {
     await client.step("release");
     await client.step("abort");
     expect(hub.invoked("SetBreakpointResponse").map((i) => i.args[0])).toEqual([4, 5]);
+  });
+
+  test("shutdown release is a best-effort transport barrier", async () => {
+    const hub = new FakeHub();
+    const { client } = await connected(hub);
+    expect(await client.releaseForShutdown()).toBe(true);
+    expect(hub.invoked("SetBreakpointResponse").at(-1)?.args).toEqual([4]);
+
+    hub.onInvoke = (method) => {
+      if (method === "SetBreakpointResponse") throw new Error("no paused break");
+      return undefined;
+    };
+    expect(await client.releaseForShutdown()).toBe(false);
+    await client.stop();
+    expect(await client.releaseForShutdown()).toBe(false);
   });
 
   test("getSourceContent sends the object wrapper and normalizes the response", async () => {
@@ -633,10 +669,13 @@ describe("DebuggerClient", () => {
     expect(client.connectionId).toBeNull();
   });
 
-  test("unexpected close clears the hub so calls fail fast", async () => {
+  test("unexpected close without an Error is fatal and clears the hub", async () => {
     const hub = new FakeHub();
-    const { client } = await connected(hub);
-    hub.close(new Error("dropped"));
+    const { client, events } = await connected(hub);
+    hub.close();
+    expect(events).toEqual([
+      { kind: "fatal", message: "Debugger hub connection closed unexpectedly" },
+    ]);
     await expect(client.step("continue")).rejects.toThrow(/not connected/);
   });
 });

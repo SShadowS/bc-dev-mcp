@@ -83,8 +83,18 @@ export interface RuntimeTableType {
 }
 
 interface Token {
-  kind: "identifier" | "dot" | "leftParen" | "rightParen" | "leftBracket" | "rightBracket" | "other";
+  kind:
+    | "identifier"
+    | "dot"
+    | "leftParen"
+    | "rightParen"
+    | "leftBracket"
+    | "rightBracket"
+    | "semicolon"
+    | "other";
   text: string;
+  start: number;
+  end: number;
 }
 
 interface SourceRecord {
@@ -98,7 +108,7 @@ export interface RecordWriteCollectorOptions {
   includeTemporary: boolean;
   changesDeployed: boolean;
   maxObservedWrites: number;
-  client: Pick<DebuggerClient, "getSourceContent" | "evalWatch" | "step" | "stop">;
+  client: Pick<DebuggerClient, "getSourceContent" | "evalWatch" | "step" | "releaseForShutdown" | "stop">;
   localSource: (objectType: number, objectId: number) => Promise<string | null>;
   localFile: (objectType: number, objectId: number) => string | undefined;
 }
@@ -118,6 +128,7 @@ const OPERATION_BY_NAME: Record<string, RecordWriteOperation> = {
 function lexStatement(source: string): Token[] {
   const tokens: Token[] = [];
   for (let i = 0; i < source.length;) {
+    const tokenStart = i;
     const ch = source[i]!;
     const next = source[i + 1];
     if (/\s/.test(ch)) {
@@ -164,13 +175,13 @@ function lexStatement(source: string): Token[] {
           i++;
         }
       }
-      tokens.push({ kind: "identifier", text });
+      tokens.push({ kind: "identifier", text, start: tokenStart, end: i });
       continue;
     }
     if (/[A-Za-z_]/.test(ch)) {
       const start = i++;
       while (i < source.length && /[A-Za-z0-9_]/.test(source[i]!)) i++;
-      tokens.push({ kind: "identifier", text: source.slice(start, i) });
+      tokens.push({ kind: "identifier", text: source.slice(start, i), start, end: i });
       continue;
     }
     const kind = ch === "."
@@ -183,8 +194,10 @@ function lexStatement(source: string): Token[] {
             ? "leftBracket"
             : ch === "]"
               ? "rightBracket"
-              : "other";
-    tokens.push({ kind, text: ch });
+              : ch === ";"
+                ? "semicolon"
+                : "other";
+    tokens.push({ kind, text: ch, start: tokenStart, end: tokenStart + 1 });
     i++;
   }
   return tokens;
@@ -198,7 +211,15 @@ function lineOffsets(source: string): number[] {
   return offsets;
 }
 
-export function sourceAtStatementSpan(source: string, span: NonNullable<StackFrameInfo["statementSpan"]>): string | null {
+interface LocatedStatementSource {
+  content: string;
+  start: number;
+}
+
+function locateStatementSource(
+  source: string,
+  span: NonNullable<StackFrameInfo["statementSpan"]>,
+): LocatedStatementSource | null {
   const offsets = lineOffsets(source);
   const fromLine = span.from.line - 1;
   const toLine = span.to.line - 1;
@@ -207,17 +228,42 @@ export function sourceAtStatementSpan(source: string, span: NonNullable<StackFra
   const lineEnd = toLine + 1 < offsets.length ? offsets[toLine + 1]! : source.length;
   const to = Math.min(lineEnd, offsets[toLine]! + Math.max(span.to.column, span.from.line === span.to.line ? span.from.column : 1));
   if (from < 0 || from >= source.length || to <= from) return null;
-  return source.slice(from, to);
+  return { content: source.slice(from, to), start: from };
 }
 
-export function inspectRecordWriteStatement(source: string): RecordWriteStatementResult {
+export function sourceAtStatementSpan(source: string, span: NonNullable<StackFrameInfo["statementSpan"]>): string | null {
+  return locateStatementSource(source, span)?.content ?? null;
+}
+
+const NO_ARGUMENT_OPERATION = new Set<RecordWriteOperation>(["insert", "modify", "delete", "deleteAll"]);
+const NO_ARGUMENT_FOLLOWER = new Set(["then", "do", "else", "until", "and", "or"]);
+
+interface InternalRecordWriteStatement {
+  statement: RecordWriteStatement;
+  implicitReceiver: boolean;
+  operationOffset: number;
+}
+
+type InternalStatementResult =
+  | { match: InternalRecordWriteStatement; reason: null }
+  | { match: null; reason: "writeStatementUnrecognized" | "receiverUnsupported" };
+
+function isOperationInvocation(tokens: Token[], index: number, operation: RecordWriteOperation): boolean {
+  const next = tokens[index + 1];
+  if (next?.kind === "leftParen") return true;
+  if (!NO_ARGUMENT_OPERATION.has(operation)) return false;
+  if (!next || next.kind === "semicolon" || next.kind === "rightParen" || next.kind === "rightBracket") return true;
+  return next.kind === "identifier" && NO_ARGUMENT_FOLLOWER.has(next.text.toLowerCase());
+}
+
+function inspectStatement(source: string): InternalStatementResult {
   const tokens = lexStatement(source);
-  const matches: RecordWriteStatement[] = [];
+  const matches: InternalRecordWriteStatement[] = [];
   let unsupportedReceiver = false;
-  for (let i = 0; i < tokens.length - 1; i++) {
+  for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     const operation = token.kind === "identifier" ? OPERATION_BY_NAME[token.text.toLowerCase()] : undefined;
-    if (!operation || tokens[i + 1]?.kind !== "leftParen") continue;
+    if (!operation || !isOperationInvocation(tokens, i, operation)) continue;
     if (tokens[i - 1]?.kind === "dot") {
       const receiver = tokens[i - 2];
       if (!receiver || receiver.kind !== "identifier") {
@@ -229,18 +275,171 @@ export function inspectRecordWriteStatement(source: string): RecordWriteStatemen
         unsupportedReceiver = true;
         continue;
       }
-      matches.push({ operation, receiver: receiver.text });
+      matches.push({
+        statement: { operation, receiver: receiver.text },
+        implicitReceiver: false,
+        operationOffset: token.start,
+      });
     } else {
-      matches.push({ operation, receiver: "Rec" });
+      matches.push({
+        statement: { operation, receiver: "Rec" },
+        implicitReceiver: true,
+        operationOffset: token.start,
+      });
     }
   }
   if (matches.length !== 1) {
     return {
-      statement: null,
+      match: null,
       reason: unsupportedReceiver && matches.length === 0 ? "receiverUnsupported" : "writeStatementUnrecognized",
     };
   }
-  return { statement: matches[0]!, reason: null };
+  return { match: matches[0]!, reason: null };
+}
+
+function tokenLower(token: Token | undefined): string {
+  return token?.kind === "identifier" ? token.text.toLowerCase() : "";
+}
+
+function afterOptionalSemicolon(tokens: Token[], index: number): number {
+  return tokens[index]?.kind === "semicolon" ? index + 1 : index;
+}
+
+function matchingEnd(tokens: Token[], start: number): number {
+  let depth = 0;
+  for (let i = start; i < tokens.length; i++) {
+    const lower = tokenLower(tokens[i]);
+    if (lower === "begin" || lower === "case") {
+      depth++;
+    } else if (lower === "end") {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return tokens.length;
+}
+
+function matchingUntil(tokens: Token[], start: number): number {
+  let depth = 0;
+  for (let i = start; i < tokens.length; i++) {
+    const lower = tokenLower(tokens[i]);
+    if (lower === "repeat") {
+      depth++;
+    } else if (lower === "until") {
+      depth--;
+      if (depth === 0) {
+        for (let j = i + 1; j < tokens.length; j++) {
+          if (tokens[j]?.kind === "semicolon") return j + 1;
+        }
+        return tokens.length;
+      }
+    }
+  }
+  return tokens.length;
+}
+
+function statementEnd(tokens: Token[], start: number): number {
+  const first = tokenLower(tokens[start]);
+  if (first === "begin" || first === "case") {
+    const end = matchingEnd(tokens, start);
+    if (tokenLower(tokens[end]) === "else") return statementEnd(tokens, end + 1);
+    return afterOptionalSemicolon(tokens, end);
+  }
+  if (first === "repeat") return matchingUntil(tokens, start);
+
+  let parentheses = 0;
+  let brackets = 0;
+  for (let i = start; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (token.kind === "leftParen") parentheses++;
+    if (token.kind === "rightParen") parentheses = Math.max(0, parentheses - 1);
+    if (token.kind === "leftBracket") brackets++;
+    if (token.kind === "rightBracket") brackets = Math.max(0, brackets - 1);
+    if (parentheses !== 0 || brackets !== 0) continue;
+
+    const lower = tokenLower(token);
+    if (i > start && (lower === "begin" || lower === "case")) {
+      const end = matchingEnd(tokens, i);
+      if (tokenLower(tokens[end]) === "else") return statementEnd(tokens, end + 1);
+      return afterOptionalSemicolon(tokens, end);
+    }
+    if (i > start && lower === "repeat") return matchingUntil(tokens, i);
+    if (token.kind === "semicolon") return i + 1;
+  }
+  return tokens.length;
+}
+
+type ExplicitWithContext =
+  | { kind: "none" }
+  | { kind: "receiver"; receiver: string }
+  | { kind: "ambiguous" };
+
+function explicitWithContext(source: string, operationOffset: number): ExplicitWithContext {
+  const tokens = lexStatement(source);
+  const operationIndex = tokens.findIndex((token) =>
+    token.start <= operationOffset && operationOffset < token.end
+  );
+  if (operationIndex < 0) return { kind: "none" };
+
+  let context: ExplicitWithContext = { kind: "none" };
+  let nearestDo = -1;
+  for (let i = 0; i < operationIndex; i++) {
+    if (tokenLower(tokens[i]) !== "with") continue;
+    let doIndex = -1;
+    let parentheses = 0;
+    let brackets = 0;
+    for (let j = i + 1; j < operationIndex; j++) {
+      const token = tokens[j]!;
+      if (token.kind === "leftParen") parentheses++;
+      if (token.kind === "rightParen") parentheses = Math.max(0, parentheses - 1);
+      if (token.kind === "leftBracket") brackets++;
+      if (token.kind === "rightBracket") brackets = Math.max(0, brackets - 1);
+      if (parentheses === 0 && brackets === 0 && tokenLower(token) === "do") {
+        doIndex = j;
+        break;
+      }
+      if (parentheses === 0 && brackets === 0 && token.kind === "semicolon") break;
+    }
+    if (doIndex < 0 || doIndex + 1 > operationIndex || doIndex <= nearestDo) continue;
+    const bodyEnd = statementEnd(tokens, doIndex + 1);
+    if (operationIndex < doIndex + 1 || operationIndex >= bodyEnd) continue;
+
+    const receiverTokens = tokens.slice(i + 1, doIndex);
+    nearestDo = doIndex;
+    context = receiverTokens.length === 1 && receiverTokens[0]?.kind === "identifier"
+      ? { kind: "receiver", receiver: receiverTokens[0].text }
+      : { kind: "ambiguous" };
+  }
+  return context;
+}
+
+export function inspectRecordWriteStatement(source: string): RecordWriteStatementResult {
+  const inspected = inspectStatement(source);
+  return inspected.match
+    ? { statement: inspected.match.statement, reason: null }
+    : { statement: null, reason: inspected.reason };
+}
+
+export function inspectRecordWriteAtSpan(
+  source: string,
+  span: NonNullable<StackFrameInfo["statementSpan"]>,
+): RecordWriteStatementResult {
+  const located = locateStatementSource(source, span);
+  if (!located) return { statement: null, reason: "writeStatementUnrecognized" };
+  const inspected = inspectStatement(located.content);
+  if (!inspected.match) return { statement: null, reason: inspected.reason };
+  if (!inspected.match.implicitReceiver) {
+    return { statement: inspected.match.statement, reason: null };
+  }
+  const withContext = explicitWithContext(source, located.start + inspected.match.operationOffset);
+  if (withContext.kind === "ambiguous") return { statement: null, reason: "receiverUnsupported" };
+  return {
+    statement: {
+      ...inspected.match.statement,
+      receiver: withContext.kind === "receiver" ? withContext.receiver : "Rec",
+    },
+    reason: null,
+  };
 }
 
 export function parseRecordWriteStatement(source: string): RecordWriteStatement | null {
@@ -302,6 +501,8 @@ export class RecordWriteCollector {
   private truncatedValue = false;
   private stopReasonValue: RecordWriteReport["stopReason"] | null = null;
   private accepting = true;
+  private finishing = false;
+  private shutdownRelease: Promise<boolean> | null = null;
   private paused = false;
   private evidenceLost = false;
   private chain: Promise<void> = Promise.resolve();
@@ -342,14 +543,20 @@ export class RecordWriteCollector {
   }
 
   async finish(): Promise<RecordWriteReport> {
-    // Close intake synchronously, then drain every event accepted before this call.
-    // The queued handlers use terminal(), not accepting, so already accepted breaks
-    // are still classified and resumed.
+    // Keep intake open while a release invocation crosses the SignalR connection.
+    // Any Break already in flight is enqueued before that invocation settles, after
+    // which the serialized chain can be drained without mistaking a quiet local queue
+    // for a quiet transport.
+    this.finishing = true;
+    this.shutdownRelease = this.accepting && !this.terminal()
+      ? this.options.client.releaseForShutdown()
+      : Promise.resolve(false);
+    await this.shutdownRelease;
+    await this.drainEvents();
     this.accepting = false;
-    await this.chain;
     if (this.paused) {
       try {
-        await this.options.client.step("release");
+        if (!await this.shutdownRelease) await this.options.client.step("release");
         this.paused = false;
       } catch (error) {
         await this.fail(`Unable to release the paused workload: ${safeDetail(error)}`);
@@ -368,10 +575,15 @@ export class RecordWriteCollector {
   }
 
   private terminal(): boolean {
-    return this.phaseValue === "failed"
-      || this.stopReasonValue === "sessionDetached"
-      || this.stopReasonValue === "maxObservedWrites"
-      || this.stopReasonValue === "fatal";
+    return this.phaseValue === "failed" || this.stopReasonValue !== null;
+  }
+
+  private async drainEvents(): Promise<void> {
+    while (true) {
+      const pending = this.chain;
+      await pending;
+      if (pending === this.chain) return;
+    }
   }
 
   private summary(): RecordWriteSummary {
@@ -458,6 +670,15 @@ export class RecordWriteCollector {
       return;
     }
 
+    if (this.finishing) {
+      this.stopReasonValue = "finished";
+      this.phaseValue = "stopped";
+      this.accepting = false;
+      if (!await this.shutdownRelease) await this.options.client.step("release");
+      this.paused = false;
+      return;
+    }
+
     await this.options.client.step("continue");
     this.paused = false;
   }
@@ -484,12 +705,11 @@ export class RecordWriteCollector {
       this.recordUnresolved(sequence, stack, "sourceUnavailable", null, null);
       return;
     }
-    const statementSource = sourceAtStatementSpan(source.content, frame.statementSpan);
-    if (statementSource === null) {
+    if (sourceAtStatementSpan(source.content, frame.statementSpan) === null) {
       this.recordUnresolved(sequence, stack, "statementSpanUnavailable", null, null);
       return;
     }
-    const inspected = inspectRecordWriteStatement(statementSource);
+    const inspected = inspectRecordWriteAtSpan(source.content, frame.statementSpan);
     if (!inspected.statement) {
       this.recordUnresolved(sequence, stack, inspected.reason, null, null);
       return;

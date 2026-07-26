@@ -239,6 +239,7 @@ describe("record-write MCP tools", () => {
     expect(report).toMatchObject({ truncated: true, complete: false });
     expect(report.nextSteps.join(" ")).toContain("maxObservedWrites");
     expect(state.debugOwner).toBeNull();
+    expect(hub.invoked("SetBreakpointResponse").map((call) => call.args)).toEqual([[4]]);
   });
 
   test("a session identity lookup warning is nonfatal and retained in status", async () => {
@@ -259,6 +260,56 @@ describe("record-write MCP tools", () => {
     expect(status).toMatchObject({ phase: "collecting", sessionId: null });
     expect(status.warning).toContain("identity could not be read");
     await tools.get("bcdev_record_writes_finish")!.handler({});
+  });
+
+  test("a rejected debugger configuration fails closed instead of returning a complete zero-write report", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "DebugAdapterConfigurationDone") throw new Error("configuration rejected");
+      if (method === "GetNstSessionInfo") return { SessionId: 321, HostId: null };
+      return undefined;
+    };
+    const { tools } = setup(hub);
+    await tools.get("bcdev_record_writes_start")!.handler({ tableId: 18 });
+    hub.emit("HubConnected");
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+
+    const status = await tools.get("bcdev_record_writes_status")!.handler({}) as {
+      phase: string;
+    };
+    expect(status.phase).toBe("failed");
+    const report = await tools.get("bcdev_record_writes_finish")!.handler({}) as {
+      outcome: string;
+      complete: boolean;
+      warnings: string[];
+    };
+    expect(report).toMatchObject({ outcome: "failed", complete: false });
+    expect(report.warnings.join(" ")).toContain("Debugger configuration failed");
+  });
+
+  test("an unexpected clean hub close fails the retained report closed", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) =>
+      method === "GetNstSessionInfo" ? { SessionId: 321, HostId: null } : undefined;
+    const { tools } = setup(hub);
+    await tools.get("bcdev_record_writes_start")!.handler({ tableId: 18 });
+    hub.emit("HubConnected");
+    await Bun.sleep(0);
+    hub.close();
+    await Bun.sleep(0);
+
+    const status = await tools.get("bcdev_record_writes_status")!.handler({}) as {
+      phase: string;
+    };
+    expect(status.phase).toBe("failed");
+    const report = await tools.get("bcdev_record_writes_finish")!.handler({}) as {
+      outcome: string;
+      complete: boolean;
+      warnings: string[];
+    };
+    expect(report).toMatchObject({ outcome: "failed", complete: false });
+    expect(report.warnings.join(" ")).toContain("connection closed unexpectedly");
   });
 
   test("an out-of-band user-filter rejection fails closed and preserves a partial report", async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  inspectRecordWriteAtSpan,
   inspectRecordWriteStatement,
   parseRecordWriteStatement,
   parseRuntimeTableType,
@@ -38,6 +39,19 @@ function brk(stack: StackFrameInfo[] = [frame()]): DebuggerEvent {
   return { kind: "break", objectType: 5, objectId: 50100, line: 7, stack };
 }
 
+function spanFor(source: string, needle: string): NonNullable<StackFrameInfo["statementSpan"]> {
+  const index = source.indexOf(needle);
+  if (index < 0) throw new Error(`Missing test needle: ${needle}`);
+  const before = source.slice(0, index);
+  const line = before.split("\n").length;
+  const lineStart = before.lastIndexOf("\n") + 1;
+  const column = index - lineStart + 1;
+  return {
+    from: { line, column },
+    to: { line, column: column + needle.length - 1 },
+  };
+}
+
 function client(typeNames: string[]) {
   const steps: string[] = [];
   const watchExpressions: string[] = [];
@@ -71,6 +85,7 @@ function client(typeNames: string[]) {
     step: async (action: string) => {
       steps.push(action);
     },
+    releaseForShutdown: async () => false,
     stop: async () => {
       stops++;
     },
@@ -90,6 +105,76 @@ describe("record-write statement parsing", () => {
     expect(parseRecordWriteStatement("Customer.Rename('10000');")).toEqual({ operation: "rename", receiver: "Customer" });
     expect(parseRecordWriteStatement("Customer.Delete(true);")).toEqual({ operation: "delete", receiver: "Customer" });
     expect(parseRecordWriteStatement("Customer.DeleteAll(false);")).toEqual({ operation: "deleteAll", receiver: "Customer" });
+  });
+
+  test("recognizes valid zero-argument write calls without parentheses", () => {
+    expect(parseRecordWriteStatement("Customer.Insert;")).toEqual({ operation: "insert", receiver: "Customer" });
+    expect(parseRecordWriteStatement("Customer.Modify;")).toEqual({ operation: "modify", receiver: "Customer" });
+    expect(parseRecordWriteStatement("Customer.Delete;")).toEqual({ operation: "delete", receiver: "Customer" });
+    expect(parseRecordWriteStatement("Customer.DeleteAll;")).toEqual({ operation: "deleteAll", receiver: "Customer" });
+    expect(parseRecordWriteStatement("Insert;")).toEqual({ operation: "insert", receiver: "Rec" });
+  });
+
+  test("uses an enclosing explicit WITH receiver instead of incorrectly assuming Rec", () => {
+    const source = [
+      "table 50100 Host",
+      "{",
+      "    procedure WriteTarget()",
+      "    var",
+      "        Target: Record Customer;",
+      "    begin",
+      "        with Target do begin",
+      "            Insert(true);",
+      "        end;",
+      "        Rec.Modify(true);",
+      "    end;",
+      "}",
+    ].join("\n");
+    expect(inspectRecordWriteAtSpan(source, spanFor(source, "Insert(true);"))).toEqual({
+      statement: { operation: "insert", receiver: "Target" },
+      reason: null,
+    });
+    expect(inspectRecordWriteAtSpan(source, spanFor(source, "Rec.Modify(true);"))).toEqual({
+      statement: { operation: "modify", receiver: "Rec" },
+      reason: null,
+    });
+
+    const nested = [
+      "table 50100 Host",
+      "{",
+      "    procedure WriteTarget()",
+      "    var",
+      "        Outer: Record Customer;",
+      "        Inner: Record Vendor;",
+      "    begin",
+      "        with Outer do begin",
+      "            with Inner do",
+      "                Insert;",
+      "        end;",
+      "    end;",
+      "}",
+    ].join("\n");
+    expect(inspectRecordWriteAtSpan(nested, spanFor(nested, "Insert;"))).toEqual({
+      statement: { operation: "insert", receiver: "Inner" },
+      reason: null,
+    });
+  });
+
+  test("fails closed when an explicit WITH receiver is not a watch-compatible identifier", () => {
+    const source = [
+      "codeunit 50100 Writer",
+      "{",
+      "    procedure WriteTarget()",
+      "    begin",
+      "        with GetTarget() do",
+      "            Insert(true);",
+      "    end;",
+      "}",
+    ].join("\n");
+    expect(inspectRecordWriteAtSpan(source, spanFor(source, "Insert(true);"))).toEqual({
+      statement: null,
+      reason: "receiverUnsupported",
+    });
   });
 
   test("handles quoted and implicit Rec receivers while ignoring comments and strings", () => {
@@ -327,7 +412,7 @@ describe("RecordWriteCollector", () => {
     expect(report.writers[0]).toMatchObject({ receiver: "Customer", count: 2 });
   });
 
-  test("serializes rapid breaks and finish drains accepted work but rejects late events", async () => {
+  test("serializes rapid breaks and finish releases an accepted in-flight break", async () => {
     let resolveWatch!: (value: {
       name: string;
       typeName: string;
@@ -366,7 +451,6 @@ describe("RecordWriteCollector", () => {
     expect(watchCalls).toBe(1);
 
     const finishing = collector.finish();
-    collector.onEvent(brk());
     resolveWatch({
       name: "Customer",
       typeName: "Table Customer (18)",
@@ -377,7 +461,72 @@ describe("RecordWriteCollector", () => {
     });
     const report = await finishing;
     expect(report.summary).toMatchObject({ observedWrites: 1, matchedWrites: 1 });
-    expect(fake.steps).toEqual(["continue"]);
+    expect(fake.steps).toEqual(["release"]);
+  });
+
+  test("finish captures and releases a break that arrives as shutdown begins", async () => {
+    const fake = client(["Table Customer (18)"]);
+    const collector = new RecordWriteCollector({
+      tableId: 18,
+      includeTemporary: false,
+      changesDeployed: false,
+      maxObservedWrites: 10,
+      client: fake as never,
+      localSource: async () => null,
+      localFile: () => undefined,
+    });
+    collector.onEvent({ kind: "sessionBound", sessionId: 99, hostId: null });
+    await collector.waitForIdle();
+
+    const finishing = collector.finish();
+    collector.onEvent(brk());
+    const report = await finishing;
+
+    expect(report).toMatchObject({
+      complete: true,
+      stopReason: "finished",
+      summary: { observedWrites: 1, matchedWrites: 1 },
+    });
+    expect(fake.steps).toEqual(["release"]);
+    collector.onEvent(brk());
+    expect(collector.status().summary.observedWrites).toBe(1);
+  });
+
+  test("finish orders an asynchronous Break callback through the shutdown release barrier", async () => {
+    for (const releaseAccepted of [true, false]) {
+      const fake = client(["Table Customer (18)"]);
+      const collector = new RecordWriteCollector({
+        tableId: 18,
+        includeTemporary: false,
+        changesDeployed: false,
+        maxObservedWrites: 10,
+        client: fake as never,
+        localSource: async () => null,
+        localFile: () => undefined,
+      });
+      collector.onEvent({ kind: "sessionBound", sessionId: 99, hostId: null });
+      await collector.waitForIdle();
+
+      fake.releaseForShutdown = async () => {
+        await new Promise<void>((resolve) => {
+          setTimeout(() => {
+            collector.onEvent(brk());
+            resolve();
+          }, 0);
+        });
+        return releaseAccepted;
+      };
+
+      const report = await collector.finish();
+      expect(report).toMatchObject({
+        complete: true,
+        stopReason: "finished",
+        summary: { observedWrites: 1, matchedWrites: 1 },
+      });
+      // An accepted transport-level release already resumed this break. When the
+      // barrier is rejected, the classified callback sends the one required release.
+      expect(fake.steps).toEqual(releaseAccepted ? [] : ["release"]);
+    }
   });
 
   test("inspection failures are redacted, fail closed, and continue automatically", async () => {

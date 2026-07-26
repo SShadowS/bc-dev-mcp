@@ -59,6 +59,9 @@ field values, or raw source. Evidence belongs in
 - [x] The unasserted local-source fallback cannot produce an exact group; `changesDeployed:true` permits it only after the exact fixture has been published. <!-- 2026-07-26: unasserted produced 0 matches and incomplete evidence; asserted produced 3 localAsserted matches -->
 - [x] `maxObservedWrites` classifies the cap event, sends `release`, and returns `truncated:true`, `complete:false` without leaving the workload paused. <!-- 2026-07-26: cap=1 returned one observed event and the background workload completed -->
 - [x] Finish clears the triage owner and an immediate manual attach or second triage start can claim the debugger slot. <!-- 2026-07-26: immediate manual attach/detach succeeded after the capture sequence -->
+- [x] An explicit `with Target` inside a different table's method resolves unqualified writes to `Target`, and valid parenthesis-free `Insert`, `Modify`, `Delete`, and `DeleteAll` calls classify exactly. <!-- 2026-07-26: republished disposable fixture produced a complete deployed-source capture with receiver Target, all four operations, and 0 unresolved writes -->
+- [x] Finish orders an in-flight asynchronous Break through a best-effort `ReleaseConnection` invocation before closing intake, classifies the callback, and releases exactly once whether the barrier is accepted or rejected. <!-- deterministic fake-hub fault injection 2026-07-26; the race was not induced live -->
+- [x] Rejected debugger configuration and an unexpected clean hub close fail the retained report closed rather than returning a complete zero-write result. <!-- deterministic fake-hub fault injection 2026-07-26; these failures were not induced live -->
 - [x] No Production or on-premises call is made during this feature's acceptance run. <!-- 2026-07-26: harness refused non-Sandbox configuration; only the disposable SaaS Sandbox fixture was published and called -->
 
 ## Targeted debugger attach (Sandbox)

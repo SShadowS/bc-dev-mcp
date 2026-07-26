@@ -297,7 +297,13 @@ export class DebuggerClient {
     hub.onclose((err) => {
       if (this.hub !== hub) return;
       this.hub = null;
-      if (err) this.onEvent?.({ kind: "fatal", message: `Hub connection closed: ${String(err)}` });
+      this.pendingDebugOptions = null;
+      this.onEvent?.({
+        kind: "fatal",
+        message: err
+          ? `Debugger hub connection closed unexpectedly: ${errorDetail(err)}`
+          : "Debugger hub connection closed unexpectedly",
+      });
     });
     // Server-invoked notifications we don't consume — registered to keep the connection log clean (live E2E 2026-07-03).
     hub.on("LogServerMessage", () => {});
@@ -384,7 +390,14 @@ export class DebuggerClient {
   }
 
   private async finishSessionBinding(hub: HubProxy, options: Record<string, unknown> | null): Promise<void> {
-    if (options) await hub.invoke("DebugAdapterConfigurationDone", options).catch(() => {});
+    if (options) {
+      try {
+        await hub.invoke("DebugAdapterConfigurationDone", options);
+      } catch (error) {
+        await this.failBoundConfiguration(hub, error);
+        return;
+      }
+    }
     if (this.hub !== hub) return;
     if (this.userAttachFatal !== null || this.userAttachFailed) {
       if (this.userAttachFatal !== null) await this.failUserAttach(hub, this.userAttachFatal);
@@ -409,6 +422,18 @@ export class DebuggerClient {
         });
       }
     }
+  }
+
+  private async failBoundConfiguration(hub: HubProxy, error: unknown): Promise<void> {
+    if (this.hub !== hub) return;
+    this.hub = null;
+    this.pendingDebugOptions = null;
+    this.onEvent?.({
+      kind: "fatal",
+      message: `Debugger configuration failed: ${errorDetail(error)}`,
+    });
+    await hub.invoke("StopDebugging").catch(() => {});
+    await hub.stop().catch(() => {});
   }
 
   async getSourceContent(objectType: number, objectId: number): Promise<{ content: string; isAlContent: boolean }> {
@@ -480,6 +505,22 @@ export class DebuggerClient {
 
   async step(action: StepAction): Promise<void> {
     await this.requireHub().invoke("SetBreakpointResponse", STEP_WIRE[action]);
+  }
+
+  async releaseForShutdown(): Promise<boolean> {
+    const hub = this.hub;
+    if (!hub) return false;
+    try {
+      // WIRE: ReleaseConnection=4 lets a paused workload continue undebugged and ends
+      // its debugger attachment (live BC28 2026-07-16). Awaiting the invocation while
+      // collector intake remains open also orders any earlier Break callback ahead of
+      // shutdown. A rejection leaves the release unconfirmed; a delivered Break then
+      // receives its own release, while an unexpected connection close is fatal.
+      await hub.invoke("SetBreakpointResponse", STEP_WIRE.release);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async getVariables(frameId: number): Promise<VariableNode[]> {

@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-585%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-594%20passing-green)]()
 
 ## Overview
 
