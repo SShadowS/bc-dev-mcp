@@ -46,9 +46,13 @@ function spanFor(source: string, needle: string): NonNullable<StackFrameInfo["st
   const line = before.split("\n").length;
   const lineStart = before.lastIndexOf("\n") + 1;
   const column = index - lineStart + 1;
+  const endIndex = index + needle.length - 1;
+  const throughEnd = source.slice(0, endIndex);
+  const endLine = throughEnd.split("\n").length;
+  const endLineStart = throughEnd.lastIndexOf("\n") + 1;
   return {
     from: { line, column },
-    to: { line, column: column + needle.length - 1 },
+    to: { line: endLine, column: endIndex - endLineStart + 1 },
   };
 }
 
@@ -197,10 +201,20 @@ describe("record-write statement parsing", () => {
     expect(parseRecordWriteStatement("A.Insert(); B.Modify();")).toBeNull();
     expect(parseRecordWriteStatement("Records[1].Insert();")).toBeNull();
     expect(parseRecordWriteStatement("GetCustomer().Modify();")).toBeNull();
+    expect(parseRecordWriteStatement("Outer.Inner.Insert();")).toBeNull();
     expect(parseRecordWriteStatement("Customer.Validate(Name);")).toBeNull();
     expect(inspectRecordWriteStatement("Records[1].Insert();").reason).toBe("receiverUnsupported");
     expect(inspectRecordWriteStatement("GetCustomer().Modify();").reason).toBe("receiverUnsupported");
-    expect(inspectRecordWriteStatement("A.Insert(); B.Modify();").reason).toBe("writeStatementUnrecognized");
+    expect(inspectRecordWriteStatement("Outer.Inner.Insert();").reason).toBe("receiverUnsupported");
+    expect(inspectRecordWriteStatement("A.Insert(); B.Modify();").reason).toBe("multipleWriteCandidates");
+    expect(
+      inspectRecordWriteStatement(
+        "if not Customer.Insert(false) then\n    Customer.Modify(true);",
+      ).reason,
+    ).toBe("multipleWriteCandidates");
+    expect(
+      inspectRecordWriteStatement("Customer.Insert(); GetCustomer().Modify();").reason,
+    ).toBe("receiverUnsupported");
   });
 
   test("parses only positive runtime Table identities", () => {
@@ -217,7 +231,6 @@ describe("RecordWriteCollector", () => {
     const fake = client(["Table Customer (18)", "Table Vendor (23)", "Table Customer (18)"]);
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,
@@ -263,7 +276,6 @@ describe("RecordWriteCollector", () => {
     const fake = client(["Integer"]);
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,
@@ -279,11 +291,42 @@ describe("RecordWriteCollector", () => {
     expect(report.unresolved[0]?.reason).toBe("receiverTypeUnresolved");
   });
 
+  test("a conditional statement with two write candidates is retained under its stable reason", async () => {
+    const statement = "if not Customer.Insert(false) then\n            Customer.Modify(true);";
+    const source = SOURCE.replace(
+      "Customer.Modify(\n            true);",
+      statement,
+    );
+    const fake = client(["Table Customer (18)"]);
+    fake.getSourceContent = async () => ({ content: source, isAlContent: true });
+    const collector = new RecordWriteCollector({
+      tableId: 18,
+      changesDeployed: false,
+      maxObservedWrites: 10,
+      client: fake as never,
+      localSource: async () => null,
+      localFile: () => undefined,
+    });
+    collector.onEvent(brk([{
+      ...frame(),
+      statementSpan: spanFor(source, statement),
+    }]));
+    await collector.waitForIdle();
+
+    const report = await collector.finish();
+    expect(report).toMatchObject({
+      complete: false,
+      summary: { observedWrites: 1, unresolvedWrites: 1 },
+      unresolved: [{ reason: "multipleWriteCandidates", operation: null, receiver: null }],
+    });
+    expect(fake.watchExpressions).toEqual([]);
+    expect(fake.steps).toEqual(["continue"]);
+  });
+
   test("finishing before any session binds cannot produce a false complete report", async () => {
     const fake = client(["Table Customer (18)"]);
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,
@@ -308,7 +351,6 @@ describe("RecordWriteCollector", () => {
         fake,
         collector: new RecordWriteCollector({
           tableId: 18,
-          includeTemporary: false,
           changesDeployed,
           maxObservedWrites: 10,
           client: fake as never,
@@ -334,7 +376,6 @@ describe("RecordWriteCollector", () => {
     const fake = client(["Table Customer (18)", "Table Customer (18)"]);
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 2,
       client: fake as never,
@@ -360,7 +401,6 @@ describe("RecordWriteCollector", () => {
     const fake = client(["Table Customer (18)", "Table Customer (18)"]);
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,
@@ -385,7 +425,6 @@ describe("RecordWriteCollector", () => {
     fake.getSourceContent = async () => ({ content: caseSource, isAlContent: true });
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,
@@ -439,7 +478,6 @@ describe("RecordWriteCollector", () => {
     };
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,
@@ -468,7 +506,6 @@ describe("RecordWriteCollector", () => {
     const fake = client(["Table Customer (18)"]);
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,
@@ -497,7 +534,6 @@ describe("RecordWriteCollector", () => {
       const fake = client(["Table Customer (18)"]);
       const collector = new RecordWriteCollector({
         tableId: 18,
-        includeTemporary: false,
         changesDeployed: false,
         maxObservedWrites: 10,
         client: fake as never,
@@ -536,7 +572,6 @@ describe("RecordWriteCollector", () => {
     };
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,
@@ -553,11 +588,10 @@ describe("RecordWriteCollector", () => {
     expect(report.warnings.join(" ")).toContain("[REDACTED]");
   });
 
-  test("detach and fatal events preserve retrievable partial reports", async () => {
+  test("mid-capture detach and fatal events fail closed while preserving partial reports", async () => {
     const detachedFake = client(["Table Customer (18)"]);
     const detached = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: detachedFake as never,
@@ -567,16 +601,18 @@ describe("RecordWriteCollector", () => {
     detached.onEvent(brk());
     detached.onEvent({ kind: "detached", terminateSession: false });
     await detached.waitForIdle();
-    expect(await detached.finish()).toMatchObject({
+    const detachedReport = await detached.finish();
+    expect(detachedReport).toMatchObject({
       outcome: "completed",
       stopReason: "sessionDetached",
+      complete: false,
       summary: { observedWrites: 1, matchedWrites: 1 },
     });
+    expect(detachedReport.warnings.join(" ")).toContain("detached before finish");
 
     const fatalFake = client(["Table Customer (18)"]);
     const fatal = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fatalFake as never,
@@ -590,6 +626,57 @@ describe("RecordWriteCollector", () => {
     expect(failed.warnings.join(" ")).not.toContain("fatal-secret");
   });
 
+  test("a detach caused by finish's release barrier does not mark the deliberate window incomplete", async () => {
+    const fake = client(["Table Customer (18)"]);
+    const collector = new RecordWriteCollector({
+      tableId: 18,
+      changesDeployed: false,
+      maxObservedWrites: 10,
+      client: fake as never,
+      localSource: async () => null,
+      localFile: () => undefined,
+    });
+    collector.onEvent({ kind: "sessionBound", sessionId: 99, hostId: null });
+    await collector.waitForIdle();
+    fake.releaseForShutdown = async () => {
+      collector.onEvent({ kind: "detached", terminateSession: false });
+      return true;
+    };
+
+    const report = await collector.finish();
+    expect(report).toMatchObject({
+      outcome: "completed",
+      stopReason: "finished",
+      complete: true,
+      summary: { observedWrites: 0 },
+    });
+    expect(report.warnings).toEqual([]);
+  });
+
+  test("a terminated-session detach still fails closed because the detach cause is not provable", async () => {
+    const fake = client(["Table Customer (18)"]);
+    const collector = new RecordWriteCollector({
+      tableId: 18,
+      changesDeployed: false,
+      maxObservedWrites: 10,
+      client: fake as never,
+      localSource: async () => null,
+      localFile: () => undefined,
+    });
+    collector.onEvent(brk());
+    collector.onEvent({ kind: "detached", terminateSession: true });
+    await collector.waitForIdle();
+
+    const report = await collector.finish();
+    expect(report).toMatchObject({
+      outcome: "completed",
+      stopReason: "sessionDetached",
+      complete: false,
+      summary: { observedWrites: 1, matchedWrites: 1 },
+    });
+    expect(report.warnings.join(" ")).toContain("detached before finish");
+  });
+
   test("a continuation failure becomes fatal and attempts to release the paused workload", async () => {
     const fake = client(["Table Customer (18)"]);
     fake.step = async (action: string) => {
@@ -598,7 +685,6 @@ describe("RecordWriteCollector", () => {
     };
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,
@@ -617,7 +703,6 @@ describe("RecordWriteCollector", () => {
     const fake = client(["Table Customer (18)", 'Table "Customer Alias" (18)']);
     const collector = new RecordWriteCollector({
       tableId: 18,
-      includeTemporary: false,
       changesDeployed: false,
       maxObservedWrites: 10,
       client: fake as never,

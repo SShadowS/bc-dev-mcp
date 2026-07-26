@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-594%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-598%20passing-green)]()
 
 ## Overview
 
@@ -170,7 +170,9 @@ workload and returns a truncated, incomplete report.
 The final `complete` flag means every record-write break observed in this one attached-session
 capture window was classified. It is not proof that no other session or operation writes the
 table. Any missing source/span, unsupported receiver, watch failure, unknown runtime type,
-unexpected break, lifecycle failure, or truncation keeps the report fail-closed.
+unexpected break, lifecycle failure, early session detach, or truncation keeps the report
+fail-closed. Exact groups collected before a detach remain available, but the tool does not claim
+that no later writes were missed.
 
 ## Profiling
 

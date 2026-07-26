@@ -8,6 +8,7 @@ export type RecordWriteUnresolvedReason =
   | "sourceUnavailable"
   | "statementSpanUnavailable"
   | "writeStatementUnrecognized"
+  | "multipleWriteCandidates"
   | "receiverUnsupported"
   | "receiverUnavailable"
   | "receiverTypeUnresolved"
@@ -75,7 +76,10 @@ export interface RecordWriteStatement {
 
 export type RecordWriteStatementResult =
   | { statement: RecordWriteStatement; reason: null }
-  | { statement: null; reason: "writeStatementUnrecognized" | "receiverUnsupported" };
+  | {
+      statement: null;
+      reason: "writeStatementUnrecognized" | "multipleWriteCandidates" | "receiverUnsupported";
+    };
 
 export interface RuntimeTableType {
   tableId: number;
@@ -105,7 +109,6 @@ interface SourceRecord {
 
 export interface RecordWriteCollectorOptions {
   tableId: number;
-  includeTemporary: boolean;
   changesDeployed: boolean;
   maxObservedWrites: number;
   client: Pick<DebuggerClient, "getSourceContent" | "evalWatch" | "step" | "releaseForShutdown" | "stop">;
@@ -246,7 +249,10 @@ interface InternalRecordWriteStatement {
 
 type InternalStatementResult =
   | { match: InternalRecordWriteStatement; reason: null }
-  | { match: null; reason: "writeStatementUnrecognized" | "receiverUnsupported" };
+  | {
+      match: null;
+      reason: "writeStatementUnrecognized" | "multipleWriteCandidates" | "receiverUnsupported";
+    };
 
 function isOperationInvocation(tokens: Token[], index: number, operation: RecordWriteOperation): boolean {
   const next = tokens[index + 1];
@@ -271,7 +277,11 @@ function inspectStatement(source: string): InternalStatementResult {
         continue;
       }
       const beforeReceiver = tokens[i - 3];
-      if (beforeReceiver?.kind === "rightParen" || beforeReceiver?.kind === "rightBracket") {
+      if (
+        beforeReceiver?.kind === "dot"
+        || beforeReceiver?.kind === "rightParen"
+        || beforeReceiver?.kind === "rightBracket"
+      ) {
         unsupportedReceiver = true;
         continue;
       }
@@ -288,12 +298,9 @@ function inspectStatement(source: string): InternalStatementResult {
       });
     }
   }
-  if (matches.length !== 1) {
-    return {
-      match: null,
-      reason: unsupportedReceiver && matches.length === 0 ? "receiverUnsupported" : "writeStatementUnrecognized",
-    };
-  }
+  if (unsupportedReceiver) return { match: null, reason: "receiverUnsupported" };
+  if (matches.length > 1) return { match: null, reason: "multipleWriteCandidates" };
+  if (matches.length === 0) return { match: null, reason: "writeStatementUnrecognized" };
   return { match: matches[0]!, reason: null };
 }
 
@@ -634,7 +641,15 @@ export class RecordWriteCollector {
       this.paused = false;
       this.accepting = false;
       this.phaseValue = "stopped";
-      this.stopReasonValue ??= "sessionDetached";
+      if (this.finishing) {
+        this.stopReasonValue ??= "finished";
+      } else {
+        this.stopReasonValue ??= "sessionDetached";
+        this.evidenceLost = true;
+        this.warnings.push(
+          "Debugger session detached before finish; the capture ended early and may exclude later writes.",
+        );
+      }
       return;
     }
     if (event.kind === "fatal") {

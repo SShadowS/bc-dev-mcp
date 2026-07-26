@@ -312,6 +312,33 @@ describe("record-write MCP tools", () => {
     expect(report.warnings.join(" ")).toContain("connection closed unexpectedly");
   });
 
+  test("a mid-capture detach returns incomplete evidence and cautionary guidance", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "GetSourceContent") return { Content: SOURCE, IsALContent: true };
+      if (method === "GetWatchNode") {
+        return { Name: "Customer", TypeName: "Table Customer (18)", Summary: "", HasChildren: true };
+      }
+      return undefined;
+    };
+    const { tools } = setup(hub);
+    await tools.get("bcdev_record_writes_start")!.handler({ tableId: 18 });
+    emitWrite(hub);
+    hub.emit("OnDetachedFromConnection", false);
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+
+    const report = await tools.get("bcdev_record_writes_finish")!.handler({}) as {
+      complete: boolean;
+      stopReason: string;
+      warnings: string[];
+      nextSteps: string[];
+    };
+    expect(report).toMatchObject({ complete: false, stopReason: "sessionDetached" });
+    expect(report.warnings.join(" ")).toContain("detached before finish");
+    expect(report.nextSteps.join(" ")).toContain("before treating");
+  });
+
   test("an out-of-band user-filter rejection fails closed and preserves a partial report", async () => {
     const hub = new FakeHub();
     const { state, tools } = setup(hub);

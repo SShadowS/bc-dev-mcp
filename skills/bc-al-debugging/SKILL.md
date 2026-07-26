@@ -49,6 +49,8 @@ that exact source and explicitly pass `changesDeployed: true`. Without that asse
 mapping remains unresolved. `maxObservedWrites` defaults to 500; reaching it releases the workload
 and returns a truncated, incomplete report. Missing source/span, an unsupported receiver, watch
 failure, unknown runtime table identity, or debugger failure also keeps the result fail-closed.
+If the session detaches before `bcdev_record_writes_finish`, retained exact groups remain useful
+but `complete` is false because later writes cannot be ruled out.
 Finish always clears the shared debugger slot; manual debugging and record-write triage cannot run
 at the same time.
 

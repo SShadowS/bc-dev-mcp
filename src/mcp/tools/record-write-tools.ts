@@ -47,6 +47,7 @@ const unresolvedSchema = z.object({
     "sourceUnavailable",
     "statementSpanUnavailable",
     "writeStatementUnrecognized",
+    "multipleWriteCandidates",
     "receiverUnsupported",
     "receiverUnavailable",
     "receiverTypeUnresolved",
@@ -194,7 +195,9 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
           const { config, authorization, project } = resolve(params, deps);
           const index = await AlObjectIndex.build(project);
           collector = new RecordWriteCollector({
-            ...options,
+            tableId: options.tableId,
+            changesDeployed: options.changesDeployed,
+            maxObservedWrites: options.maxObservedWrites,
             client,
             localSource: async (objectType, objectId) => {
               const file = index.byId(objectType, objectId)?.file;
