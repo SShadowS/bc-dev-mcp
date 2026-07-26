@@ -46,7 +46,7 @@ describe("server wiring", () => {
   test("tools/list exposes names, titles, annotations, schemas", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(17);
+    expect(tools).toHaveLength(20);
     const status = tools.find((t) => t.name === "bcdev_status")!;
     expect(status.title).toBe("BC server status");
     expect(status.annotations?.readOnlyHint).toBe(true);
@@ -65,6 +65,10 @@ describe("server wiring", () => {
     expect(JSON.stringify(attachProperties["breakOnRecordWrite"])).toContain("nonTemporary");
     const wait = tools.find((t) => t.name === "bcdev_debug_wait")!;
     expect(JSON.stringify(wait.outputSchema)).toContain("sessionBound");
+    const recordWrites = tools.find((t) => t.name === "bcdev_record_writes_start")!;
+    expect(JSON.stringify(recordWrites.inputSchema)).toContain("maxObservedWrites");
+    expect(JSON.stringify(recordWrites.inputSchema)).toContain("changesDeployed");
+    expect(JSON.stringify(recordWrites.inputSchema)).toContain("tableId");
     for (const t of tools) {
       expect(t.outputSchema, `${t.name} outputSchema`).toBeDefined();
       const properties = (t.outputSchema as { properties?: Record<string, unknown> }).properties;
@@ -158,7 +162,7 @@ describe("server wiring", () => {
   test("start exposes the kind:instrumentation option", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(17);
+    expect(tools).toHaveLength(20);
     const start = tools.find((t) => t.name === "bcdev_profile_start")!;
     expect(JSON.stringify(start.inputSchema)).toContain("instrumentation");
   });

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DebuggerClient, type DebugAttachOptions } from "../../src/core/hubs/debugger-hub";
 import { BasicAuthorizationProvider } from "../../src/core/authorization";
-import type { ConnectionConfig, DebuggerEvent } from "../../src/core/types";
+import type { ConnectionConfig, DebuggerEvent, StackFrameInfo } from "../../src/core/types";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 
 const config: ConnectionConfig = {
@@ -349,8 +349,45 @@ describe("DebuggerClient", () => {
         objectId: 50100,
         errorMessage: undefined,
         line: 13,
-        stack: [{ objectType: 5, objectId: 50100, objectName: "My Tests", methodName: "PostInvoice", line: 13 }],
+        stack: [{
+          objectType: 5,
+          objectId: 50100,
+          objectName: "My Tests",
+          methodName: "PostInvoice",
+          line: 13,
+          statementSpan: {
+            from: { line: 13, column: 5 },
+            to: { line: 13, column: 31 },
+          },
+        }],
       },
+    ]);
+  });
+
+  test("omits missing and all-zero statement spans without changing the legacy line fallback", async () => {
+    const hub = new FakeHub();
+    const { events } = await connected(hub);
+    hub.emit(
+      "Break",
+      { ObjectType: 5, ObjectNumber: 50100 },
+      [
+        {
+          ObjectId: { ObjectType: 5, ObjectNumber: 50100 },
+          ObjectName: "My Tests",
+          MethodName: "Missing",
+        },
+        {
+          ObjectId: { ObjectType: 5, ObjectNumber: 50100 },
+          ObjectName: "My Tests",
+          MethodName: "Unset",
+          StatementSpan: { From: { Line: 0, Column: 0 }, To: { Line: 0, Column: 0 } },
+        },
+      ],
+      "",
+    );
+    expect((events[0] as { stack: StackFrameInfo[] }).stack).toEqual([
+      { objectType: 5, objectId: 50100, objectName: "My Tests", methodName: "Missing", line: 0 },
+      { objectType: 5, objectId: 50100, objectName: "My Tests", methodName: "Unset", line: 1 },
     ]);
   });
 
@@ -363,6 +400,25 @@ describe("DebuggerClient", () => {
       { kind: "detached", terminateSession: true },
       { kind: "fatal", message: "boom" },
     ]);
+  });
+
+  test("ignores break and fatal callbacks from a stopped hub", async () => {
+    const hub = new FakeHub();
+    const { client, events } = await connected(hub);
+    await client.stop();
+    hub.emit(
+      "Break",
+      { ObjectType: 5, ObjectNumber: 50100 },
+      [{
+        ObjectId: { ObjectType: 5, ObjectNumber: 50100 },
+        ObjectName: "Old",
+        MethodName: "Run",
+        StatementSpan: { From: { Line: 1, Column: 1 }, To: { Line: 1, Column: 10 } },
+      }],
+      "",
+    );
+    hub.emit("OnFatalDebuggerException", "late fatal");
+    expect(events).toEqual([]);
   });
 
   test("addBreakpoint sends wire shape and returns id; step maps enum", async () => {

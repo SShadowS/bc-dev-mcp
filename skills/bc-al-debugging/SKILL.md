@@ -1,6 +1,6 @@
 ---
 name: bc-al-debugging
-description: Interactively debug AL code on a Business Central server with the bc-dev-mcp tools — attach, breakpoints, break-on-error, step, inspect variables and watches during a test run. Use when asked to debug AL code, find why an AL test fails, or inspect live state on a BC server.
+description: Interactively debug AL code on a Business Central server with the bc-dev-mcp tools — attach, breakpoints, break-on-error, step, inspect variables and watches, or collect the stacks that write a table. Use when asked to debug AL code, find why an AL test fails, identify table writers, or inspect live state on a BC server.
 ---
 
 # Debugging AL on Business Central
@@ -26,6 +26,31 @@ description: Interactively debug AL code on a Business Central server with the b
 5. `bcdev_debug_continue { action: "continue" | "stepOver" | "stepInto" | "stepOut" }`,
    then `bcdev_debug_wait` again.
 6. `bcdev_debug_detach` when done.
+
+## Find everything that writes one table
+
+Use the dedicated background workflow instead of manual `bcdev_debug_*` stepping:
+
+1. `bcdev_record_writes_start { tableId: <positive numeric ID> }`.
+   Add exactly one of `sessionId` or `userId` when needed, or choose `breakOnNext`.
+   The tool returns after attach is armed; it does not wait for the session or workload.
+2. Trigger the matching session and operation. Business Central breaks on every record write
+   globally; the collector identifies the runtime receiver, counts unrelated writes, groups exact
+   target-table stacks, and automatically continues. Do not call `bcdev_debug_wait` or
+   `bcdev_debug_continue`.
+3. `bcdev_record_writes_status` reads progress without driving it. When the target operation has
+   finished, call `bcdev_record_writes_finish`.
+4. Review `writers`, `unresolved`, `warnings`, and `complete`. A complete report covers only the
+   observed breaks in this one attached-session capture window; it is not a tenant-wide proof.
+
+Temporary-record writes are excluded by default. Pass `includeTemporary: true` only when they
+matter. Deployed source is trusted; local source can prove a receiver only after you have published
+that exact source and explicitly pass `changesDeployed: true`. Without that assertion, local-only
+mapping remains unresolved. `maxObservedWrites` defaults to 500; reaching it releases the workload
+and returns a truncated, incomplete report. Missing source/span, an unsupported receiver, watch
+failure, unknown runtime table identity, or debugger failure also keeps the result fail-closed.
+Finish always clears the shared debugger slot; manual debugging and record-write triage cannot run
+at the same time.
 
 ## Facts that save you time
 

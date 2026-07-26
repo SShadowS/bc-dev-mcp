@@ -1,6 +1,8 @@
 import type { AlObjectIndex } from "../core/al-objects";
 import type { AuthorizationProvider } from "../core/authorization";
+import { BcDevError } from "../core/agent-errors";
 import type { DebuggerClient } from "../core/hubs/debugger-hub";
+import type { RecordWriteCollector } from "../core/record-write-triage";
 import type { BreakpointSpec, ConnectionConfig, DebuggerEvent, RunTestsResult } from "../core/types";
 
 const QUEUE_CAP = 100;
@@ -26,6 +28,7 @@ export class DebugSession {
   constructor(
     public readonly client: DebuggerClient,
     public readonly index: AlObjectIndex,
+    public readonly debugSlotToken?: symbol,
   ) {}
 
   get queueLength(): number {
@@ -65,6 +68,41 @@ export class DebugSession {
 
 export class ServerState {
   debug: DebugSession | null = null;
+  recordWrites: RecordWriteCollector | null = null;
+  recordWriteSlotToken: symbol | null = null;
   testRunActive = false;
   profile: ProfileHandle | null = null;
+  private debugSlot: { owner: "manual" | "recordWrites"; token: symbol } | null = null;
+
+  get debugOwner(): "manual" | "recordWrites" | null {
+    return this.debugSlot?.owner ?? null;
+  }
+
+  assertDebugSlotAvailable(): void {
+    if (this.debugSlot?.owner === "recordWrites" || (!this.debugSlot && this.recordWrites)) {
+      throw new BcDevError(
+        "RECORD_WRITE_TRIAGE_ACTIVE",
+        "Record-write triage is active — call bcdev_record_writes_status or bcdev_record_writes_finish first",
+        "state",
+      );
+    }
+    if (this.debugSlot || this.debug) {
+      throw new BcDevError(
+        "DEBUG_SESSION_ACTIVE",
+        "Debug session already active — call bcdev_debug_detach first",
+        "state",
+      );
+    }
+  }
+
+  claimDebugSlot(owner: "manual" | "recordWrites"): symbol {
+    this.assertDebugSlotAvailable();
+    const token = Symbol(owner);
+    this.debugSlot = { owner, token };
+    return token;
+  }
+
+  releaseDebugSlot(token: symbol): void {
+    if (this.debugSlot?.token === token) this.debugSlot = null;
+  }
 }

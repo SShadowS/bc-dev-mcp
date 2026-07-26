@@ -34,6 +34,32 @@ export interface ToolDefinition {
   handler(params: Record<string, unknown>): Promise<unknown>;
 }
 
+export interface DebugTarget {
+  sessionId?: number;
+  userId?: string;
+}
+
+export function normalizeDebugTarget(params: Record<string, unknown>): DebugTarget {
+  const sessionId = params["sessionId"];
+  const userId = params["userId"];
+  if (sessionId !== undefined && userId !== undefined) {
+    throw new BcDevError("INVALID_ARGUMENT", "sessionId and userId are mutually exclusive", "validation");
+  }
+  if (sessionId !== undefined) {
+    if (typeof sessionId !== "number" || !Number.isInteger(sessionId) || sessionId <= 0) {
+      throw new BcDevError("INVALID_ARGUMENT", "sessionId must be a positive integer", "validation");
+    }
+    return { sessionId };
+  }
+  if (userId !== undefined) {
+    if (typeof userId !== "string" || userId.trim() === "") {
+      throw new BcDevError("INVALID_ARGUMENT", "userId must be a nonblank string", "validation");
+    }
+    return { userId: userId.trim() };
+  }
+  return {};
+}
+
 export function claimTestRun(state: ServerState): void {
   if (state.testRunActive) {
     throw new BcDevError("TEST_RUN_ACTIVE", "A test run is already running — wait for it to finish", "state");
@@ -240,6 +266,16 @@ export const stackFrameSchema = z.looseObject({
   methodName: z.string(),
   line: z.number().describe("1-based"),
   file: z.string().optional().describe("Local source file, when the object id maps to the project"),
+  statementSpan: z.object({
+    from: z.object({
+      line: z.number().describe("1-based first statement line"),
+      column: z.number().describe("1-based first statement column"),
+    }).describe("Start of the paused AL statement"),
+    to: z.object({
+      line: z.number().describe("1-based last statement line"),
+      column: z.number().describe("1-based last statement column"),
+    }).describe("End of the paused AL statement"),
+  }).optional().describe("Server-reported AL statement span, when usable"),
 });
 
 export const connectionShape = {
@@ -304,6 +340,13 @@ export async function mapBreakpoints(
 }
 
 export function requireSession(state: ServerState): DebugSession {
+  if (state.debugOwner === "recordWrites") {
+    throw new BcDevError(
+      "RECORD_WRITE_TRIAGE_ACTIVE",
+      "Record-write triage is active — call bcdev_record_writes_status or bcdev_record_writes_finish first",
+      "state",
+    );
+  }
   if (!state.debug) throw new BcDevError("NO_DEBUG_SESSION", "No debug session — call bcdev_debug_attach first", "state");
   return state.debug;
 }

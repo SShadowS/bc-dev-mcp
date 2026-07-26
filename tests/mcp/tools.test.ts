@@ -64,7 +64,7 @@ describe("tools", () => {
     hub = new FakeHub();
   });
 
-  test("registers all 17 tools", () => {
+  test("registers all 20 tools", () => {
     const { tools } = setup(hub);
     expect([...tools.keys()].sort()).toEqual([
       "bcdev_debug_attach",
@@ -80,6 +80,9 @@ describe("tools", () => {
       "bcdev_profile_poll",
       "bcdev_profile_start",
       "bcdev_profile_status",
+      "bcdev_record_writes_finish",
+      "bcdev_record_writes_start",
+      "bcdev_record_writes_status",
       "bcdev_source",
       "bcdev_status",
       "bcdev_test_discover",

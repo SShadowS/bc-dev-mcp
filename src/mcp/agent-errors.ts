@@ -18,6 +18,8 @@ function fromKnownMessage(message: string): BcDevError {
   const lower = message.toLowerCase();
   if (lower.includes("no debug session")) return new BcDevError("NO_DEBUG_SESSION", message, "state");
   if (lower.includes("debug session already active")) return new BcDevError("DEBUG_SESSION_ACTIVE", message, "state");
+  if (lower.includes("record-write triage is active")) return new BcDevError("RECORD_WRITE_TRIAGE_ACTIVE", message, "state");
+  if (lower.includes("no active record-write triage")) return new BcDevError("RECORD_WRITE_TRIAGE_NOT_ACTIVE", message, "state");
   if (lower.includes("test run is already") || lower.includes("test run is in progress")) return new BcDevError("TEST_RUN_ACTIVE", message, "state");
   if (lower.includes("no active profile") || lower.includes("no profile capture")) return new BcDevError("PROFILE_NOT_ACTIVE", message, "state");
   if (lower.includes("profile capture already active")) return new BcDevError("PROFILE_ACTIVE", message, "state");
@@ -60,6 +62,8 @@ function recoverySteps(code: AgentErrorCode): string[] {
   switch (code) {
     case "NO_DEBUG_SESSION": return ["Call bcdev_debug_attach before using debugger session tools."];
     case "DEBUG_SESSION_ACTIVE": return ["Call bcdev_debug_detach before starting another debugger session."];
+    case "RECORD_WRITE_TRIAGE_ACTIVE": return ["Call bcdev_record_writes_status or bcdev_record_writes_finish before using manual debugger tools."];
+    case "RECORD_WRITE_TRIAGE_NOT_ACTIVE": return ["Call bcdev_record_writes_start before checking or finishing record-write triage."];
     case "TEST_RUN_ACTIVE": return ["Wait for the active test run to finish, then retry."];
     case "PROFILE_NOT_ACTIVE": return ["Call bcdev_profile_start before polling or finishing a profile."];
     case "PROFILE_ACTIVE": return ["Call bcdev_profile_finish before starting another profile capture."];

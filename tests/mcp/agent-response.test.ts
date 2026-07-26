@@ -37,4 +37,30 @@ describe("withAgentResponses", () => {
     expect(result.nextSteps[0]).toContain("al-perf");
     expect(result.nextSteps[1]).toContain("deterministic call-time");
   });
+
+  test("record-write guidance follows arming, collection, truncation, and incomplete states", async () => {
+    const status = withAgentResponses(tool({
+      name: "bcdev_record_writes_status",
+      handler: async () => ({ phase: "arming" }),
+    }));
+    expect((await status.handler({}) as { nextSteps: string[] }).nextSteps.join(" ")).toContain("Trigger");
+
+    const collecting = withAgentResponses(tool({
+      name: "bcdev_record_writes_status",
+      handler: async () => ({ phase: "collecting" }),
+    }));
+    expect((await collecting.handler({}) as { nextSteps: string[] }).nextSteps.join(" ")).toContain("finish");
+
+    const truncated = withAgentResponses(tool({
+      name: "bcdev_record_writes_finish",
+      handler: async () => ({ truncated: true, complete: false, summary: {} }),
+    }));
+    expect((await truncated.handler({}) as { nextSteps: string[] }).nextSteps.join(" ")).toContain("maxObservedWrites");
+
+    const incomplete = withAgentResponses(tool({
+      name: "bcdev_record_writes_finish",
+      handler: async () => ({ truncated: false, complete: false, summary: {} }),
+    }));
+    expect((await incomplete.handler({}) as { nextSteps: string[] }).nextSteps.join(" ")).toContain("unresolved");
+  });
 });
