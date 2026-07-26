@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DebuggerClient, type DebugAttachOptions } from "../../src/core/hubs/debugger-hub";
 import { BasicAuthorizationProvider } from "../../src/core/authorization";
-import type { ConnectionConfig, DebuggerEvent } from "../../src/core/types";
+import type { ConnectionConfig, DebuggerEvent, StackFrameInfo } from "../../src/core/types";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 
 const config: ConnectionConfig = {
@@ -44,6 +44,27 @@ describe("DebuggerClient", () => {
     hub.emit("OnAttachedToConnection");
     await Bun.sleep(0);
     expect(hub.invoked("DebugAdapterConfigurationDone")).toHaveLength(1);
+  });
+
+  test("a rejected debugger configuration is fatal and never reports sessionBound", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "DebugAdapterConfigurationDone") throw new Error("configuration rejected");
+      if (method === "GetNstSessionInfo") return { SessionId: 10, HostId: null };
+      return undefined;
+    };
+    const { client, events } = await connected(hub, { breakOnRecordWrite: "nonTemporary" });
+    hub.emit("HubConnected");
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+
+    expect(events).toEqual([
+      { kind: "fatal", message: "Debugger configuration failed: configuration rejected" },
+    ]);
+    expect(hub.invoked("GetNstSessionInfo")).toHaveLength(0);
+    expect(hub.invoked("StopDebugging")).toHaveLength(1);
+    expect(hub.stopped).toBe(true);
+    expect(client.connectionId).toBeNull();
   });
 
   test("break behaviour matrix maps booleans and precision modes to wire enums", async () => {
@@ -302,6 +323,21 @@ describe("DebuggerClient", () => {
     expect(hub.invoked("SetBreakpointResponse").map((i) => i.args[0])).toEqual([4, 5]);
   });
 
+  test("shutdown release is a best-effort transport barrier", async () => {
+    const hub = new FakeHub();
+    const { client } = await connected(hub);
+    expect(await client.releaseForShutdown()).toBe(true);
+    expect(hub.invoked("SetBreakpointResponse").at(-1)?.args).toEqual([4]);
+
+    hub.onInvoke = (method) => {
+      if (method === "SetBreakpointResponse") throw new Error("no paused break");
+      return undefined;
+    };
+    expect(await client.releaseForShutdown()).toBe(false);
+    await client.stop();
+    expect(await client.releaseForShutdown()).toBe(false);
+  });
+
   test("getSourceContent sends the object wrapper and normalizes the response", async () => {
     const hub = new FakeHub();
     hub.onInvoke = (method) => (method === "GetSourceContent" ? { Content: "codeunit 50130 X {}", IsALContent: true } : undefined);
@@ -349,8 +385,45 @@ describe("DebuggerClient", () => {
         objectId: 50100,
         errorMessage: undefined,
         line: 13,
-        stack: [{ objectType: 5, objectId: 50100, objectName: "My Tests", methodName: "PostInvoice", line: 13 }],
+        stack: [{
+          objectType: 5,
+          objectId: 50100,
+          objectName: "My Tests",
+          methodName: "PostInvoice",
+          line: 13,
+          statementSpan: {
+            from: { line: 13, column: 5 },
+            to: { line: 13, column: 31 },
+          },
+        }],
       },
+    ]);
+  });
+
+  test("omits missing and all-zero statement spans without changing the legacy line fallback", async () => {
+    const hub = new FakeHub();
+    const { events } = await connected(hub);
+    hub.emit(
+      "Break",
+      { ObjectType: 5, ObjectNumber: 50100 },
+      [
+        {
+          ObjectId: { ObjectType: 5, ObjectNumber: 50100 },
+          ObjectName: "My Tests",
+          MethodName: "Missing",
+        },
+        {
+          ObjectId: { ObjectType: 5, ObjectNumber: 50100 },
+          ObjectName: "My Tests",
+          MethodName: "Unset",
+          StatementSpan: { From: { Line: 0, Column: 0 }, To: { Line: 0, Column: 0 } },
+        },
+      ],
+      "",
+    );
+    expect((events[0] as { stack: StackFrameInfo[] }).stack).toEqual([
+      { objectType: 5, objectId: 50100, objectName: "My Tests", methodName: "Missing", line: 0 },
+      { objectType: 5, objectId: 50100, objectName: "My Tests", methodName: "Unset", line: 1 },
     ]);
   });
 
@@ -363,6 +436,25 @@ describe("DebuggerClient", () => {
       { kind: "detached", terminateSession: true },
       { kind: "fatal", message: "boom" },
     ]);
+  });
+
+  test("ignores break and fatal callbacks from a stopped hub", async () => {
+    const hub = new FakeHub();
+    const { client, events } = await connected(hub);
+    await client.stop();
+    hub.emit(
+      "Break",
+      { ObjectType: 5, ObjectNumber: 50100 },
+      [{
+        ObjectId: { ObjectType: 5, ObjectNumber: 50100 },
+        ObjectName: "Old",
+        MethodName: "Run",
+        StatementSpan: { From: { Line: 1, Column: 1 }, To: { Line: 1, Column: 10 } },
+      }],
+      "",
+    );
+    hub.emit("OnFatalDebuggerException", "late fatal");
+    expect(events).toEqual([]);
   });
 
   test("addBreakpoint sends wire shape and returns id; step maps enum", async () => {
@@ -577,10 +669,13 @@ describe("DebuggerClient", () => {
     expect(client.connectionId).toBeNull();
   });
 
-  test("unexpected close clears the hub so calls fail fast", async () => {
+  test("unexpected close without an Error is fatal and clears the hub", async () => {
     const hub = new FakeHub();
-    const { client } = await connected(hub);
-    hub.close(new Error("dropped"));
+    const { client, events } = await connected(hub);
+    hub.close();
+    expect(events).toEqual([
+      { kind: "fatal", message: "Debugger hub connection closed unexpectedly" },
+    ]);
     await expect(client.step("continue")).rejects.toThrow(/not connected/);
   });
 });

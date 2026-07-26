@@ -155,6 +155,10 @@ export interface StackFrameInfo {
   methodName: string;
   line: number;
   file?: string;
+  statementSpan?: {
+    from: { line: number; column: number };
+    to: { line: number; column: number };
+  };
 }
 
 export type DebuggerEvent =

@@ -14,6 +14,7 @@ import {
   codeunitsShape,
   connectionShape,
   mapBreakpoints,
+  normalizeDebugTarget,
   requireSession,
   requireTestRunningSupport,
   resolve,
@@ -30,32 +31,6 @@ const sqlStatementSchema = z.object({
   durationMs: z.number().nullable(),
   approxRowsRead: z.number().nullable(),
 });
-
-interface DebugTarget {
-  sessionId?: number;
-  userId?: string;
-}
-
-function normalizeDebugTarget(params: Record<string, unknown>): DebugTarget {
-  const sessionId = params["sessionId"];
-  const userId = params["userId"];
-  if (sessionId !== undefined && userId !== undefined) {
-    throw new Error("sessionId and userId are mutually exclusive");
-  }
-  if (sessionId !== undefined) {
-    if (typeof sessionId !== "number" || !Number.isInteger(sessionId) || sessionId <= 0) {
-      throw new Error("sessionId must be a positive integer");
-    }
-    return { sessionId };
-  }
-  if (userId !== undefined) {
-    if (typeof userId !== "string" || userId.trim() === "") {
-      throw new Error("userId must be a nonblank string");
-    }
-    return { userId: userId.trim() };
-  }
-  return {};
-}
 
 export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefinition[] {
   return [
@@ -112,15 +87,17 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         breakpoints: z.array(addedBreakpointSchema),
       }),
       handler: async (params) => {
-        if (state.debug) throw new BcDevError("DEBUG_SESSION_ACTIVE", "Debug session already active — call bcdev_debug_detach first", "state");
+        state.assertDebugSlotAvailable();
         const target = normalizeDebugTarget(params);
-        const { config, authorization, project } = resolve(params, deps);
+        const slotToken = state.claimDebugSlot("manual");
         const client = new DebuggerClient(deps.hubFactory);
-        const index = await AlObjectIndex.build(project);
-        const session = new DebugSession(client, index);
-        state.debug = session; // claim the slot before awaiting — blocks concurrent attach
-        client.onEvent = (e) => session.push(e);
+        let session: DebugSession | null = null;
         try {
+          const { config, authorization, project } = resolve(params, deps);
+          const index = await AlObjectIndex.build(project);
+          session = new DebugSession(client, index, slotToken);
+          state.debug = session;
+          client.onEvent = (e) => session?.push(e);
           await client.connect(config, authorization, {
             breakOnNext: params["breakOnNext"] as never,
             ...target,
@@ -137,7 +114,8 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
           );
           return { attached: true, connectionId: client.connectionId, breakpoints };
         } catch (err) {
-          state.debug = null;
+          if (state.debug === session) state.debug = null;
+          state.releaseDebugSlot(slotToken);
           await client.stop().catch(() => {});
           throw err;
         }
@@ -344,7 +322,11 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       handler: async () => {
         const session = requireSession(state);
         state.debug = null;
-        await session.client.stop();
+        try {
+          await session.client.stop();
+        } finally {
+          if (session.debugSlotToken) state.releaseDebugSlot(session.debugSlotToken);
+        }
         return { detached: true };
       },
     },

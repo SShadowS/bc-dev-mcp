@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DebugSession } from "../../src/mcp/state";
+import { DebugSession, ServerState } from "../../src/mcp/state";
 import type { DebuggerEvent } from "../../src/core/types";
 
 const brk: DebuggerEvent = { kind: "break", objectType: 5, objectId: 1, stack: [] };
@@ -46,5 +46,24 @@ describe("DebugSession queue", () => {
     expect(s.droppedEvents).toBe(0);
     for (let i = 0; i < 105; i++) s.push({ kind: "fatal", message: `m${i}` });
     expect(s.droppedEvents).toBe(5);
+  });
+});
+
+describe("ServerState debugger ownership", () => {
+  test("claims one owner atomically and releases only the matching token", () => {
+    const state = new ServerState();
+    const token = state.claimDebugSlot("manual");
+    expect(state.debugOwner).toBe("manual");
+    expect(() => state.claimDebugSlot("recordWrites")).toThrow(/Debug session already active/);
+    state.releaseDebugSlot(Symbol("wrong"));
+    expect(state.debugOwner).toBe("manual");
+    state.releaseDebugSlot(token);
+    expect(state.debugOwner).toBeNull();
+  });
+
+  test("record-write ownership produces the dedicated state error", () => {
+    const state = new ServerState();
+    state.claimDebugSlot("recordWrites");
+    expect(() => state.claimDebugSlot("manual")).toThrow(/Record-write triage is active/);
   });
 });

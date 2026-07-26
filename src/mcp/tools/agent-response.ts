@@ -65,6 +65,28 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       return [];
     case "bcdev_debug_detach":
       return [];
+    case "bcdev_record_writes_start":
+      return ["Trigger the matching session and target operation, then call bcdev_record_writes_status."];
+    case "bcdev_record_writes_status":
+      if (result["phase"] === "arming") {
+        return ["Trigger the matching session and target operation, then call bcdev_record_writes_status again."];
+      }
+      if (result["phase"] === "collecting") {
+        return ["Let the target operation finish, then call bcdev_record_writes_finish for the grouped writer report."];
+      }
+      return ["Call bcdev_record_writes_finish to retrieve the retained report and clear the debugger slot."];
+    case "bcdev_record_writes_finish": {
+      const summary = result["summary"] as Record<string, unknown> | undefined;
+      if (result["truncated"] === true) {
+        return ["Narrow the target workload or deliberately raise maxObservedWrites, then rerun the capture."];
+      }
+      if (result["complete"] !== true) {
+        return ["Review unresolved groups and warnings before treating the capture window as exhaustive, then rerun with trusted deployed source if needed."];
+      }
+      return Number(summary?.["matchedWrites"] ?? 0) > 0
+        ? ["Review the grouped writer stacks and occurrence counts."]
+        : [];
+    }
     case "bcdev_profile_status":
       if (result["reachable"] !== true) {
         return ["Correct connectivity, authentication, or snapshot-port settings, then call bcdev_profile_status again."];

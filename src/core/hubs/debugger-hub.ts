@@ -63,7 +63,10 @@ interface WireStackFrame {
   objectId: { objectType: number; objectNumber: number };
   objectName: string;
   methodName: string;
-  statementSpan?: { from?: { line: number; column: number } };
+  statementSpan?: {
+    from?: { line?: unknown; column?: unknown };
+    to?: { line?: unknown; column?: unknown };
+  };
 }
 
 interface WireNstSessionInfo {
@@ -146,6 +149,28 @@ function errorDetail(error: unknown): string {
   return redactAuthorization(error instanceof Error ? error.message : String(error));
 }
 
+function normalizeStatementSpan(value: WireStackFrame["statementSpan"]): StackFrameInfo["statementSpan"] {
+  const from = value?.from;
+  const to = value?.to;
+  const valid = typeof from?.line === "number" && Number.isInteger(from.line) && from.line >= 0
+    && typeof from.column === "number" && Number.isInteger(from.column) && from.column >= 0
+    && typeof to?.line === "number" && Number.isInteger(to.line) && to.line >= 0
+    && typeof to.column === "number" && Number.isInteger(to.column) && to.column >= 0;
+  if (!valid) return undefined;
+  const fromLine = from.line as number;
+  const fromColumn = from.column as number;
+  const toLine = to.line as number;
+  const toColumn = to.column as number;
+  // WIRE: StackFrame.StatementSpan uses zero-based debugger coordinates (tw-decomp
+  // StackFrame.cs; live BC28 2026-07-03). Tool coordinates are 1-based. A zero-length
+  // all-zero value is the value-type default, not a usable statement location.
+  if (fromLine === 0 && fromColumn === 0 && toLine === 0 && toColumn === 0) return undefined;
+  return {
+    from: { line: fromLine + 1, column: fromColumn + 1 },
+    to: { line: toLine + 1, column: toColumn + 1 },
+  };
+}
+
 function toVariableNode(n: WireLocalNode): VariableNode {
   // WIRE: LocalNode.ChangeState is the integer LocalNodeChangeState enum 0/1/2/3; the property has
   // no string-enum converter (tw-decomp LocalNode.cs and LocalNodeChangeState.cs).
@@ -219,18 +244,23 @@ export class DebuggerClient {
       void hub.invoke("AcknowledgeIsAlive").catch(() => {});
     });
     hub.on("Break", (...args) => {
+      if (this.hub !== hub) return;
       const objectId = normalizeKeys<{ objectType: number; objectNumber: number }>(args[0]);
       if (this.userAttachFailed) return;
       const frames = normalizeKeys<WireStackFrame[]>(args[1] ?? []);
       const errorMessage = (args[2] as string | null) || undefined;
       // WIRE: server lines are 0-based (live BC28 2026-07-03: wire line 9 = editor line 10); tool surface is 1-based (editor convention), converted here.
-      const stack: StackFrameInfo[] = frames.map((f) => ({
-        objectType: f.objectId.objectType,
-        objectId: f.objectId.objectNumber,
-        objectName: f.objectName,
-        methodName: f.methodName,
-        line: (f.statementSpan?.from?.line ?? -1) + 1,
-      }));
+      const stack: StackFrameInfo[] = frames.map((f) => {
+        const statementSpan = normalizeStatementSpan(f.statementSpan);
+        return {
+          objectType: f.objectId.objectType,
+          objectId: f.objectId.objectNumber,
+          objectName: f.objectName,
+          methodName: f.methodName,
+          line: statementSpan?.from.line ?? ((typeof f.statementSpan?.from?.line === "number" ? f.statementSpan.from.line : -1) + 1),
+          ...(statementSpan ? { statementSpan } : {}),
+        };
+      });
       this.onEvent?.({
         kind: "break",
         objectType: objectId.objectType,
@@ -244,6 +274,7 @@ export class DebuggerClient {
       if (this.hub === hub) this.onEvent?.({ kind: "detached", terminateSession: Boolean(args[0]) });
     });
     hub.on("OnFatalDebuggerException", (...args) => {
+      if (this.hub !== hub) return;
       const message = String(args[0] ?? "");
       // Live Sandbox BC28 can signal an unavailable exact session here immediately before the
       // Attach invocation resolves. Capture that synchronous attach outcome so the caller's
@@ -266,7 +297,13 @@ export class DebuggerClient {
     hub.onclose((err) => {
       if (this.hub !== hub) return;
       this.hub = null;
-      if (err) this.onEvent?.({ kind: "fatal", message: `Hub connection closed: ${String(err)}` });
+      this.pendingDebugOptions = null;
+      this.onEvent?.({
+        kind: "fatal",
+        message: err
+          ? `Debugger hub connection closed unexpectedly: ${errorDetail(err)}`
+          : "Debugger hub connection closed unexpectedly",
+      });
     });
     // Server-invoked notifications we don't consume — registered to keep the connection log clean (live E2E 2026-07-03).
     hub.on("LogServerMessage", () => {});
@@ -353,7 +390,14 @@ export class DebuggerClient {
   }
 
   private async finishSessionBinding(hub: HubProxy, options: Record<string, unknown> | null): Promise<void> {
-    if (options) await hub.invoke("DebugAdapterConfigurationDone", options).catch(() => {});
+    if (options) {
+      try {
+        await hub.invoke("DebugAdapterConfigurationDone", options);
+      } catch (error) {
+        await this.failBoundConfiguration(hub, error);
+        return;
+      }
+    }
     if (this.hub !== hub) return;
     if (this.userAttachFatal !== null || this.userAttachFailed) {
       if (this.userAttachFatal !== null) await this.failUserAttach(hub, this.userAttachFatal);
@@ -378,6 +422,18 @@ export class DebuggerClient {
         });
       }
     }
+  }
+
+  private async failBoundConfiguration(hub: HubProxy, error: unknown): Promise<void> {
+    if (this.hub !== hub) return;
+    this.hub = null;
+    this.pendingDebugOptions = null;
+    this.onEvent?.({
+      kind: "fatal",
+      message: `Debugger configuration failed: ${errorDetail(error)}`,
+    });
+    await hub.invoke("StopDebugging").catch(() => {});
+    await hub.stop().catch(() => {});
   }
 
   async getSourceContent(objectType: number, objectId: number): Promise<{ content: string; isAlContent: boolean }> {
@@ -449,6 +505,22 @@ export class DebuggerClient {
 
   async step(action: StepAction): Promise<void> {
     await this.requireHub().invoke("SetBreakpointResponse", STEP_WIRE[action]);
+  }
+
+  async releaseForShutdown(): Promise<boolean> {
+    const hub = this.hub;
+    if (!hub) return false;
+    try {
+      // WIRE: ReleaseConnection=4 lets a paused workload continue undebugged and ends
+      // its debugger attachment (live BC28 2026-07-16). Awaiting the invocation while
+      // collector intake remains open also orders any earlier Break callback ahead of
+      // shutdown. A rejection leaves the release unconfirmed; a delivered Break then
+      // receives its own release, while an unexpected connection close is fatal.
+      await hub.invoke("SetBreakpointResponse", STEP_WIRE.release);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async getVariables(frameId: number): Promise<VariableNode[]> {

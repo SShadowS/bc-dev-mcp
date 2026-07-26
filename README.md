@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-534%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-598%20passing-green)]()
 
 ## Overview
 
@@ -28,6 +28,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | **Coverage gap analysis** | Cross a Git diff with exact procedure coverage to report which changed procedures the selected tests did and did not exercise |
 | **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
 | **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break on all or unhandled errors only, record-write breaks (optionally skipping temp records), stack + variables + watch, stepping, abort/release at a break |
+| **Record-write triage** | Arm a bounded capture for one numeric table ID, automatically continue every global record-write stop, and group exact matching writer stacks while failing closed on unresolved evidence |
 | **Debug-a-test** | Test run bound to the debug session — breakpoints fire during test execution |
 | **Config auto-discovery** | Server/instance/tenant read from the AL project's `.vscode/launch.json` |
 | **Preflight diagnostics** | `bcdev_status` distinguishes unreachable / bad credentials / unsupported dev API |
@@ -73,6 +74,7 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 2. `bcdev_test_discover` — list test codeunits and `[Test]` methods from local `.al` files.
 3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results. Add `coverageAgainst: "origin/main"` for changed-procedure analysis. After publishing the current changed objects to the target, also pass `changesDeployed: true` to permit `covered`/`uncovered` classifications; without that explicit assertion, changed procedures remain `unknown`.
 4. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
+5. To find writers of one table without stepping through every stop: `bcdev_record_writes_start { tableId: 18 }` → trigger the matching workload → check `bcdev_record_writes_status` → call `bcdev_record_writes_finish` for grouped stacks.
 
 Debugger attach returns as soon as Business Central accepts the request; binding is asynchronous. With no selector it binds the next session of the `breakOnNext` client type. Pass `userId` to filter that next session by Business Central user, or pass a known positive `sessionId` to attach to an existing NST session. `sessionId` and `userId` are mutually exclusive; exact `sessionId` targeting takes precedence over `breakOnNext`. `bcdev_debug_wait` reports `{ kind: "sessionBound", sessionId, hostId }` after binding; `hostId` may be null when Business Central omits that optional field. If identity lookup fails, it reports a nonfatal warning-form `sessionBound` event and debugging remains active. If Business Central emits a fatal user-filter rejection before `sessionBound`, the debugger tears down without binding or delivering breaks and reports an actionable `fatal` event.
 
@@ -113,7 +115,7 @@ Azure access tokens are acquired with `az account get-access-token`, cached only
 MCP client (agent)
   |
   v  (stdio)
-src/mcp/server.ts ── tools/ (17 bcdev_* tools) ── state.ts (session, event queue)
+src/mcp/server.ts ── tools/ (20 bcdev_* tools) ── state.ts (debug/test/profile ownership)
   |
   v
 src/core/  (pure library — typed returns, injected deps)
@@ -141,11 +143,36 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_debug_sql` | Live SQL cost at a break: latency, executes, last statements |
 | `bcdev_debug_breakpoints` | Add/remove breakpoints and report the server's verified or relocated source span |
 | `bcdev_debug_detach` | End the debug session |
+| `bcdev_record_writes_start` | Arm bounded background write triage for one positive numeric table ID |
+| `bcdev_record_writes_status` | Read current write-triage lifecycle and classification counts without driving collection |
+| `bcdev_record_writes_finish` | Release/stop collection and return grouped exact writer stacks plus unresolved evidence |
 | `bcdev_source` | Read the server’s deployed AL source for an object not on local disk |
 | `bcdev_profile_status` | Preflight the snapshot-debugger endpoint; report whether sampling CPU profiling is supported |
 | `bcdev_profile_start` | Arm a CPU profiler (`kind: "sampling"` or `"instrumentation"`); binds the next matching session (trigger it after) |
 | `bcdev_profile_poll` | Poll the active capture; `ready` once the session was recorded (Started) |
 | `bcdev_profile_finish` | Finish, write the `.alcpuprofile`, return a ranked AL self-time hotspot summary |
+
+## Record-write triage
+
+Business Central's debugger enables record-write breaks globally; it does not accept a table filter.
+`bcdev_record_writes_start` therefore arms one debugger session, inspects each paused
+`Insert`/`Modify`/`ModifyAll`/`Rename`/`Delete`/`DeleteAll` receiver, compares its runtime numeric
+table ID with `tableId`, groups exact matches by operation, receiver, and full stack, and
+automatically continues. Unrelated writes are counted but not retained as writer groups.
+
+Use `sessionId`, `userId`, or `breakOnNext` as with manual debugger attach. Temporary-record writes
+are excluded by default; pass `includeTemporary: true` to include them. Deployed source is
+authoritative. Local source can establish an exact match only when the caller explicitly asserts
+that it is deployed with `changesDeployed: true`; the tool does not verify that assertion.
+`maxObservedWrites` bounds all observed breaks and defaults to 500. Reaching it releases the
+workload and returns a truncated, incomplete report.
+
+The final `complete` flag means every record-write break observed in this one attached-session
+capture window was classified. It is not proof that no other session or operation writes the
+table. Any missing source/span, unsupported receiver, watch failure, unknown runtime type,
+unexpected break, lifecycle failure, early session detach, or truncation keeps the report
+fail-closed. Exact groups collected before a detach remain available, but the tool does not claim
+that no later writes were missed.
 
 ## Profiling
 
@@ -260,7 +287,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 |------|---------|
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
-| `src/mcp/tools/` | The 17 bcdev_* tool definitions (zod schemas + metadata + handlers) |
+| `src/mcp/tools/` | The 20 bcdev_* tool definitions (zod schemas + metadata + handlers) |
 | `src/mcp/state.ts` | Debug session singleton, event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/hubs/debugger-hub.ts` | DebuggerHub client (attach, breakpoints, stepping, inspection) |
@@ -269,6 +296,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 | `src/core/git-changes.ts` | Merge-base-to-working-tree AL change ranges, including untracked files |
 | `src/core/al-procedures.ts` | Executable procedure/trigger spans and compiler-compatible procedure identities |
 | `src/core/coverage-gaps.ts` | Exact join between changed procedures and TestRunnerHub coverage evidence |
+| `src/core/record-write-triage.ts` | Source-aware runtime table classification and bounded writer-stack collector |
 | `scripts/e2e.md` | Real-server wire-assumption checklist + known server behaviours |
 
 ## Roadmap
@@ -281,7 +309,7 @@ Ordered by intent, not commitment:
 4. **Entra ID auth** — **shipped.** Azure CLI-backed cloud sandbox/production access alongside explicit on-prem UserPassword.
 5. **Coverage gap analysis** — **shipped.** Pass `coverageAgainst` to `bcdev_test_run` to cross the merge-base-to-working-tree Git diff with exact procedure coverage and identify covered, uncovered, or unresolved changed procedures.
 6. **Test orchestration** — repeat runs, diff pass/fail sets, flag flaky tests.
-7. **Break-on-record-write triage** — arm write breaks on a table and auto-collect the stacks of everything that writes it.
+7. **Break-on-record-write triage** — **shipped.** Arm bounded write triage for one numeric table ID and automatically collect grouped exact writer stacks.
 8. **BC native MCP passthrough** — a general-purpose front door to Business Central's own MCP endpoint. BC exposes runtime-troubleshooting and server-side profiling tools there that its shipped tooling only partially surfaces (one slice isn't exposed by any Microsoft client at all); a dynamic passthrough would make the full catalog reachable from any agent.
 9. **On-demand source & symbols** — fetch a server object's source, or download a single dependency package, without leaving the agent.
 
