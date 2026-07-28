@@ -44,12 +44,12 @@ export interface NativeMcpServerIdentity {
 }
 
 export interface NativeMcpListResponse {
-  server: NativeMcpServerIdentity;
+  server: NativeMcpServerIdentity | null;
   catalog: Record<string, unknown>;
 }
 
 export interface NativeMcpCallResponse {
-  server: NativeMcpServerIdentity;
+  server: NativeMcpServerIdentity | null;
   result: Record<string, unknown>;
 }
 
@@ -58,6 +58,8 @@ interface NativeRequestOptions {
   timeout: number;
   maxTotalTimeout: number;
 }
+
+type NativeMcpPhase = "authorization" | "connect" | "operation";
 
 export interface NativeMcpConnection {
   connect(options: NativeRequestOptions): Promise<void>;
@@ -354,15 +356,11 @@ function normalizeNativeError(error: unknown): BcDevError {
   );
 }
 
-function serverIdentity(connection: NativeMcpConnection): NativeMcpServerIdentity {
+function serverIdentity(connection: NativeMcpConnection): NativeMcpServerIdentity | null {
   const value = connection.serverVersion();
   if (!value || typeof value.name !== "string" || value.name.trim() === ""
     || typeof value.version !== "string" || value.version.trim() === "") {
-    throw new BcDevError(
-      "PROTOCOL_ERROR",
-      "Business Central native MCP did not report a valid server identity",
-      "protocol",
-    );
+    return null;
   }
   return { name: value.name, version: value.version };
 }
@@ -386,10 +384,10 @@ export class SdkNativeMcpGateway implements NativeMcpGateway {
   ) {}
 
   async listTools(target: NativeMcpTarget, cursor?: string): Promise<NativeMcpListResponse> {
-    return await this.use(target, async (connection, options) => ({
-      server: serverIdentity(connection),
-      catalog: await connection.listTools(cursor, options),
-    }));
+    return await this.use(target, async (connection, options) => {
+      const catalog = await connection.listTools(cursor, options);
+      return { server: serverIdentity(connection), catalog };
+    });
   }
 
   async callTool(
@@ -401,10 +399,10 @@ export class SdkNativeMcpGateway implements NativeMcpGateway {
     if (toolName === "") {
       throw new BcDevError("INVALID_ARGUMENT", "toolName must be a nonblank string", "validation");
     }
-    return await this.use(target, async (connection, options) => ({
-      server: serverIdentity(connection),
-      result: await connection.callTool(toolName, args, options),
-    }));
+    return await this.use(target, async (connection, options) => {
+      const result = await connection.callTool(toolName, args, options);
+      return { server: serverIdentity(connection), result };
+    });
   }
 
   private async use<T>(
@@ -421,6 +419,7 @@ export class SdkNativeMcpGateway implements NativeMcpGateway {
     }
 
     let connection: NativeMcpConnection | null = null;
+    let phase: NativeMcpPhase = "authorization";
     const controller = new AbortController();
     const timer = setTimeout(() => {
       controller.abort(new McpError(ErrorCode.RequestTimeout, "Native MCP operation timed out"));
@@ -438,10 +437,23 @@ export class SdkNativeMcpGateway implements NativeMcpGateway {
       );
       const headers = requestHeaders(target, authorization);
       connection = this.connectionFactory(new URL(NATIVE_MCP_CLOUD_URL), headers, this.fetchFn);
+      phase = "connect";
       await connection.connect(options);
+      phase = "operation";
       return await operation(connection, options);
     } catch (error) {
-      throw normalizeNativeError(error);
+      const normalized = normalizeNativeError(error);
+      if (normalized.code === "TIMEOUT") {
+        throw new BcDevError(
+          normalized.code,
+          normalized.message,
+          normalized.category,
+          normalized.retryable,
+          { ...normalized.details, timeoutPhase: phase },
+          { cause: normalized },
+        );
+      }
+      throw normalized;
     } finally {
       clearTimeout(timer);
       if (connection) {

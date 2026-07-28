@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ErrorCode, McpError, type Implementation } from "@modelcontextprotocol/sdk/types.js";
-import { BcDevError } from "../../src/core/agent-errors";
 import {
   DEFAULT_NATIVE_MCP_TIMEOUT_MS,
   NATIVE_MCP_CLOUD_URL,
@@ -303,6 +302,7 @@ describe("BC native MCP gateway", () => {
       code: "TIMEOUT",
       category: "network",
       retryable: true,
+      details: { timeoutPhase: "connect" },
     });
     expect(timeoutConnection.closed).toBe(true);
 
@@ -333,6 +333,7 @@ describe("BC native MCP gateway", () => {
       code: "TIMEOUT",
       category: "network",
       retryable: true,
+      details: { timeoutPhase: "authorization" },
     });
     expect(connection.connected).toBe(false);
     resolveAuthorization("Bearer late-token");
@@ -340,8 +341,37 @@ describe("BC native MCP gateway", () => {
   });
 
   test("times out a hanging request through the installed SDK path", async () => {
-    const fetchFn = (async () =>
-      await new Promise<Response>(() => {})) as unknown as typeof fetch;
+    const methods: string[] = [];
+    const fetchFn = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as Record<string, unknown>
+        : undefined;
+      methods.push(method === "POST" ? String(body?.["method"]) : method);
+      if (method === "DELETE") return new Response(null, { status: 204 });
+      if (method === "GET") return new Response(null, { status: 405 });
+      if (body?.["method"] === "notifications/initialized"
+        || body?.["method"] === "notifications/cancelled") {
+        return new Response(null, { status: 202 });
+      }
+      const id = body?.["id"];
+      if (body?.["method"] === "initialize") {
+        const params = body["params"] as Record<string, unknown>;
+        return Response.json({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            protocolVersion: params["protocolVersion"],
+            capabilities: { tools: {} },
+            serverInfo: { name: "BC native", version: "28.0" },
+          },
+        }, { headers: { "Mcp-Session-Id": "timeout-session" } });
+      }
+      if (body?.["method"] === "tools/list") {
+        return await new Promise<Response>(() => {});
+      }
+      throw new Error(`Unexpected native MCP request: ${String(body?.["method"])}`);
+    }) as typeof fetch;
     const gateway = new SdkNativeMcpGateway(fetchFn);
     const error = await gateway.listTools(target({ timeoutMs: 1_000 })).catch((caught) => caught);
 
@@ -349,14 +379,21 @@ describe("BC native MCP gateway", () => {
       code: "TIMEOUT",
       category: "network",
       retryable: true,
+      details: { timeoutPhase: "operation" },
     });
+    expect(methods).toContain("DELETE");
   });
 
   test("retains a bounded redacted upstream explanation for server rejections", async () => {
     const httpConnection = new FakeConnection();
+    const jwt = [
+      "eyJ" + "0eXAiOiJKV1QifQ",
+      "eyJ" + "zdWIiOiJzZWNyZXQifQ",
+      "signature_part",
+    ].join(".");
     httpConnection.connectError = new StreamableHTTPError(
       400,
-      "Authorization: Bearer secret-token Company does not exist",
+      `Authorization: Bearer secret-token Company does not exist; echoed ${jwt}`,
     );
     const httpError = await setup(httpConnection).gateway.listTools(target()).catch((caught) => caught);
 
@@ -369,6 +406,8 @@ describe("BC native MCP gateway", () => {
     });
     expect(httpError.details.upstreamMessage).toContain("Company does not exist");
     expect(httpError.details.upstreamMessage).not.toContain("secret-token");
+    expect(httpError.details.upstreamMessage).not.toContain(jwt);
+    expect(httpError.details.upstreamMessage).toContain("[REDACTED_JWT]");
 
     const protocolConnection = new FakeConnection();
     protocolConnection.callError = new McpError(
@@ -389,15 +428,14 @@ describe("BC native MCP gateway", () => {
     });
   });
 
-  test("normalizes malformed initialization and still closes the upstream session", async () => {
+  test("keeps a successful result when optional server identity decoration is absent", async () => {
     const connection = new FakeConnection();
     connection.version = undefined;
     const { gateway } = setup(connection);
-    const error = await gateway.listTools(target()).catch((caught) => caught);
-    expect(error).toBeInstanceOf(BcDevError);
-    expect(error).toMatchObject({
-      code: "PROTOCOL_ERROR",
-      category: "protocol",
+    const result = await gateway.listTools(target());
+    expect(result).toEqual({
+      server: null,
+      catalog: connection.listResult,
     });
     expect(connection.terminated).toBe(true);
     expect(connection.closed).toBe(true);

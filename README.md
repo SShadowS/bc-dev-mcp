@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-619%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-622%20passing-green)]()
 
 ## Overview
 
@@ -196,6 +196,16 @@ Always list before calling and follow the returned native `inputSchema`. The gen
 potentially destructive because its safety cannot vary dynamically with the chosen upstream tool.
 Its `result` is the unchanged native `CallToolResult`; `result.isError: true` therefore remains
 available with all upstream evidence instead of being rewritten as a bridge error.
+
+Each list or call uses a fresh upstream MCP session and closes it before returning. Prefer the
+first-class debugger tools for repeated inspection because they reuse the existing debugger hub.
+Native debugging snapshots the paused session identity at call start; do not resume that debugger
+concurrently with an in-flight native call.
+
+If a native runtime invocation times out after its upstream call begins, Business Central may
+still be running the tests even though the local singleton slot has been released. That timeout
+is non-retryable and tells the caller to confirm the server-side run finished before retrying or
+starting any other test run.
 
 This passthrough supports cloud Sandbox and Production targets. Live acceptance is Sandbox-only.
 Its contexts intentionally match the verified BC28 surface and do not include native profiling;

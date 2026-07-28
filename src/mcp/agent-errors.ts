@@ -17,10 +17,6 @@ export interface AgentErrorBody {
 function fromKnownMessage(message: string): BcDevError {
   const lower = message.toLowerCase();
   if (lower.includes("no debug session")) return new BcDevError("NO_DEBUG_SESSION", message, "state");
-  if (lower.includes("debug session is not paused")) return new BcDevError("DEBUG_SESSION_NOT_PAUSED", message, "state");
-  if (lower.includes("debug session") && lower.includes("identity")) {
-    return new BcDevError("DEBUG_SESSION_IDENTITY_UNAVAILABLE", message, "state");
-  }
   if (lower.includes("debug session already active")) return new BcDevError("DEBUG_SESSION_ACTIVE", message, "state");
   if (lower.includes("record-write triage is active")) return new BcDevError("RECORD_WRITE_TRIAGE_ACTIVE", message, "state");
   if (lower.includes("no active record-write triage")) return new BcDevError("RECORD_WRITE_TRIAGE_NOT_ACTIVE", message, "state");
@@ -62,7 +58,10 @@ export function normalizeAgentError(error: unknown): BcDevError {
   return fromKnownMessage(error instanceof Error ? error.message : String(error));
 }
 
-function recoverySteps(code: AgentErrorCode): string[] {
+function recoverySteps(
+  code: AgentErrorCode,
+  details: Record<string, string | number | boolean | null>,
+): string[] {
   switch (code) {
     case "NO_DEBUG_SESSION": return ["Call bcdev_debug_attach before using debugger session tools."];
     case "DEBUG_SESSION_NOT_PAUSED": return ["Drive the target operation and call bcdev_debug_wait until it returns a break event, then retry."];
@@ -80,7 +79,10 @@ function recoverySteps(code: AgentErrorCode): string[] {
     case "ENDPOINT_UNREACHABLE": return ["Call bcdev_status after confirming the Business Central endpoint is reachable."];
     case "UNSUPPORTED_SERVER": return ["Call bcdev_status and use a Business Central server that supports the required developer API feature."];
     case "NOT_FOUND": return ["Verify the requested object, source file, session, or package identifier and retry."];
-    case "TIMEOUT": return ["Retry the operation; if it repeats, call bcdev_status to verify connectivity."];
+    case "TIMEOUT":
+      return details["upstreamRunCancelled"] === false
+        ? ["Do not start another test run yet. Confirm the native server-side run has finished, then retry or start a new run."]
+        : ["Retry the operation; if it repeats, call bcdev_status to verify connectivity."];
     case "INVALID_ARGUMENT": return ["Correct the tool arguments using the published input schema, then retry."];
     case "CONFIGURATION_ERROR": return ["Correct the AL project launch configuration or explicit connection parameters, then call bcdev_status."];
     case "SERVER_REJECTED": return ["Review the Business Central rejection, correct the target or server state, and retry."];
@@ -109,6 +111,6 @@ export function agentErrorBody(tool: string, error: unknown): AgentErrorBody {
       tool,
       details: redactDetails(normalized.details),
     },
-    nextSteps: recoverySteps(normalized.code),
+    nextSteps: recoverySteps(normalized.code, normalized.details),
   };
 }

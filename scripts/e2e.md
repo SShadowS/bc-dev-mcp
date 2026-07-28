@@ -70,7 +70,9 @@ field values, or raw source. Evidence belongs in
 
 Run only against SaaS Sandbox. Never retain tenant, environment, company, user, host,
 session, token, authorization, authenticated URL, returned business data, or raw server
-payloads. Evidence belongs in `scripts/e2e-native-mcp-passthrough-2026-07-27.md`.
+payloads. Initial evidence belongs in
+`scripts/e2e-native-mcp-passthrough-2026-07-27.md`; the review-correction rerun is in
+`scripts/e2e-native-mcp-passthrough-2026-07-28.md`.
 
 - [x] Azure CLI authorization resolves the configured Sandbox before native MCP validation. <!-- 2026-07-27 SaaS BC28; developer API 7.0 preflight -->
 - [x] The business context initializes through the fixed cloud gateway with no `Dev` header,
@@ -92,6 +94,15 @@ payloads. Evidence belongs in `scripts/e2e-native-mcp-passthrough-2026-07-27.md`
 - [x] No native profiling context, `Dev: Profiling`, or `mcp-profiling-options` header exists
   in the implementation. <!-- exact header matrix and public input enum unit-tested 2026-07-27 -->
 - [x] No Production or on-premises call is made during live acceptance. <!-- harness refused non-Sandbox configuration; see dated evidence -->
+- [x] The review-correction rerun reaches all three SaaS contexts, makes one non-error
+  business, runtime, and paused-debug call, releases the shared run lock, and detaches
+  cleanly without retaining target identities or payloads. <!-- 2026-07-28 SaaS BC28; see dated correction evidence -->
+- [x] An operation-phase runtime timeout reports `upstreamRunCancelled:false`, is
+  non-retryable, releases the local lock, and gives recovery guidance that forbids an
+  immediate retry; setup-phase timeouts remain retryable. <!-- deterministic installed-SDK and tool-handler tests 2026-07-28; not induced live -->
+- [x] Bare JWT-shaped error detail is redacted, omitted server identity decoration becomes
+  `server:null` without discarding a successful result, and native debugger state relies on
+  typed errors rather than loose identity/paused message matching. <!-- deterministic core, output-schema, and agent-error tests 2026-07-28 -->
 
 ## Targeted debugger attach (Sandbox)
 

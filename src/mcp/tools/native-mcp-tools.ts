@@ -59,7 +59,7 @@ const timeoutSchema = z
 const serverIdentitySchema = z.object({
   name: z.string().describe("Native MCP server name reported during initialization"),
   version: z.string().describe("Native MCP server version reported during initialization"),
-}).describe("Upstream native MCP server identity");
+}).nullable().describe("Upstream native MCP server identity, or null when the server omitted valid identity decoration");
 
 const nativeToolSchema = z.looseObject({
   name: z.string().describe("Exact upstream tool name for bcdev_native_call"),
@@ -206,6 +206,29 @@ export function createNativeMcpTools(
             (params["arguments"] as Record<string, unknown> | undefined) ?? {},
           );
           return { context: target.context, toolName, ...response };
+        } catch (error) {
+          if (
+            runLocked
+            && error instanceof BcDevError
+            && error.code === "TIMEOUT"
+            && error.details["timeoutPhase"] === "operation"
+          ) {
+            throw new BcDevError(
+              error.code,
+              error.message,
+              error.category,
+              false,
+              {
+                ...error.details,
+                upstreamRunCancelled: false,
+                warning:
+                  "The native run was not cancelled and may still be executing on the server. "
+                  + "Confirm it finished before retrying or starting another test run.",
+              },
+              { cause: error },
+            );
+          }
+          throw error;
         } finally {
           if (runLocked) state.testRunActive = false;
         }

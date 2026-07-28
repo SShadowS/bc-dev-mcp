@@ -18,6 +18,15 @@ describe("agent errors", () => {
     expect(normalizeAgentError(new Error("Server returned breakpoint metadata for another AL object")).code).toBe("PROTOCOL_ERROR");
   });
 
+  test("native debugger state relies on typed errors rather than loose message matching", () => {
+    expect(normalizeAgentError(new Error("debug session identity cache failed")).code).toBe("INTERNAL_ERROR");
+    expect(normalizeAgentError(new BcDevError(
+      "DEBUG_SESSION_IDENTITY_UNAVAILABLE",
+      "identity unavailable",
+      "state",
+    )).code).toBe("DEBUG_SESSION_IDENTITY_UNAVAILABLE");
+  });
+
   test("specific timeout and not-found fallbacks win over broad validation words", () => {
     expect(normalizeAgentError(new Error("invalid transport timed out"))).toMatchObject({
       code: "TIMEOUT",
@@ -48,10 +57,16 @@ describe("agent errors", () => {
   });
 
   test("redacts authenticated URLs, URL userinfo, and sensitive keys in details", () => {
+    const jwt = [
+      "eyJ" + "0eXAiOiJKV1QifQ",
+      "eyJ" + "zdWIiOiJzZWNyZXQifQ",
+      "signature_part",
+    ].join(".");
     const body = agentErrorBody(
       "bcdev_status",
       new BcDevError("CONFIGURATION_ERROR", "bad endpoint https://user:password@bc.example/dev", "configuration", false, {
         url: "https://user:password@bc.example/dev?tenant=default&Authentication=Bearer%20detail-token",
+        diagnostic: `gateway echoed Bearer ${jwt}`,
         authorization: "Bearer detail-token",
         accessToken: "detail-token",
         password: "password-value",
@@ -60,6 +75,7 @@ describe("agent errors", () => {
     );
     expect(body.error.details).toEqual({
       url: "https://[REDACTED]@bc.example/dev?tenant=default&Authentication=[REDACTED]",
+      diagnostic: "gateway echoed Bearer [REDACTED_JWT]",
       authorization: "[REDACTED]",
       accessToken: "[REDACTED]",
       password: "[REDACTED]",
@@ -67,6 +83,7 @@ describe("agent errors", () => {
     });
     expect(JSON.stringify(body)).not.toContain("detail-token");
     expect(JSON.stringify(body)).not.toContain("password-value");
+    expect(JSON.stringify(body)).not.toContain(jwt);
     expect(JSON.stringify(body)).not.toContain("user:");
     expect(body.error.message).toBe("bad endpoint https://[REDACTED]@bc.example/dev");
   });

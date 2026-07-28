@@ -39,6 +39,12 @@ passthrough.
 - Prefer `bcdev_test_run` for structured summaries, source mapping, and coverage. Prefer the
   first-class `bcdev_debug_*` tools for the normal inspect/step loop. Use native passthrough
   when its catalog or raw result is specifically useful.
+- Every native list or call opens, initializes, and closes a fresh upstream MCP session. For
+  repeated debugger inspection, the first-class `bcdev_debug_*` tools avoid those extra
+  round trips and should remain the default.
+- Debugging identity is a point-in-time snapshot taken when the native call starts. Do not
+  issue `bcdev_debug_continue` concurrently with a native debugging call; await the native
+  result first, then resume.
 - Treat every `bcdev_native_call` as potentially destructive. Inspect the upstream tool's
   annotations and arguments before calling it, especially against Production.
 - Do not pass tokens, authorization headers, endpoint URLs, or routing headers. The bridge
@@ -47,3 +53,6 @@ passthrough.
   context; the separate `bcdev_profile_*` tools remain the supported BC28 profiling path.
 - A native `runtime` call shares the one-test-run lock with direct and debug-bound test runs.
   Wait for the active run to finish instead of retrying concurrently.
+- A timeout after a native runtime call begins does not cancel Business Central's server-side
+  test run. When the error reports `upstreamRunCancelled: false`, do not retry or start another
+  test run until you have confirmed that the upstream run finished.

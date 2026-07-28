@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BcDevError } from "../../src/core/agent-errors";
 import type { GitChangeSet } from "../../src/core/git-changes";
+import { agentErrorBody } from "../../src/mcp/agent-errors";
 import { ServerState } from "../../src/mcp/state";
 import { createTools, type ToolDeps } from "../../src/mcp/tools";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
@@ -381,10 +382,16 @@ describe("BC native MCP tools", () => {
     expect(state.testRunActive).toBe(false);
   });
 
-  test("releases the native runtime lock when setup or invocation fails", async () => {
+  test("runtime operation timeout releases the lock with explicit unknown server state", async () => {
     const gateway = new FakeNativeMcpGateway();
     gateway.onCall = () => {
-      throw new BcDevError("TIMEOUT", "native setup timed out", "network", true);
+      throw new BcDevError(
+        "TIMEOUT",
+        "native operation timed out",
+        "network",
+        true,
+        { timeoutPhase: "operation" },
+      );
     };
     const { state, tools } = setup({ gateway });
 
@@ -394,8 +401,66 @@ describe("BC native MCP tools", () => {
       toolName: "run_tests",
       arguments: {},
     }).catch((caught) => caught);
-    expect(error).toMatchObject({ code: "TIMEOUT" });
+    expect(error).toMatchObject({
+      code: "TIMEOUT",
+      retryable: false,
+      details: {
+        timeoutPhase: "operation",
+        upstreamRunCancelled: false,
+      },
+    });
     expect(state.testRunActive).toBe(false);
+    const body = agentErrorBody("bcdev_native_call", error);
+    expect(body.error).toMatchObject({
+      retryable: false,
+      details: {
+        upstreamRunCancelled: false,
+        warning: expect.stringContaining("may still be executing"),
+      },
+    });
+    expect(body.nextSteps.join(" ")).toContain("Do not start another test run");
+  });
+
+  test("runtime setup timeout releases the lock without claiming a server run started", async () => {
+    const gateway = new FakeNativeMcpGateway();
+    gateway.onCall = () => {
+      throw new BcDevError(
+        "TIMEOUT",
+        "native authorization timed out",
+        "network",
+        true,
+        { timeoutPhase: "authorization" },
+      );
+    };
+    const { state, tools } = setup({ gateway });
+
+    const error = await tools.get("bcdev_native_call")!.handler({
+      company: "CRONUS",
+      context: "runtime",
+      toolName: "run_tests",
+      arguments: {},
+    }).catch((caught) => caught);
+    expect(error).toMatchObject({
+      code: "TIMEOUT",
+      retryable: true,
+      details: { timeoutPhase: "authorization" },
+    });
+    expect((error as BcDevError).details["upstreamRunCancelled"]).toBeUndefined();
+    expect(state.testRunActive).toBe(false);
+  });
+
+  test("accepts a null optional native server identity in the public output", async () => {
+    const gateway = new FakeNativeMcpGateway();
+    gateway.onList = () => ({ server: null, catalog: { tools: [] } });
+    const { tools } = setup({ gateway });
+    const tool = tools.get("bcdev_native_list")!;
+
+    const result = await tool.handler({
+      company: "CRONUS",
+      context: "business",
+    }) as Record<string, unknown>;
+    expect(result["server"]).toBeNull();
+    expect(() => tool.outputSchema.parse(result)).not.toThrow();
   });
 
   test("accepts Production configuration without making any direct network decision in the tool layer", async () => {
