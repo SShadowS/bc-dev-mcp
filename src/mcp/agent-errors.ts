@@ -17,6 +17,10 @@ export interface AgentErrorBody {
 function fromKnownMessage(message: string): BcDevError {
   const lower = message.toLowerCase();
   if (lower.includes("no debug session")) return new BcDevError("NO_DEBUG_SESSION", message, "state");
+  if (lower.includes("debug session is not paused")) return new BcDevError("DEBUG_SESSION_NOT_PAUSED", message, "state");
+  if (lower.includes("debug session") && lower.includes("identity")) {
+    return new BcDevError("DEBUG_SESSION_IDENTITY_UNAVAILABLE", message, "state");
+  }
   if (lower.includes("debug session already active")) return new BcDevError("DEBUG_SESSION_ACTIVE", message, "state");
   if (lower.includes("record-write triage is active")) return new BcDevError("RECORD_WRITE_TRIAGE_ACTIVE", message, "state");
   if (lower.includes("no active record-write triage")) return new BcDevError("RECORD_WRITE_TRIAGE_NOT_ACTIVE", message, "state");
@@ -61,6 +65,8 @@ export function normalizeAgentError(error: unknown): BcDevError {
 function recoverySteps(code: AgentErrorCode): string[] {
   switch (code) {
     case "NO_DEBUG_SESSION": return ["Call bcdev_debug_attach before using debugger session tools."];
+    case "DEBUG_SESSION_NOT_PAUSED": return ["Drive the target operation and call bcdev_debug_wait until it returns a break event, then retry."];
+    case "DEBUG_SESSION_IDENTITY_UNAVAILABLE": return ["Call bcdev_debug_wait for sessionBound; if identity lookup failed, detach and reattach before retrying."];
     case "DEBUG_SESSION_ACTIVE": return ["Call bcdev_debug_detach before starting another debugger session."];
     case "RECORD_WRITE_TRIAGE_ACTIVE": return ["Call bcdev_record_writes_status or bcdev_record_writes_finish before using manual debugger tools."];
     case "RECORD_WRITE_TRIAGE_NOT_ACTIVE": return ["Call bcdev_record_writes_start before checking or finishing record-write triage."];

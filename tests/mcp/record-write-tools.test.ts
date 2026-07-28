@@ -7,6 +7,7 @@ import type { GitChangeSet } from "../../src/core/git-changes";
 import { ServerState } from "../../src/mcp/state";
 import { createTools, type ToolDeps } from "../../src/mcp/tools";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
+import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
 
 const SOURCE = [
   "codeunit 50100 Writer",
@@ -46,6 +47,7 @@ function setup(hub: FakeHub) {
       head: "workingTree",
       files: [],
     }),
+    nativeMcpGateway: new FakeNativeMcpGateway(),
   };
   return {
     state,

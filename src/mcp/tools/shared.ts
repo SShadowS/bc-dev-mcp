@@ -10,6 +10,7 @@ import { resolveConnection } from "../../core/launch-config";
 import type { ConnectionConfig } from "../../core/types";
 import { DEFAULT_DEV_PORT } from "../../core/urls";
 import type { GitChangeSet } from "../../core/git-changes";
+import type { NativeMcpGateway } from "../../core/native-mcp";
 import { DebugSession, ServerState } from "../state";
 
 export interface ToolDeps {
@@ -22,6 +23,7 @@ export interface ToolDeps {
   serverInfoTimeoutMs?: number;
   now?: () => number;
   gitChanges: (project: string, baseRef: string) => Promise<GitChangeSet>;
+  nativeMcpGateway: NativeMcpGateway;
 }
 
 export interface ToolDefinition {

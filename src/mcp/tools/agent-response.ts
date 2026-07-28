@@ -63,6 +63,25 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       return ["Continue the current investigation or call bcdev_debug_continue if the debugger is paused."];
     case "bcdev_source":
       return [];
+    case "bcdev_native_list": {
+      const catalog = result["catalog"] as Record<string, unknown> | undefined;
+      return Array.isArray(catalog?.["tools"]) && catalog.tools.length > 0
+        ? ["Call bcdev_native_call with an exact returned tool name and arguments matching its inputSchema."]
+        : ["Verify the selected native context and Business Central state, then call bcdev_native_list again."];
+    }
+    case "bcdev_native_call": {
+      const upstream = result["result"] as Record<string, unknown> | undefined;
+      if (upstream?.["isError"] === true) {
+        return ["Review the preserved native error content, correct the upstream tool arguments or Business Central state, and retry."];
+      }
+      if (result["context"] === "debugging") {
+        return ["Continue native inspection, or call bcdev_debug_continue when the paused investigation is complete."];
+      }
+      if (result["context"] === "runtime") {
+        return ["Review the native test result; use bcdev_test_run when structured summaries, source mapping, or coverage analysis are needed."];
+      }
+      return [];
+    }
     case "bcdev_debug_detach":
       return [];
     case "bcdev_record_writes_start":

@@ -13,9 +13,13 @@ describe("skills embedding", () => {
     expect(actual).toBe(expected);
   });
 
-  test("collects both skills with frontmatter-derived metadata", async () => {
+  test("collects every skill with frontmatter-derived metadata", async () => {
     const skills = await collectSkills(join(repoRoot, "skills"));
-    expect(skills.map((s) => s.name)).toEqual(["bc-al-debugging", "bc-al-testing"]);
+    expect(skills.map((s) => s.name)).toEqual([
+      "bc-al-debugging",
+      "bc-al-testing",
+      "bc-native-mcp",
+    ]);
     for (const s of skills) {
       expect(s.uri).toBe(`skill://${s.name}/SKILL.md`);
       expect(s.mimeType).toBe("text/markdown");
@@ -33,7 +37,7 @@ describe("skills embedding", () => {
       skills: Array<{ name: string; type: string; description: string; url: string }>;
     };
     expect(index.$schema).toBe("https://schemas.agentskills.io/discovery/0.2.0/schema.json");
-    expect(index.skills).toHaveLength(2);
+    expect(index.skills).toHaveLength(3);
     for (const entry of index.skills) {
       expect(entry.type).toBe("skill-md");
       expect(entry.url).toBe(`skill://${entry.name}/SKILL.md`);

@@ -66,6 +66,33 @@ field values, or raw source. Evidence belongs in
 - [x] Rejected debugger configuration and an unexpected clean hub close fail the retained report closed rather than returning a complete zero-write result. <!-- deterministic fake-hub fault injection 2026-07-26; these failures were not induced live -->
 - [x] No Production or on-premises call is made during this feature's acceptance run. <!-- 2026-07-26: harness refused non-Sandbox configuration; only the disposable SaaS Sandbox fixture was published and called -->
 
+## BC native MCP passthrough (SaaS Sandbox, BC28)
+
+Run only against SaaS Sandbox. Never retain tenant, environment, company, user, host,
+session, token, authorization, authenticated URL, returned business data, or raw server
+payloads. Evidence belongs in `scripts/e2e-native-mcp-passthrough-2026-07-27.md`.
+
+- [x] Azure CLI authorization resolves the configured Sandbox before native MCP validation. <!-- 2026-07-27 SaaS BC28; developer API 7.0 preflight -->
+- [x] The business context initializes through the fixed cloud gateway with no `Dev` header,
+  lists the native `bc_actions_*` catalog, and a read-only `bc_actions_search` call succeeds.
+- [x] The runtime context sends `Dev: ALRuntime`, lists `run_tests`, and invokes it against a
+  published disposable test fixture while respecting the shared test-run lock.
+- [x] A manual debugger bind records NST session and host identity; before a break, native
+  debugging fails with `DEBUG_SESSION_NOT_PAUSED`.
+- [x] At a real break, the debugging context sends `Dev: Debugging` plus
+  `mcp-troubleshooting-options`, lists `get_stack_frames`, `get_variables`,
+  `get_source_code`, and `add_breakpoint`, and each tool can be called using its discovered
+  schema.
+- [x] Continuing the debug session makes the native debugging context unavailable again;
+  detach leaves no active debugger.
+- [x] Unit protocol coverage drives both `tools/list` and `tools/call` through the installed
+  Streamable HTTP SDK and proves upstream `isError`, content, structured content, metadata,
+  unknown fields, pagination, authorization/request timeout, and DELETE cleanup are preserved
+  or handled without exposing authorization.
+- [x] No native profiling context, `Dev: Profiling`, or `mcp-profiling-options` header exists
+  in the implementation. <!-- exact header matrix and public input enum unit-tested 2026-07-27 -->
+- [x] No Production or on-premises call is made during live acceptance. <!-- harness refused non-Sandbox configuration; see dated evidence -->
+
 ## Targeted debugger attach (Sandbox)
 
 Run only against a Business Central Sandbox, using two WebClient sessions A and B for the available account. Production is out of scope. With only one Sandbox identity, negative cross-user isolation remains unit-tested rather than claimed live. Record redacted results in `scripts/e2e-targeted-debugger-attach-2026-07-12.md`.

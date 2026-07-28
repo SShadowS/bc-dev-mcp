@@ -8,6 +8,7 @@ import { createProfileTools } from "../../src/mcp/tools/profile-tools";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import type { ToolDeps } from "../../src/mcp/tools/shared";
 import { BcDevError } from "../../src/core/agent-errors";
+import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
 
 // Reuse the zip fixture builder from the core zip test (copy the two helpers here).
 function crc32(buf: Buffer): number { let c = ~0; for (let i = 0; i < buf.length; i++) { c ^= buf[i]!; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return (~c) >>> 0; }
@@ -34,6 +35,7 @@ function deps(fetchFn: typeof fetch): ToolDeps {
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: mkdtempSync(join(tmpdir(), "bcprof-")),
     gitChanges: async (_project, baseRef) => ({ baseRef, mergeBase: "a".repeat(40), head: "workingTree", files: [] }),
+    nativeMcpGateway: new FakeNativeMcpGateway(),
   };
 }
 const conn = { server: "http://bc", serverInstance: "BC", tenant: "default" };

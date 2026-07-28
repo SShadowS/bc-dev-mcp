@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-598%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-619%20passing-green)]()
 
 ## Overview
 
@@ -29,6 +29,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
 | **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break on all or unhandled errors only, record-write breaks (optionally skipping temp records), stack + variables + watch, stepping, abort/release at a break |
 | **Record-write triage** | Arm a bounded capture for one numeric table ID, automatically continue every global record-write stop, and group exact matching writer stacks while failing closed on unresolved evidence |
+| **BC native MCP passthrough** | Dynamically discover and invoke BC28 business-action, AL-runtime, and paused-debugger native MCP tools from the same agent |
 | **Debug-a-test** | Test run bound to the debug session — breakpoints fire during test execution |
 | **Config auto-discovery** | Server/instance/tenant read from the AL project's `.vscode/launch.json` |
 | **Preflight diagnostics** | `bcdev_status` distinguishes unreachable / bad credentials / unsupported dev API |
@@ -75,6 +76,7 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results. Add `coverageAgainst: "origin/main"` for changed-procedure analysis. After publishing the current changed objects to the target, also pass `changesDeployed: true` to permit `covered`/`uncovered` classifications; without that explicit assertion, changed procedures remain `unknown`.
 4. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
 5. To find writers of one table without stepping through every stop: `bcdev_record_writes_start { tableId: 18 }` → trigger the matching workload → check `bcdev_record_writes_status` → call `bcdev_record_writes_finish` for grouped stacks.
+6. To use Business Central's own MCP catalog: `bcdev_native_list { company: "...", context: "business" }` → inspect the returned schemas → `bcdev_native_call` with one exact returned tool name.
 
 Debugger attach returns as soon as Business Central accepts the request; binding is asynchronous. With no selector it binds the next session of the `breakOnNext` client type. Pass `userId` to filter that next session by Business Central user, or pass a known positive `sessionId` to attach to an existing NST session. `sessionId` and `userId` are mutually exclusive; exact `sessionId` targeting takes precedence over `breakOnNext`. `bcdev_debug_wait` reports `{ kind: "sessionBound", sessionId, hostId }` after binding; `hostId` may be null when Business Central omits that optional field. If identity lookup fails, it reports a nonfatal warning-form `sessionBound` event and debugging remains active. If Business Central emits a fatal user-filter rejection before `sessionBound`, the debugger tears down without binding or delivering breaks and reports an actionable `fatal` event.
 
@@ -115,13 +117,14 @@ Azure access tokens are acquired with `az account get-access-token`, cached only
 MCP client (agent)
   |
   v  (stdio)
-src/mcp/server.ts ── tools/ (20 bcdev_* tools) ── state.ts (debug/test/profile ownership)
+src/mcp/server.ts ── tools/ (22 bcdev_* tools) ── state.ts (debug/test/profile ownership)
   |
   v
 src/core/  (pure library — typed returns, injected deps)
   |-- launch-config.ts   launch.json + env credentials
   |-- authorization.ts   Basic or cached Azure CLI authorization provider
   |-- server-info.ts     GET dev/metadata, feature gates
+  |-- native-mcp.ts      BC cloud Streamable HTTP MCP client and trusted routing
   |-- al-objects.ts      file <-> (objectType, objectId) index, test discovery
   |-- hubs/test-runner-hub.ts ──> <server>/BC/dev/TestRunnerHub   (SignalR)
   |-- hubs/debugger-hub.ts    ──> <server>/BC/dev/DebuggerHub     (SignalR)
@@ -147,6 +150,8 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_record_writes_status` | Read current write-triage lifecycle and classification counts without driving collection |
 | `bcdev_record_writes_finish` | Release/stop collection and return grouped exact writer stacks plus unresolved evidence |
 | `bcdev_source` | Read the server’s deployed AL source for an object not on local disk |
+| `bcdev_native_list` | List the dynamic BC28 native tool catalog for business, AL runtime, or a paused debugger |
+| `bcdev_native_call` | Invoke one exact native tool and preserve its complete upstream result |
 | `bcdev_profile_status` | Preflight the snapshot-debugger endpoint; report whether sampling CPU profiling is supported |
 | `bcdev_profile_start` | Arm a CPU profiler (`kind: "sampling"` or `"instrumentation"`); binds the next matching session (trigger it after) |
 | `bcdev_profile_poll` | Poll the active capture; `ready` once the session was recorded (Started) |
@@ -173,6 +178,28 @@ table. Any missing source/span, unsupported receiver, watch failure, unknown run
 unexpected break, lifecycle failure, early session detach, or truncation keeps the report
 fail-closed. Exact groups collected before a detach remain available, but the tool does not claim
 that no later writes were missed.
+
+## BC native MCP passthrough
+
+`bcdev_native_list` and `bcdev_native_call` connect to Business Central's cloud MCP gateway with
+the same launch configuration and Azure CLI identity used by the other SaaS tools. Each operation
+requires an exact `company` and one explicit context:
+
+- `business` lists the dynamic `bc_actions_*` catalog. Pass `configurationName` only when selecting
+  a named Business Central MCP configuration.
+- `runtime` lists the BC28 AL runtime catalog. Native runtime calls share the same singleton
+  test-run lock as `bcdev_test_run` and `bcdev_debug_run_tests`.
+- `debugging` lists troubleshooting tools for the active manual debugger. Attach, trigger the
+  workload, and wait for a `break` first; a merely bound or resumed session is rejected.
+
+Always list before calling and follow the returned native `inputSchema`. The generic call is marked
+potentially destructive because its safety cannot vary dynamically with the chosen upstream tool.
+Its `result` is the unchanged native `CallToolResult`; `result.isError: true` therefore remains
+available with all upstream evidence instead of being rewritten as a bridge error.
+
+This passthrough supports cloud Sandbox and Production targets. Live acceptance is Sandbox-only.
+Its contexts intentionally match the verified BC28 surface and do not include native profiling;
+the existing `bcdev_profile_*` snapshot tools are separate and unchanged.
 
 ## Profiling
 
@@ -210,7 +237,8 @@ Validated end-to-end against a live BC28 in `scripts/e2e-profile-results-2026-07
 
 The server ships its own operational manual as [Agent Skills](https://agentskills.io) over MCP
 resources (draft [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)):
-`skill://bc-al-testing/SKILL.md`, `skill://bc-al-debugging/SKILL.md`, discovery index at
+`skill://bc-al-testing/SKILL.md`, `skill://bc-al-debugging/SKILL.md`,
+`skill://bc-native-mcp/SKILL.md`, discovery index at
 `skill://index.json`. Clients that understand the `io.modelcontextprotocol/skills` extension pick
 these up automatically; everything else sees them as plain readable resources.
 Sources live in `skills/`; `bun run embed-skills` regenerates `src/mcp/skills.generated.ts`.
@@ -287,7 +315,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 |------|---------|
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
-| `src/mcp/tools/` | The 20 bcdev_* tool definitions (zod schemas + metadata + handlers) |
+| `src/mcp/tools/` | The 22 bcdev_* tool definitions (zod schemas + metadata + handlers) |
 | `src/mcp/state.ts` | Debug session singleton, event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/hubs/debugger-hub.ts` | DebuggerHub client (attach, breakpoints, stepping, inspection) |
@@ -297,6 +325,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 | `src/core/al-procedures.ts` | Executable procedure/trigger spans and compiler-compatible procedure identities |
 | `src/core/coverage-gaps.ts` | Exact join between changed procedures and TestRunnerHub coverage evidence |
 | `src/core/record-write-triage.ts` | Source-aware runtime table classification and bounded writer-stack collector |
+| `src/core/native-mcp.ts` | BC cloud native MCP routing, lifecycle, and SDK transport |
 | `scripts/e2e.md` | Real-server wire-assumption checklist + known server behaviours |
 
 ## Roadmap
@@ -310,7 +339,7 @@ Ordered by intent, not commitment:
 5. **Coverage gap analysis** — **shipped.** Pass `coverageAgainst` to `bcdev_test_run` to cross the merge-base-to-working-tree Git diff with exact procedure coverage and identify covered, uncovered, or unresolved changed procedures.
 6. **Test orchestration** — repeat runs, diff pass/fail sets, flag flaky tests.
 7. **Break-on-record-write triage** — **shipped.** Arm bounded write triage for one numeric table ID and automatically collect grouped exact writer stacks.
-8. **BC native MCP passthrough** — a general-purpose front door to Business Central's own MCP endpoint. BC exposes runtime-troubleshooting and server-side profiling tools there that its shipped tooling only partially surfaces (one slice isn't exposed by any Microsoft client at all); a dynamic passthrough would make the full catalog reachable from any agent.
+8. **BC native MCP passthrough** — **shipped.** Dynamically list and invoke BC28 cloud business-action, AL-runtime, and active-debugger native tools through one agent-facing bridge while retaining complete upstream results.
 9. **On-demand source & symbols** — fetch a server object's source, or download a single dependency package, without leaving the agent.
 
 ## Development

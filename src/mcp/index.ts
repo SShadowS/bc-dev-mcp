@@ -5,6 +5,7 @@ import { createAuthorizationProviderFactory } from "../core/authorization";
 import { buildServer } from "./server";
 import { ServerState } from "./state";
 import { collectGitChanges } from "../core/git-changes";
+import { SdkNativeMcpGateway } from "../core/native-mcp";
 
 const server = buildServer(new ServerState(), {
   hubFactory: signalrHubFactory,
@@ -13,6 +14,7 @@ const server = buildServer(new ServerState(), {
   env: process.env,
   cwd: process.cwd(),
   gitChanges: collectGitChanges,
+  nativeMcpGateway: new SdkNativeMcpGateway(fetch),
 });
 
 await server.connect(new StdioServerTransport());
