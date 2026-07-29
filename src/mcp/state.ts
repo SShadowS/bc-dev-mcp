@@ -24,6 +24,9 @@ export class DebugSession {
   droppedEvents = 0; // events discarded at QUEUE_CAP, cumulative for the session
   private queue: DebuggerEvent[] = [];
   private waiter: ((e: DebuggerEvent | { timedOut: true }) => void) | null = null;
+  private boundIdentity: { sessionId: number; hostId: string } | null = null;
+  private paused = false;
+  private executionRevision = 0;
 
   constructor(
     public readonly client: DebuggerClient,
@@ -35,7 +38,55 @@ export class DebugSession {
     return this.queue.length;
   }
 
+  get nativeDebugIdentity(): { sessionId: number; hostId: string } {
+    if (!this.paused) {
+      throw new BcDevError(
+        "DEBUG_SESSION_NOT_PAUSED",
+        "The debug session is not paused — wait for a break before using native debugging tools",
+        "state",
+      );
+    }
+    if (!this.boundIdentity) {
+      throw new BcDevError(
+        "DEBUG_SESSION_IDENTITY_UNAVAILABLE",
+        "The paused debug session has no confirmed NST session and host identity",
+        "state",
+      );
+    }
+    return this.boundIdentity;
+  }
+
+  beginResume(): { revision: number; wasPaused: boolean } {
+    const wasPaused = this.paused;
+    const revision = ++this.executionRevision;
+    this.paused = false;
+    return { revision, wasPaused };
+  }
+
+  rollbackResume(transition: { revision: number; wasPaused: boolean }): void {
+    // A Break/detach/fatal callback delivered while the hub invocation was pending owns the
+    // newer execution state. Only restore the pre-invocation state when no callback superseded it.
+    if (this.executionRevision === transition.revision) {
+      this.paused = transition.wasPaused;
+    }
+  }
+
   push(e: DebuggerEvent): void {
+    if (e.kind === "sessionBound") {
+      // Identity lookup is asynchronous after the hub bind callback. A fast workload can
+      // deliver Break before sessionBound; enriching that already-paused session must not
+      // incorrectly mark it running.
+      this.boundIdentity = e.sessionId !== null && e.hostId !== null
+        ? { sessionId: e.sessionId, hostId: e.hostId }
+        : null;
+    } else if (e.kind === "break") {
+      this.executionRevision++;
+      this.paused = true;
+    } else if (e.kind === "detached" || e.kind === "fatal") {
+      this.executionRevision++;
+      this.paused = false;
+      this.boundIdentity = null;
+    }
     if (this.waiter) {
       const resolve = this.waiter;
       this.waiter = null;

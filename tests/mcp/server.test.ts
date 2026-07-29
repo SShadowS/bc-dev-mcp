@@ -9,6 +9,7 @@ import { createAuthorizationProviderFactory } from "../../src/core/authorization
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 import type { GitChangeSet } from "../../src/core/git-changes";
+import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
 
 function makeProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "bcmcp-server-"));
@@ -35,6 +36,7 @@ async function connect() {
       head: "workingTree",
       files: [],
     }),
+    nativeMcpGateway: new FakeNativeMcpGateway(),
   });
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -46,7 +48,7 @@ describe("server wiring", () => {
   test("tools/list exposes names, titles, annotations, schemas", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(20);
+    expect(tools).toHaveLength(22);
     const status = tools.find((t) => t.name === "bcdev_status")!;
     expect(status.title).toBe("BC server status");
     expect(status.annotations?.readOnlyHint).toBe(true);
@@ -69,6 +71,22 @@ describe("server wiring", () => {
     expect(JSON.stringify(recordWrites.inputSchema)).toContain("maxObservedWrites");
     expect(JSON.stringify(recordWrites.inputSchema)).toContain("changesDeployed");
     expect(JSON.stringify(recordWrites.inputSchema)).toContain("tableId");
+    const nativeList = tools.find((t) => t.name === "bcdev_native_list")!;
+    expect(nativeList.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    });
+    expect(JSON.stringify(nativeList.inputSchema)).toContain("debugging");
+    expect(JSON.stringify(nativeList.inputSchema)).not.toContain("profiling");
+    const nativeCall = tools.find((t) => t.name === "bcdev_native_call")!;
+    expect(nativeCall.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    });
     for (const t of tools) {
       expect(t.outputSchema, `${t.name} outputSchema`).toBeDefined();
       const properties = (t.outputSchema as { properties?: Record<string, unknown> }).properties;
@@ -126,13 +144,18 @@ describe("server wiring", () => {
     const client = await connect();
     const { resources } = await client.listResources();
     const uris = resources.map((r) => r.uri).sort();
-    expect(uris).toEqual(["skill://bc-al-debugging/SKILL.md", "skill://bc-al-testing/SKILL.md", "skill://index.json"]);
+    expect(uris).toEqual([
+      "skill://bc-al-debugging/SKILL.md",
+      "skill://bc-al-testing/SKILL.md",
+      "skill://bc-native-mcp/SKILL.md",
+      "skill://index.json",
+    ]);
 
     const index = await client.readResource({ uri: "skill://index.json" });
     const parsed = JSON.parse((index.contents[0] as { text: string }).text) as {
       skills: Array<{ url: string; type: string }>;
     };
-    expect(parsed.skills).toHaveLength(2);
+    expect(parsed.skills).toHaveLength(3);
     for (const s of parsed.skills) expect(uris).toContain(s.url);
 
     const skill = await client.readResource({ uri: "skill://bc-al-debugging/SKILL.md" });
@@ -162,7 +185,7 @@ describe("server wiring", () => {
   test("start exposes the kind:instrumentation option", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(20);
+    expect(tools).toHaveLength(22);
     const start = tools.find((t) => t.name === "bcdev_profile_start")!;
     expect(JSON.stringify(start.inputSchema)).toContain("instrumentation");
   });

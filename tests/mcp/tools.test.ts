@@ -9,6 +9,7 @@ import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 import type { GitChangeSet } from "../../src/core/git-changes";
 import { calculateProcedureMethodId } from "../../src/core/al-procedures";
+import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
 
 function makeProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "bcmcp-tools-"));
@@ -44,6 +45,7 @@ function setup(
       head: "workingTree",
       files: [],
     }),
+    nativeMcpGateway: new FakeNativeMcpGateway(),
     ...overrides,
   };
   const tools = new Map(createTools(state, deps).map((t) => [t.name, t]));
@@ -64,7 +66,7 @@ describe("tools", () => {
     hub = new FakeHub();
   });
 
-  test("registers all 20 tools", () => {
+  test("registers all 22 tools", () => {
     const { tools } = setup(hub);
     expect([...tools.keys()].sort()).toEqual([
       "bcdev_debug_attach",
@@ -76,6 +78,8 @@ describe("tools", () => {
       "bcdev_debug_sql",
       "bcdev_debug_variables",
       "bcdev_debug_wait",
+      "bcdev_native_call",
+      "bcdev_native_list",
       "bcdev_profile_finish",
       "bcdev_profile_poll",
       "bcdev_profile_start",
@@ -184,6 +188,19 @@ describe("tools", () => {
     // drain testRunFinished then validate bcdev_debug_wait's output
     await check("bcdev_debug_wait", { timeoutMs: 500 });
     await check("bcdev_debug_detach", {});
+    const cloud = {
+      environmentType: "Sandbox",
+      environmentName: "Sandbox",
+      tenant: "tenant.example",
+      company: "CRONUS",
+    };
+    await check("bcdev_native_list", { ...cloud, context: "business" });
+    await check("bcdev_native_call", {
+      ...cloud,
+      context: "business",
+      toolName: "bc_actions_search",
+      arguments: {},
+    });
   });
 
   test("bcdev_test_run runs plan and clears lock", async () => {

@@ -214,8 +214,15 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       },
       outputSchema: z.object({ ok: z.literal(true) }),
       handler: async (params) => {
-        await requireSession(state).client.step(params["action"] as StepAction);
-        return { ok: true };
+        const session = requireSession(state);
+        const transition = session.beginResume();
+        try {
+          await session.client.step(params["action"] as StepAction);
+          return { ok: true };
+        } catch (error) {
+          session.rollbackResume(transition);
+          throw error;
+        }
       },
     },
     {
