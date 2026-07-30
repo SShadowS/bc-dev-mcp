@@ -44,7 +44,8 @@ selections.
   format or endpoint was introduced.
 - No deliberately flaky server test was added or claimed live. Pass/fail flaky
   classification, skipped inconsistency, missing/duplicate observations,
-  aborted continuation, and exact adjacent set diffs are covered by
-  deterministic core and fake-hub tests.
+  safe stop after an aborted attempt, missing later observations, mixed
+  flaky/inconsistent guidance, and exact adjacent set diffs are covered by
+  deterministic core and fake-hub tests. The abort path was not induced live.
 - No coverage, debugger, native runtime, profiling, record-write, Production,
   or on-premises call was made during this acceptance run.

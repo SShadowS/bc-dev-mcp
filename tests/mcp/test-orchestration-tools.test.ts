@@ -221,8 +221,8 @@ describe("bcdev_test_orchestrate", () => {
     expect(state.testRunActive).toBe(false);
   });
 
-  test("continues after an aborted run but fails the aggregate closed", async () => {
-    const { tools } = setup({
+  test("stops after an aborted run and marks later requested observations missing", async () => {
+    const { hubs, state, tools } = setup({
       configureHub: (hub, index) => {
         hub.onInvoke = (method) => {
           if (method === "RunTests") {
@@ -237,26 +237,46 @@ describe("bcdev_test_orchestrate", () => {
       },
     });
 
-    const result = await tools.get("bcdev_test_orchestrate")!.handler({
+    const tool = tools.get("bcdev_test_orchestrate")!;
+    const result = await tool.handler({
       codeunits: [{ id: 50100, methods: ["A"] }],
-      runs: 2,
+      runs: 3,
     }) as {
       runsCompleted: number;
       complete: boolean;
       outcome: string;
       runs: Array<{ runAborted?: boolean }>;
+      tests: Array<{
+        classification: string;
+        complete: boolean;
+        missingCount: number;
+        observations: Array<{ status: string }>;
+      }>;
       warnings: string[];
       nextSteps: string[];
     };
 
     expect(result).toMatchObject({
-      runsCompleted: 2,
+      runsCompleted: 1,
       complete: false,
       outcome: "incomplete",
     });
-    expect(result.runs.map((run) => run.runAborted === true)).toEqual([true, false]);
-    expect(result.warnings.join(" ")).toContain("Run 1 aborted");
+    expect(result.runs.map((run) => run.runAborted === true)).toEqual([true]);
+    expect(result.tests[0]).toMatchObject({
+      classification: "incomplete",
+      complete: false,
+      missingCount: 2,
+      observations: [
+        { status: "passed" },
+        { status: "missing" },
+        { status: "missing" },
+      ],
+    });
+    expect(result.warnings.join(" ")).toContain("server-side cancellation could not be confirmed");
     expect(result.nextSteps.join(" ")).toContain("before making a stability claim");
+    expect(hubs).toHaveLength(1);
+    expect(state.testRunActive).toBe(false);
+    expect(() => tool.outputSchema.parse(result)).not.toThrow();
   });
 
   test("keeps source mapping nonfatal when the explicit project is unreadable", async () => {

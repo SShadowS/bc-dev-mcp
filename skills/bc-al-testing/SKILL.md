@@ -38,6 +38,8 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
   and another failed. Passed/skipped or failed/skipped mixtures are `inconsistent`. A missing
   result, duplicate result, aborted run, or synthetic-only run forces the aggregate
   `complete: false`; inspect `warnings` and `tests[].observations` before trusting stability.
+  After an aborted attempt, orchestration retains it but does not start later attempts while
+  the prior server-side run may still be active; their observations are `missing`.
 - **Orchestration does not collect coverage.** Use `bcdev_test_run` separately for procedure
   coverage or `coverageAgainst`; repeated coverage is deliberately not merged into a stability
   result.

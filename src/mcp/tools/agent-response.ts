@@ -42,20 +42,15 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       return steps;
     }
     case "bcdev_test_orchestrate": {
-      const summary = result["summary"] as Record<string, unknown> | undefined;
       if (result["outcome"] === "incomplete") {
         return [
           "Review orchestration warnings and aborted raw runs, correct the server or test selection, then rerun bcdev_test_orchestrate before making a stability claim.",
         ];
       }
       if (result["outcome"] === "unstable") {
-        return Number(summary?.["flaky"] ?? 0) > 0
-          ? [
-              "Rerun only the methods classified flaky to reproduce the transition, then use bcdev_debug_attach and bcdev_debug_run_tests on the smallest unstable selection.",
-            ]
-          : [
-              "Review inconsistent status sequences, narrow the selection, and rerun bcdev_test_orchestrate before debugging the smallest unstable case.",
-            ];
+        return [
+          "Rerun only the methods classified flaky or inconsistent to reproduce each transition, then use bcdev_debug_attach and bcdev_debug_run_tests on the smallest unstable selection.",
+        ];
       }
       if (result["outcome"] === "failed") {
         return [

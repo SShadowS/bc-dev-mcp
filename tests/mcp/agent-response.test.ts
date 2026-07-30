@@ -65,9 +65,9 @@ describe("withAgentResponses", () => {
   });
 
   test("test-orchestration guidance follows incomplete, unstable, failed, and passed states", async () => {
-    const wrapped = (outcome: string, flaky = 0) => withAgentResponses(tool({
+    const wrapped = (outcome: string, flaky = 0, inconsistent = 0) => withAgentResponses(tool({
       name: "bcdev_test_orchestrate",
-      handler: async () => ({ outcome, summary: { flaky } }),
+      handler: async () => ({ outcome, summary: { flaky, inconsistent } }),
     }));
 
     expect(
@@ -79,6 +79,8 @@ describe("withAgentResponses", () => {
     expect(
       (await wrapped("unstable").handler({}) as { nextSteps: string[] }).nextSteps.join(" "),
     ).toContain("inconsistent");
+    const mixed = (await wrapped("unstable", 1, 1).handler({}) as { nextSteps: string[] }).nextSteps.join(" ");
+    expect(mixed).toContain("flaky or inconsistent");
     expect(
       (await wrapped("failed").handler({}) as { nextSteps: string[] }).nextSteps.join(" "),
     ).toContain("stableFailed");

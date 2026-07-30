@@ -57,8 +57,8 @@ const observationStatusSchema = z
 
 const testOrchestrationOutputSchema = z.object({
   runsRequested: z.number().int().describe("Number of sequential runs requested"),
-  runsCompleted: z.number().int().describe("Number of run result envelopes returned by Business Central"),
-  complete: z.boolean().describe("true only when every identity has exactly one concrete result in every non-aborted requested run"),
+  runsCompleted: z.number().int().describe("Number of run-attempt envelopes retained, including an aborted final attempt"),
+  complete: z.boolean().describe("true only when all requested runs completed without abort and every identity has one concrete result in each run"),
   outcome: z.enum(["passed", "failed", "unstable", "incomplete"]).describe(
     "Aggregate stability outcome: unstable means a flaky or otherwise inconsistent status sequence",
   ),
@@ -76,7 +76,7 @@ const testOrchestrationOutputSchema = z.object({
     runTestsOutputSchema.extend({
       run: z.number().int().positive().describe("1-based orchestration run number"),
     }),
-  ).describe("Complete enriched evidence from every sequential test run"),
+  ).describe("Retained enriched evidence from every attempted run, including an aborted final attempt"),
   diffs: z.array(z.object({
     fromRun: z.number().int().positive().describe("Earlier 1-based run number"),
     toRun: z.number().int().positive().describe("Later adjacent 1-based run number"),
@@ -107,7 +107,9 @@ const testOrchestrationOutputSchema = z.object({
       run: z.number().int().positive().describe("1-based run number"),
       status: observationStatusSchema,
       durationMs: z.number().nullable().describe("Server-reported duration, or null when no single result exists"),
-    }).describe("One run's normalized observation")).describe("One observation for every returned run"),
+    }).describe("One run's normalized observation")).describe(
+      "One observation for every requested run; unattempted or unreported results are missing",
+    ),
   })).describe("Per-method stability analysis"),
   warnings: z.array(z.string()).describe("Reasons the aggregate or individual observations are incomplete"),
 });
@@ -312,6 +314,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             );
             enrichTestRun(result);
             runs.push(result);
+            if (result.runAborted === true) break;
           }
           await mapOrchestrationSources(runs, project, deps);
           const analysis = analyzeTestOrchestration(plan, runs, runsRequested);

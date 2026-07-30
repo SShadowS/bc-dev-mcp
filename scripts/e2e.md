@@ -60,7 +60,8 @@ Evidence belongs in `scripts/e2e-test-orchestration-2026-07-29.md`.
 - [x] A pass/fail sequence is classified `flaky`, while pass/skip is `inconsistent`; exact
   passed/failed additions and removals are reported between adjacent runs. <!-- deterministic core vectors 2026-07-29; no deliberately flaky live test required -->
 - [x] Missing, duplicate, synthetic-only, and aborted observations fail the aggregate closed;
-  an aborted attempt does not prevent a later requested attempt from running. <!-- deterministic core and fake-hub fault injection 2026-07-29 -->
+  an aborted attempt stops the sequence, retains its evidence, and marks later requested
+  observations missing rather than risking an overlapping server-side run. <!-- deterministic core and fake-hub fault injection 2026-07-29 correction -->
 - [x] One orchestration holds the shared singleton slot against direct, debug-bound,
   native-runtime, and second orchestration calls. <!-- deterministic deferred TestRunnerHub run 2026-07-29 -->
 - [x] No Production or on-premises call is made during live acceptance.

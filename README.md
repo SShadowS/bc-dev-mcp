@@ -275,6 +275,8 @@ retains each enriched run, and returns exact adjacent additions/removals for the
 sets. A method is `flaky` only with positive pass-and-fail evidence. Missing or duplicate
 observations, an aborted run, or a run with no real methods forces `complete: false`; mixed
 passed/skipped or failed/skipped observations are `inconsistent`, not mislabeled as flaky.
+After an aborted attempt, later requested runs are left as missing rather than started while
+the prior server-side run may still be active.
 Orchestration intentionally does not aggregate coverage—use `bcdev_test_run` for coverage and
 changed-procedure analysis.
 

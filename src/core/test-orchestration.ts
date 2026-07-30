@@ -185,7 +185,12 @@ export function analyzeTestOrchestration(
   }
   runs.forEach((run, index) => {
     if (run.runAborted === true) {
-      warnings.push(`Run ${index + 1} aborted; its observations cannot establish complete stability.`);
+      const stoppedEarly = index === runs.length - 1 && runs.length < runsRequested;
+      warnings.push(
+        stoppedEarly
+          ? `Run ${index + 1} aborted; later requested runs were not started because server-side cancellation could not be confirmed safely.`
+          : `Run ${index + 1} aborted; its observations cannot establish complete stability.`,
+      );
     }
     if (realRows(run).length === 0) {
       warnings.push(`Run ${index + 1} reported no real test methods.`);
@@ -195,7 +200,11 @@ export function analyzeTestOrchestration(
   const tests: OrchestratedTestCase[] = [...identities.values()]
     .sort(compareIdentity)
     .map((testIdentity) => {
-      const observations = rowsByRun.map((rows, index): TestRunObservation => {
+      const observations = Array.from({ length: runsRequested }, (_, index): TestRunObservation => {
+        const rows = rowsByRun[index];
+        if (!rows) {
+          return { run: index + 1, status: "missing", durationMs: null };
+        }
         const matches = rows.get(testIdentity.key) ?? [];
         if (matches.length === 0) {
           return { run: index + 1, status: "missing", durationMs: null };

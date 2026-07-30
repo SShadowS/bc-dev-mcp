@@ -242,7 +242,7 @@ describe("test orchestration analysis", () => {
     });
   });
 
-  test("reports fewer returned runs without inventing observations", () => {
+  test("marks unreturned requested runs as missing per-method evidence", () => {
     const result = analyzeTestOrchestration(
       [{ id: 50100, methods: ["A"] }],
       [run([row("A", "passed")])],
@@ -254,7 +254,37 @@ describe("test orchestration analysis", () => {
       complete: false,
       outcome: "incomplete",
     });
-    expect(result.tests[0]?.observations).toHaveLength(1);
+    expect(result.tests[0]).toEqual({
+      codeunitId: 50100,
+      method: "A",
+      classification: "incomplete",
+      complete: false,
+      passCount: 1,
+      failCount: 0,
+      skipCount: 0,
+      missingCount: 2,
+      ambiguousCount: 0,
+      observations: [
+        { run: 1, status: "passed", durationMs: 1 },
+        { run: 2, status: "missing", durationMs: null },
+        { run: 3, status: "missing", durationMs: null },
+      ],
+    });
     expect(result.warnings[0]).toContain("Only 1 of 3");
+
+    const noRuns = analyzeTestOrchestration(
+      [{ id: 50100, methods: ["A"] }],
+      [],
+      2,
+    );
+    expect(noRuns.tests[0]).toMatchObject({
+      classification: "incomplete",
+      complete: false,
+      missingCount: 2,
+      observations: [
+        { run: 1, status: "missing" },
+        { run: 2, status: "missing" },
+      ],
+    });
   });
 });
