@@ -66,7 +66,7 @@ describe("tools", () => {
     hub = new FakeHub();
   });
 
-  test("registers all 22 tools", () => {
+  test("registers all 23 tools", () => {
     const { tools } = setup(hub);
     expect([...tools.keys()].sort()).toEqual([
       "bcdev_debug_attach",
@@ -90,6 +90,7 @@ describe("tools", () => {
       "bcdev_source",
       "bcdev_status",
       "bcdev_test_discover",
+      "bcdev_test_orchestrate",
       "bcdev_test_run",
     ]);
   });
@@ -179,6 +180,7 @@ describe("tools", () => {
     await check("bcdev_status", {});
     await check("bcdev_test_discover", {});
     await check("bcdev_test_run", { codeunits: [{ id: 50100 }] });
+    await check("bcdev_test_orchestrate", { codeunits: [{ id: 50100 }], runs: 2 });
     await check("bcdev_debug_attach", { breakpoints: [] });
     await check("bcdev_debug_variables", { frameId: 0 });
     await check("bcdev_debug_eval", { frameId: 0, expression: "X" });

@@ -48,7 +48,7 @@ describe("server wiring", () => {
   test("tools/list exposes names, titles, annotations, schemas", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(22);
+    expect(tools).toHaveLength(23);
     const status = tools.find((t) => t.name === "bcdev_status")!;
     expect(status.title).toBe("BC server status");
     expect(status.annotations?.readOnlyHint).toBe(true);
@@ -67,6 +67,16 @@ describe("server wiring", () => {
     expect(JSON.stringify(attachProperties["breakOnRecordWrite"])).toContain("nonTemporary");
     const wait = tools.find((t) => t.name === "bcdev_debug_wait")!;
     expect(JSON.stringify(wait.outputSchema)).toContain("sessionBound");
+    const orchestration = tools.find((t) => t.name === "bcdev_test_orchestrate")!;
+    expect(orchestration.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    });
+    expect(JSON.stringify(orchestration.inputSchema)).toContain("maximum");
+    expect(JSON.stringify(orchestration.outputSchema)).toContain("stablePassed");
+    expect(JSON.stringify(orchestration.outputSchema)).toContain("ambiguous");
     const recordWrites = tools.find((t) => t.name === "bcdev_record_writes_start")!;
     expect(JSON.stringify(recordWrites.inputSchema)).toContain("maxObservedWrites");
     expect(JSON.stringify(recordWrites.inputSchema)).toContain("changesDeployed");
@@ -185,7 +195,7 @@ describe("server wiring", () => {
   test("start exposes the kind:instrumentation option", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(22);
+    expect(tools).toHaveLength(23);
     const start = tools.find((t) => t.name === "bcdev_profile_start")!;
     expect(JSON.stringify(start.inputSchema)).toContain("instrumentation");
   });

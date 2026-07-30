@@ -164,7 +164,9 @@ export const runTestsOutputSchema = z.looseObject({
     syntheticResults: z.number(),
     failedTests: z.array(z.object({ codeunitId: z.number(), method: z.string() })),
   }),
-  sourceMappingWarning: z.string().optional().describe("Nonfatal warning when local AL files could not be indexed; server test results remain complete"),
+  sourceMappingWarning: z.string().optional().describe(
+    "Nonfatal warning when local AL files could not be indexed; server test evidence remains available",
+  ),
   coverage: z
     .array(
       z.looseObject({
