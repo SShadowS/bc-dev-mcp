@@ -4,7 +4,8 @@ import { fetchSourceContent, type SourceContentResult } from "../../core/source-
 import type { ServerState } from "../state";
 import { connectionShape, resolve, type ToolDefinition, type ToolDeps } from "./shared";
 
-const NO_SOURCE_MESSAGE = "No deployed source for this object — base-application objects ship without source";
+const NO_SOURCE_MESSAGE =
+  "No deployed source was returned for this object — it may be compiled-only or source exposure may be disabled";
 
 function shapeResult(r: SourceContentResult, objectType: number, objectId: number, source: "rest" | "hub") {
   return {
@@ -85,11 +86,17 @@ export function createSourceTools(state: ServerState, deps: ToolDeps): ToolDefin
         packagePath: z.string().describe("Absolute path of the validated .app under <project>/.alpackages"),
         publisher: z.string().describe("Publisher read from the downloaded SymbolReference.json"),
         appName: z.string().describe("Package name read from the downloaded SymbolReference.json"),
-        appId: z.string().describe("Package app ID read from the downloaded SymbolReference.json"),
-        requestedVersion: z.string().describe("Normalized minimum version requested from Business Central"),
-        resolvedVersion: z.string().describe("Installed package version returned by Business Central"),
+        appId: z.string()
+          .regex(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i)
+          .describe("Package app ID read from the downloaded SymbolReference.json"),
+        requestedVersion: z.string()
+          .regex(/^\d+\.\d+\.\d+\.\d+$/)
+          .describe("Normalized minimum version requested from Business Central"),
+        resolvedVersion: z.string()
+          .regex(/^\d+\.\d+\.\d+\.\d+$/)
+          .describe("Installed package version returned by Business Central"),
         bytes: z.number().int().nonnegative().describe("Downloaded package size in bytes"),
-        sha256: z.string().describe("SHA-256 digest of the installed package"),
+        sha256: z.string().regex(/^[0-9a-f]{64}$/).describe("SHA-256 digest of the installed package"),
       }),
       handler: async (params) => {
         const { config, authorization, project } = resolve(params, deps);

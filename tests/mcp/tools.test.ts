@@ -691,6 +691,7 @@ describe("tools", () => {
     const baseApp = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 1 })) as Record<string, unknown>;
     expect(baseApp).toMatchObject({ content: "", isAlContent: false, source: "rest" });
     expect(baseApp["message"]).toContain("No deployed source");
+    expect(baseApp["message"]).not.toContain("base-application");
     expect(hub.invoked("GetSourceContent")).toHaveLength(0);
   });
 

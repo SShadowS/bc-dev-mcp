@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { AuthorizationProvider } from "./authorization";
 import { BcDevError } from "./agent-errors";
@@ -11,6 +11,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
 const MAX_VERSION_PART = 2_147_483_647;
 const GUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const installTails = new Map<string, Promise<void>>();
 
 export interface PackageSelector {
   publisher: string;
@@ -83,7 +84,9 @@ function normalizeSelector(selector: PackageSelector): NormalizedPackageSelector
     if (typeof selector.appId !== "string" || !GUID.test(selector.appId.trim())) {
       throw invalid("appId must be a GUID");
     }
-    appId = selector.appId.trim().toLowerCase();
+    // WIRE: Application is a concept reference rather than an app-ID reference, so the
+    // official AL client omits appId even when its specification carries one.
+    if (appName.toLowerCase() !== "application") appId = selector.appId.trim().toLowerCase();
   }
   return { publisher, appName, version: version.text, versionParts: version.parts, ...(appId ? { appId } : {}) };
 }
@@ -226,18 +229,14 @@ function packageIdentity(bytes: Buffer, selector: NormalizedPackageSelector): Pa
   };
 }
 
-function safeFilenameComponent(value: string): string {
-  const safe = value.replace(/[\u0000-\u001f<>:"/\\|?*]/g, "_").replace(/[ .]+$/g, "");
-  if (safe === "") throw protocolError("Business Central returned package identity that cannot form a safe filename");
-  return safe;
-}
-
 function packageFilename(identity: PackageIdentity): string {
-  return [
-    safeFilenameComponent(identity.publisher),
-    safeFilenameComponent(identity.appName),
-    safeFilenameComponent(identity.version),
-  ].join("_") + ".app";
+  // WIRE: NavAppManifest.DefaultPackageName builds Publisher_Name_Version, then
+  // FileNameUtilities.SanitizeFilename removes invalid filename/path characters
+  // (al-codeanalysis-decomp NavAppManifest.cs and FileNameUtilities.cs).
+  const defaultName = `${identity.publisher}_${identity.appName}_${identity.version}`;
+  const safe = defaultName.replace(/[\u0000-\u001f<>:"/\\|?*]/g, "");
+  if (safe === "") throw protocolError("Business Central returned package identity that cannot form a safe filename");
+  return `${safe}.app`;
 }
 
 async function readBoundedBody(response: Response, controller: AbortController, maxBytes: number): Promise<Buffer> {
@@ -285,6 +284,43 @@ function filesystemError(message: string, path: string, cause: unknown): BcDevEr
   return new BcDevError("CONFIGURATION_ERROR", message, "configuration", false, { path }, { cause });
 }
 
+async function requireAlProject(project: string): Promise<string> {
+  const root = resolve(project);
+  let rootStat;
+  try {
+    rootStat = await stat(root);
+  } catch (error) {
+    throw filesystemError("AL project directory does not exist or cannot be read", root, error);
+  }
+  if (!rootStat.isDirectory()) {
+    throw new BcDevError(
+      "CONFIGURATION_ERROR",
+      "AL package downloads require project to identify an existing directory",
+      "configuration",
+      false,
+      { path: root },
+    );
+  }
+
+  const manifestPath = join(root, "app.json");
+  let manifestStat;
+  try {
+    manifestStat = await stat(manifestPath);
+  } catch (error) {
+    throw filesystemError("AL package downloads require an existing project app.json", manifestPath, error);
+  }
+  if (!manifestStat.isFile()) {
+    throw new BcDevError(
+      "CONFIGURATION_ERROR",
+      "AL package downloads require app.json to be a file",
+      "configuration",
+      false,
+      { path: manifestPath },
+    );
+  }
+  return root;
+}
+
 async function existingFile(path: string): Promise<Buffer | null> {
   try {
     return await readFile(path);
@@ -315,11 +351,28 @@ async function replaceValidatedFile(tempPath: string, destination: string, hadEx
   await rm(backup, { force: true });
 }
 
-async function installPackage(project: string, filename: string, bytes: Buffer, sha256: string): Promise<{
+async function withInstallLock<T>(destination: string, operation: () => Promise<T>): Promise<T> {
+  const previous = installTails.get(destination) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolveCurrent) => {
+    release = resolveCurrent;
+  });
+  const tail = previous.then(() => current);
+  installTails.set(destination, tail);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (installTails.get(destination) === tail) installTails.delete(destination);
+  }
+}
+
+async function installPackage(projectRoot: string, filename: string, bytes: Buffer, sha256: string): Promise<{
   status: PackageDownloadResult["status"];
   packagePath: string;
 }> {
-  const packageDir = join(resolve(project), ".alpackages");
+  const packageDir = join(projectRoot, ".alpackages");
   try {
     await mkdir(packageDir, { recursive: true });
     const packageDirStat = await lstat(packageDir);
@@ -331,21 +384,32 @@ async function installPackage(project: string, filename: string, bytes: Buffer, 
   }
 
   const packagePath = join(packageDir, filename);
-  const existing = await existingFile(packagePath);
-  if (existing && createHash("sha256").update(existing).digest("hex") === sha256) {
-    return { status: "unchanged", packagePath };
-  }
+  return withInstallLock(packagePath, async () => {
+    const existing = await existingFile(packagePath);
+    if (existing && createHash("sha256").update(existing).digest("hex") === sha256) {
+      return { status: "unchanged", packagePath };
+    }
 
-  const tempPath = join(packageDir, `.${filename}.${randomUUID()}.tmp`);
+    const tempPath = join(packageDir, `.${filename}.${randomUUID()}.tmp`);
+    try {
+      await writeFile(tempPath, bytes, { flag: "wx" });
+      await replaceValidatedFile(tempPath, packagePath, existing !== null);
+    } catch (error) {
+      throw filesystemError("Unable to install the downloaded AL package", packagePath, error);
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+    }
+    return { status: existing === null ? "downloaded" : "replaced", packagePath };
+  });
+}
+
+async function cancelUnusedBody(response: Response): Promise<void> {
   try {
-    await writeFile(tempPath, bytes, { flag: "wx" });
-    await replaceValidatedFile(tempPath, packagePath, existing !== null);
-  } catch (error) {
-    throw filesystemError("Unable to install the downloaded AL package", packagePath, error);
-  } finally {
-    await rm(tempPath, { force: true }).catch(() => undefined);
+    await response.body?.cancel();
+  } catch {
+    // The response is already being discarded; cancellation failure does not replace
+    // the typed HTTP error that follows.
   }
-  return { status: existing === null ? "downloaded" : "replaced", packagePath };
 }
 
 export async function downloadPackage(
@@ -361,6 +425,8 @@ export async function downloadPackage(
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw invalid("package download timeout must be positive");
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw invalid("package download size limit must be positive");
+  const projectRoot = await requireAlProject(project);
+  const authorizationHeader = await authorization.getAuthorizationHeader();
 
   const controller = new AbortController();
   let timedOut = false;
@@ -373,16 +439,18 @@ export async function downloadPackage(
   try {
     const response = await fetchFn(packageUrl(c, selector), {
       method: "GET",
-      headers: { Authorization: await authorization.getAuthorizationHeader() },
+      headers: { Authorization: authorizationHeader },
       signal: controller.signal,
     });
     if (response.status === 401 || response.status === 403) {
+      await cancelUnusedBody(response);
       const hint = c.authentication === "UserPassword"
         ? "verify BC_DEV_USER and BC_DEV_PASSWORD"
         : "verify the Azure CLI login, tenant, and Business Central account access";
       throw new BcDevError("AUTHENTICATION_FAILED", `Business Central rejected package download authentication; ${hint}`, "auth");
     }
     if (response.status === 404) {
+      await cancelUnusedBody(response);
       throw new BcDevError(
         "NOT_FOUND",
         `No installed Business Central package matched ${selector.publisher}/${selector.appName} at version ${selector.version} or newer`,
@@ -397,6 +465,7 @@ export async function downloadPackage(
       );
     }
     if (!response.ok) {
+      await cancelUnusedBody(response);
       throw new BcDevError(
         "SERVER_REJECTED",
         `Business Central package download returned HTTP ${response.status}`,
@@ -432,7 +501,7 @@ export async function downloadPackage(
 
   const identity = packageIdentity(bytes, selector);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const installed = await installPackage(project, packageFilename(identity), bytes, sha256);
+  const installed = await installPackage(projectRoot, packageFilename(identity), bytes, sha256);
   return {
     ...installed,
     publisher: identity.publisher,

@@ -13,8 +13,9 @@ source. `source: "hub"` means the REST endpoint had no answer and an active debu
 provided the source instead.
 
 `isAlContent: false` with empty content means Business Central did not return deployed AL
-source. This is normal for compiled-only applications such as the base application; do
-not invent source from local files or treat an empty result as a successful source fetch.
+source. The application may be compiled-only or its source-exposure policy may disable
+retrieval; do not invent source from local files or treat an empty result as a successful
+source fetch.
 
 ## Download one symbol package
 
@@ -39,6 +40,10 @@ for the same returned identity/version, and `"unchanged"` retained a byte-identi
 - The output directory is fixed to `.alpackages`; there is no arbitrary destination.
   Packages are bounded, validated through `SymbolReference.json`, hashed, and installed
   only after the complete response passes validation.
+- The selected project must already be an AL project with an `app.json`. A missing or
+  mistyped project path is rejected before authentication or download and is never created.
+- For the special Microsoft `Application` concept package, omit `appId`; the official
+  package request selects it by publisher, name, and minimum version.
 - A downloaded package supplies compiler symbols and may contain source according to the
   publisher's resource-exposure policy. The tool does not extract or claim source that
   Business Central did not expose through `bcdev_source`.

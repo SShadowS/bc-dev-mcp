@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { BasicAuthorizationProvider } from "../../src/core/authorization";
+import { BcDevError } from "../../src/core/agent-errors";
 import {
   downloadPackage,
   packageDownloadUrl,
@@ -45,7 +46,9 @@ function appPackage(
 }
 
 function project(): string {
-  return mkdtempSync(join(tmpdir(), "bcmcp-package-"));
+  const dir = mkdtempSync(join(tmpdir(), "bcmcp-package-"));
+  writeFileSync(join(dir, "app.json"), "{}");
+  return dir;
 }
 
 function responseFetch(
@@ -117,6 +120,29 @@ describe("downloadPackage", () => {
     expect(capture.url).toContain("dev/packages?");
   });
 
+  test("treats Application as a concept selector and does not enforce a supplied app ID", async () => {
+    const application = {
+      publisher: "Microsoft",
+      appName: "Application",
+      version: "28.0.0.0",
+      appId: APP_ID,
+    };
+    const capture: { url?: string } = {};
+    const result = await downloadPackage(
+      config,
+      auth,
+      project(),
+      application,
+      responseFetch(
+        appPackage({ name: "Application", appId: OTHER_ID }),
+        200,
+        capture,
+      ),
+    );
+    expect(capture.url).not.toContain("appId=");
+    expect(result.appId).toBe(OTHER_ID);
+  });
+
   test("returns unchanged for identical bytes and replaces only with another validated package", async () => {
     const dir = project();
     const firstBytes = appPackage({}, "first");
@@ -130,6 +156,20 @@ describe("downloadPackage", () => {
     expect(replaced.status).toBe("replaced");
     expect(replaced.packagePath).toBe(first.packagePath);
     expect(readFileSync(replaced.packagePath).equals(secondBytes)).toBe(true);
+  });
+
+  test("serializes simultaneous identical installs into downloaded then unchanged", async () => {
+    const dir = project();
+    const bytes = appPackage();
+    const [first, second] = await Promise.all([
+      downloadPackage(config, auth, dir, selector, responseFetch(bytes)),
+      downloadPackage(config, auth, dir, selector, responseFetch(bytes)),
+    ]);
+
+    expect([first.status, second.status].sort()).toEqual(["downloaded", "unchanged"]);
+    const names = readdirSync(join(dir, ".alpackages"));
+    expect(names.filter((name) => name.endsWith(".app"))).toHaveLength(1);
+    expect(names.filter((name) => name.endsWith(".tmp") || name.endsWith(".backup"))).toEqual([]);
   });
 
   test("uses only validated metadata for the destination filename", async () => {
@@ -146,7 +186,7 @@ describe("downloadPackage", () => {
       unsafe,
       responseFetch(appPackage({ publisher: unsafe.publisher, name: unsafe.appName, version: unsafe.version })),
     );
-    expect(basename(result.packagePath)).toBe("Pub_lish_er_App_Name__1.0.0.0.app");
+    expect(basename(result.packagePath)).toBe("Publisher_AppName._1.0.0.0.app");
   });
 
   test("accepts a higher resolved version but rejects wrong identity and an older package", async () => {
@@ -197,7 +237,7 @@ describe("downloadPackage", () => {
       await expect(downloadPackage(config, auth, dir, selector, responseFetch(bytes))).rejects.toMatchObject({
         code: "PROTOCOL_ERROR",
       });
-      expect(readdirSync(dir)).toEqual([]);
+      expect(readdirSync(dir)).toEqual(["app.json"]);
     }
   });
 
@@ -231,6 +271,46 @@ describe("downloadPackage", () => {
       code: "ENDPOINT_UNREACHABLE",
       retryable: true,
     });
+  });
+
+  test("preserves authorization failures and does not start a package request", async () => {
+    const authFailure = new BcDevError(
+      "AUTHENTICATION_FAILED",
+      "Azure CLI login is unavailable",
+      "auth",
+    );
+    let fetched = false;
+    const fetchFn = (async () => {
+      fetched = true;
+      return new Response();
+    }) as unknown as typeof fetch;
+    const rejectingAuth = {
+      getAuthorizationHeader: async () => {
+        throw authFailure;
+      },
+    };
+
+    const error = await downloadPackage(config, rejectingAuth, project(), selector, fetchFn).catch((caught) => caught);
+    expect(error).toBe(authFailure);
+    expect(fetched).toBe(false);
+  });
+
+  test("cancels an unused error response body", async () => {
+    let cancelled = false;
+    const fetchFn = (async () => ({
+      status: 404,
+      ok: false,
+      headers: new Headers(),
+      body: {
+        cancel: async () => {
+          cancelled = true;
+        },
+      },
+    })) as unknown as typeof fetch;
+    await expect(downloadPackage(config, auth, project(), selector, fetchFn)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(cancelled).toBe(true);
   });
 
   test("enforces both declared and streamed size bounds", async () => {
@@ -279,12 +359,45 @@ describe("downloadPackage", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  test("reports an unwritable project destination as a configuration error", async () => {
+  test("rejects a non-directory project before making a package request", async () => {
     const file = join(project(), "not-a-directory");
     writeFileSync(file, "x");
-    await expect(downloadPackage(config, auth, file, selector, responseFetch(appPackage()))).rejects.toMatchObject({
+    let fetched = false;
+    const fetchFn = (async () => {
+      fetched = true;
+      return new Response(Uint8Array.from(appPackage()));
+    }) as unknown as typeof fetch;
+    await expect(downloadPackage(config, auth, file, selector, fetchFn)).rejects.toMatchObject({
       code: "CONFIGURATION_ERROR",
     });
+    expect(fetched).toBe(false);
+  });
+
+  test("rejects a missing or non-AL project without creating directories or fetching", async () => {
+    const parent = project();
+    const missing = join(parent, "typo-project");
+    const noManifest = mkdtempSync(join(tmpdir(), "bcmcp-not-al-"));
+    let authorizations = 0;
+    let fetches = 0;
+    const countingAuth = {
+      getAuthorizationHeader: async () => {
+        authorizations += 1;
+        return "Basic test";
+      },
+    };
+    const fetchFn = (async () => {
+      fetches += 1;
+      return new Response(Uint8Array.from(appPackage()));
+    }) as unknown as typeof fetch;
+
+    for (const candidate of [missing, noManifest]) {
+      await expect(downloadPackage(config, countingAuth, candidate, selector, fetchFn)).rejects.toMatchObject({
+        code: "CONFIGURATION_ERROR",
+      });
+    }
+    expect(existsSync(missing)).toBe(false);
+    expect(authorizations).toBe(0);
+    expect(fetches).toBe(0);
   });
 
   if (process.platform !== "win32") {
@@ -296,7 +409,7 @@ describe("downloadPackage", () => {
       await expect(downloadPackage(config, auth, dir, selector, responseFetch(appPackage()))).rejects.toMatchObject({
         code: "CONFIGURATION_ERROR",
       });
-      expect(readdirSync(outside)).toEqual([]);
+      expect(readdirSync(outside).filter((name) => name.endsWith(".app"))).toEqual([]);
     });
   }
 });

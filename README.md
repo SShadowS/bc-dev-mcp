@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-641%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-645%20passing-green)]()
 
 ## Overview
 
@@ -229,7 +229,8 @@ source.
 `bcdev_package_download` retrieves one explicitly identified installed `.app` through
 `dev/packages` and writes it to the selected project’s `.alpackages` directory. Supply the
 publisher, name, four-part minimum version, and app ID when known. Business Central may resolve a
-higher installed version; the result reports both requested and resolved versions.
+higher installed version; the result reports both requested and resolved versions. The selected
+project must already contain `app.json`.
 
 The package is size- and time-bounded, validated through `SymbolReference.json`, checked against
 the requested identity, hashed, and only then installed under a filename derived from the returned

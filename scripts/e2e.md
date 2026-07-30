@@ -37,6 +37,7 @@ Never record access tokens, Authorization headers, authenticated URLs, or unreda
 - [x] SaaS `GET dev/sourcecontent` returns deployed AL source for an exposed object using the same encoded environment base and tenant query. <!-- 2026-07-30 built-server validation; see scripts/e2e-on-demand-source-symbols-2026-07-30.md -->
 - [x] `GET dev/packages` accepts `publisher`, `appName`, `versionText`, optional `appId`, and tenant; a lower `versionText` can resolve a higher installed package. <!-- 2026-07-30 exact/lower/negative SaaS selectors; see dated evidence -->
 - [x] A successful package response is a NAVX/ZIP containing top-level `SymbolReference.json` identity fields `AppId`, `Name`, `Publisher`, and `Version`. <!-- 2026-07-30 validated before local install -->
+- [x] The case-insensitive `Application` concept request omits `appId`; the SaaS endpoint resolves the installed aggregate package by publisher/name/minimum version. <!-- 2026-07-30 built-server validation with omitted and deliberately irrelevant supplied IDs -->
 
 ## Scenarios
 
@@ -84,8 +85,15 @@ Evidence belongs in `scripts/e2e-on-demand-source-symbols-2026-07-30.md`.
 - [x] `bcdev_package_download` with exact publisher/name/version/app ID returns `downloaded`, a real NAVX/ZIP file, matching `SymbolReference.json` identity, byte count, and SHA-256. <!-- 2026-07-30 built server -->
 - [x] Repeating the same request returns `unchanged` and retains the same digest. <!-- 2026-07-30 built server -->
 - [x] A lower minimum version resolves the installed higher version and reports distinct requested/resolved versions. <!-- 2026-07-30 built server -->
+- [x] Omitting app ID for an ordinary uniquely named package resolves the same validated package. <!-- 2026-07-30 built server -->
+- [x] Replacing deliberately corrupt local cache bytes returns `replaced`, restores a NAVX package, and reports its matching digest. <!-- 2026-07-30 built server; temporary project only -->
+- [x] Two simultaneous identical calls against an empty destination serialize into one `downloaded` and one `unchanged` result at the same path. <!-- 2026-07-30 built server -->
+- [x] A large Microsoft Base Application dependency downloads and validates within the default bounds. <!-- 2026-07-30 built server -->
+- [x] The special Microsoft Application concept downloads without app ID; repeating with an irrelevant supplied ID omits it and returns `unchanged` at the same path. <!-- 2026-07-30 built server -->
+- [x] A no-source object returns the neutral empty result and does not claim that every base-application object lacks source. <!-- 2026-07-30 SaaS REST route -->
+- [x] A mistyped project path returns `CONFIGURATION_ERROR` and is not created. <!-- 2026-07-30 built server; no package request made by deterministic core test -->
 - [x] Too-new version, wrong app ID, and unknown name selectors return typed `NOT_FOUND` errors and leave no temporary files. <!-- 2026-07-30 built server -->
-- [x] Corrupt/missing symbols, identity/version mismatch, size/timeout bounds, unsafe names, safe replacement, cleanup, and on-prem/cloud URL shapes are deterministic unit tests. <!-- 2026-07-30 -->
+- [x] Corrupt/missing symbols, identity/version mismatch, size/timeout bounds, compiler-compatible safe naming, authorization propagation, pre-request project validation, error-body cancellation, symlink refusal, safe replacement, cleanup, and on-prem/cloud URL shapes are deterministic unit tests. <!-- 2026-07-30 -->
 - [x] No Production call is made. <!-- 2026-07-30: SaaS Sandbox GET requests only -->
 
 ## Break-on-record-write triage (SaaS Sandbox)
