@@ -10,7 +10,8 @@ export interface SourceContentResult {
 
 export function sourceContentUrl(c: ConnectionConfig, objectType: number, objectId: number): string {
   // WIRE: GET dev/sourcecontent?type=<int>&id=<int>[&tenant=] (dep-decomp SourceContentApiClient.GetSource),
-  // requires DevApiFeature.GetSourceCode => dev API 2.0 (dep-decomp DevApiFeatureExtensions.cs). Validated live 2026-07-04.
+  // requires DevApiFeature.GetSourceCode => dev API 2.0 (dep-decomp DevApiFeatureExtensions.cs).
+  // Validated live on BC28 on-prem 2026-07-04 and SaaS Sandbox 2026-07-30.
   const params = new URLSearchParams({ type: String(objectType), id: String(objectId) });
   if (c.tenant) params.set("tenant", c.tenant);
   return `${baseClientUrl(c)}dev/sourcecontent?${params.toString()}`;

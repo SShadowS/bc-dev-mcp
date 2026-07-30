@@ -31,6 +31,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break on all or unhandled errors only, record-write breaks (optionally skipping temp records), stack + variables + watch, stepping, abort/release at a break |
 | **Record-write triage** | Arm a bounded capture for one numeric table ID, automatically continue every global record-write stop, and group exact matching writer stacks while failing closed on unresolved evidence |
 | **BC native MCP passthrough** | Dynamically discover and invoke BC28 business-action, AL-runtime, and paused-debugger native MCP tools from the same agent |
+| **On-demand source & symbols** | Read one deployed server object or download one validated installed `.app` package into the project’s `.alpackages` cache |
 | **Debug-a-test** | Test run bound to the debug session — breakpoints fire during test execution |
 | **Config auto-discovery** | Server/instance/tenant read from the AL project's `.vscode/launch.json` |
 | **Preflight diagnostics** | `bcdev_status` distinguishes unreachable / bad credentials / unsupported dev API |
@@ -79,6 +80,7 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 5. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
 6. To find writers of one table without stepping through every stop: `bcdev_record_writes_start { tableId: 18 }` → trigger the matching workload → check `bcdev_record_writes_status` → call `bcdev_record_writes_finish` for grouped stacks.
 7. To use Business Central's own MCP catalog: `bcdev_native_list { company: "...", context: "business" }` → inspect the returned schemas → `bcdev_native_call` with one exact returned tool name.
+8. For off-disk code or missing symbols: use `bcdev_source { objectType, objectId }`, or `bcdev_package_download { publisher, appName, version, appId }` for one installed package.
 
 Debugger attach returns as soon as Business Central accepts the request; binding is asynchronous. With no selector it binds the next session of the `breakOnNext` client type. Pass `userId` to filter that next session by Business Central user, or pass a known positive `sessionId` to attach to an existing NST session. `sessionId` and `userId` are mutually exclusive; exact `sessionId` targeting takes precedence over `breakOnNext`. `bcdev_debug_wait` reports `{ kind: "sessionBound", sessionId, hostId }` after binding; `hostId` may be null when Business Central omits that optional field. If identity lookup fails, it reports a nonfatal warning-form `sessionBound` event and debugging remains active. If Business Central emits a fatal user-filter rejection before `sessionBound`, the debugger tears down without binding or delivering breaks and reports an actionable `fatal` event.
 
@@ -127,6 +129,7 @@ src/core/  (pure library — typed returns, injected deps)
   |-- authorization.ts   Basic or cached Azure CLI authorization provider
   |-- server-info.ts     GET dev/metadata, feature gates
   |-- native-mcp.ts      BC cloud Streamable HTTP MCP client and trusted routing
+  |-- package-download.ts bounded, validated dev/packages download into .alpackages
   |-- al-objects.ts      file <-> (objectType, objectId) index, test discovery
   |-- hubs/test-runner-hub.ts ──> <server>/BC/dev/TestRunnerHub   (SignalR)
   |-- hubs/debugger-hub.ts    ──> <server>/BC/dev/DebuggerHub     (SignalR)
@@ -153,6 +156,7 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_record_writes_status` | Read current write-triage lifecycle and classification counts without driving collection |
 | `bcdev_record_writes_finish` | Release/stop collection and return grouped exact writer stacks plus unresolved evidence |
 | `bcdev_source` | Read the server’s deployed AL source for an object not on local disk |
+| `bcdev_package_download` | Download one validated installed dependency/symbol `.app` into `<project>/.alpackages` |
 | `bcdev_native_list` | List the dynamic BC28 native tool catalog for business, AL runtime, or a paused debugger |
 | `bcdev_native_call` | Invoke one exact native tool and preserve its complete upstream result |
 | `bcdev_profile_status` | Preflight the snapshot-debugger endpoint; report whether sampling CPU profiling is supported |
@@ -215,6 +219,24 @@ This passthrough supports cloud Sandbox and Production targets. Live acceptance 
 Its contexts intentionally match the verified BC28 surface and do not include native profiling;
 the existing `bcdev_profile_*` snapshot tools are separate and unchanged.
 
+## On-demand source and symbols
+
+`bcdev_source` reads the deployed source for one numeric object identity. Use it when a debugger
+frame or coverage row has no local file. Empty content with `isAlContent:false` means Business
+Central did not expose deployed AL source; the tool does not substitute potentially stale local
+source.
+
+`bcdev_package_download` retrieves one explicitly identified installed `.app` through
+`dev/packages` and writes it to the selected project’s `.alpackages` directory. Supply the
+publisher, name, four-part minimum version, and app ID when known. Business Central may resolve a
+higher installed version; the result reports both requested and resolved versions.
+
+The package is size- and time-bounded, validated through `SymbolReference.json`, checked against
+the requested identity, hashed, and only then installed under a filename derived from the returned
+metadata. A byte-identical file returns `unchanged`; different validated server bytes replace the
+same package path. This is deliberately a single-package operation, not dependency enumeration or
+full Download Symbols synchronization.
+
 ## Profiling
 
 `bcdev_profile_*` **captures** a CPU profile; it does not itself drive BC. The division of labour is
@@ -252,6 +274,7 @@ Validated end-to-end against a live BC28 in `scripts/e2e-profile-results-2026-07
 The server ships its own operational manual as [Agent Skills](https://agentskills.io) over MCP
 resources (draft [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)):
 `skill://bc-al-testing/SKILL.md`, `skill://bc-al-debugging/SKILL.md`,
+`skill://bc-al-source-symbols/SKILL.md`,
 `skill://bc-native-mcp/SKILL.md`, discovery index at
 `skill://index.json`. Clients that understand the `io.modelcontextprotocol/skills` extension pick
 these up automatically; everything else sees them as plain readable resources.
@@ -358,6 +381,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 | `src/core/coverage-gaps.ts` | Exact join between changed procedures and TestRunnerHub coverage evidence |
 | `src/core/record-write-triage.ts` | Source-aware runtime table classification and bounded writer-stack collector |
 | `src/core/native-mcp.ts` | BC cloud native MCP routing, lifecycle, and SDK transport |
+| `src/core/package-download.ts` | Bounded package retrieval, symbol identity validation, and safe `.alpackages` installation |
 | `scripts/e2e.md` | Real-server wire-assumption checklist + known server behaviours |
 
 ## Roadmap
@@ -372,7 +396,7 @@ Ordered by intent, not commitment:
 6. **Test orchestration** — **shipped.** Repeat one selected test plan, retain every enriched run, diff adjacent passed/failed sets, and flag flaky or incomplete method outcomes.
 7. **Break-on-record-write triage** — **shipped.** Arm bounded write triage for one numeric table ID and automatically collect grouped exact writer stacks.
 8. **BC native MCP passthrough** — **shipped.** Dynamically list and invoke BC28 cloud business-action, AL-runtime, and active-debugger native tools through one agent-facing bridge while retaining complete upstream results.
-9. **On-demand source & symbols** — fetch a server object's source, or download a single dependency package, without leaving the agent.
+9. **On-demand source & symbols** — **shipped.** Read a deployed server object with `bcdev_source`, or download one validated installed dependency package into `.alpackages` with `bcdev_package_download`.
 
 ## Development
 

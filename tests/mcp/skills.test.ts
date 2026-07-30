@@ -17,6 +17,7 @@ describe("skills embedding", () => {
     const skills = await collectSkills(join(repoRoot, "skills"));
     expect(skills.map((s) => s.name)).toEqual([
       "bc-al-debugging",
+      "bc-al-source-symbols",
       "bc-al-testing",
       "bc-native-mcp",
     ]);
@@ -37,7 +38,7 @@ describe("skills embedding", () => {
       skills: Array<{ name: string; type: string; description: string; url: string }>;
     };
     expect(index.$schema).toBe("https://schemas.agentskills.io/discovery/0.2.0/schema.json");
-    expect(index.skills).toHaveLength(3);
+    expect(index.skills).toHaveLength(4);
     for (const entry of index.skills) {
       expect(entry.type).toBe("skill-md");
       expect(entry.url).toBe(`skill://${entry.name}/SKILL.md`);
