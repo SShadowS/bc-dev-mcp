@@ -134,6 +134,17 @@ describe("zip reader", () => {
     expect(() => extractEntry(Uint8Array.from(buf), "trunc.bin")).toThrow(/corrupt zip/);
   });
 
+  test("bounds DEFLATE output even when the archive understates its uncompressed size", () => {
+    const zip = Buffer.from(buildZip([{
+      name: "large.txt",
+      content: Buffer.alloc(4096, 0x41),
+      method: 8,
+    }]));
+    const cdOff = zip.readUInt32LE(zip.length - 22 + 16);
+    zip.writeUInt32LE(1, cdOff + 24);
+    expect(() => extractEntry(zip, "large.txt", 128)).toThrow();
+  });
+
   test("extracts each member of a genuine multi-entry archive by name", () => {
     const a = Buffer.from('{"which":"a"}');
     const b = Buffer.from('{"which":"b","pad":"xxxxxxxxxxxxxxxx"}');

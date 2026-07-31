@@ -37,7 +37,7 @@ Never record access tokens, Authorization headers, authenticated URLs, or unreda
 - [x] SaaS `GET dev/sourcecontent` returns deployed AL source for an exposed object using the same encoded environment base and tenant query. <!-- 2026-07-30 built-server validation; see scripts/e2e-on-demand-source-symbols-2026-07-30.md -->
 - [x] `GET dev/packages` accepts `publisher`, `appName`, `versionText`, optional `appId`, and tenant; a lower `versionText` can resolve a higher installed package. <!-- 2026-07-30 exact/lower/negative SaaS selectors; see dated evidence -->
 - [x] A successful package response is a NAVX/ZIP containing top-level `SymbolReference.json` identity fields `AppId`, `Name`, `Publisher`, and `Version`. <!-- 2026-07-30 validated before local install -->
-- [x] The case-insensitive `Application` concept request omits `appId`; the SaaS endpoint resolves the installed aggregate package by publisher/name/minimum version. <!-- 2026-07-30 built-server validation with omitted and deliberately irrelevant supplied IDs -->
+- [x] The case-insensitive Microsoft `Application` concept request omits `appId`; the SaaS endpoint resolves the installed aggregate package by publisher/name/minimum version. Third-party apps with that name retain ordinary app-ID selection. <!-- 2026-07-30 built-server validation with omitted and deliberately irrelevant supplied IDs; third-party fail-safe behavior deterministic-tested 2026-07-31 -->
 
 ## Scenarios
 
@@ -93,7 +93,7 @@ Evidence belongs in `scripts/e2e-on-demand-source-symbols-2026-07-30.md`.
 - [x] A no-source object returns the neutral empty result and does not claim that every base-application object lacks source. <!-- 2026-07-30 SaaS REST route -->
 - [x] A mistyped project path returns `CONFIGURATION_ERROR` and is not created. <!-- 2026-07-30 built server; no package request made by deterministic core test -->
 - [x] Too-new version, wrong app ID, and unknown name selectors return typed `NOT_FOUND` errors and leave no temporary files. <!-- 2026-07-30 built server -->
-- [x] Corrupt/missing symbols, identity/version mismatch, size/timeout bounds, compiler-compatible safe naming, authorization propagation, pre-request project validation, error-body cancellation, symlink refusal, safe replacement, cleanup, and on-prem/cloud URL shapes are deterministic unit tests. <!-- 2026-07-30 -->
+- [x] Corrupt/missing symbols, identity/version mismatch, compressed and inflated size bounds, adjustable timeout bounds, identity-derived safe naming, authorization propagation, pre-request project validation, error-body cancellation, symlink/Windows-junction refusal, backup-swap success/restoration, cleanup, and on-prem/cloud URL shapes are deterministic unit tests. <!-- 2026-07-30, expanded 2026-07-31 after review -->
 - [x] No Production call is made. <!-- 2026-07-30: SaaS Sandbox GET requests only -->
 
 ## Break-on-record-write triage (SaaS Sandbox)

@@ -7,8 +7,12 @@ import { extractEntry } from "./snapshot/zip";
 import type { ConnectionConfig } from "./types";
 import { baseClientUrl } from "./urls";
 
-const DEFAULT_TIMEOUT_MS = 120_000;
-const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+export const DEFAULT_PACKAGE_DOWNLOAD_TIMEOUT_MS = 120_000;
+export const MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS = 300_000;
+export const DEFAULT_PACKAGE_DOWNLOAD_BYTES = 256 * 1024 * 1024;
+export const MAX_PACKAGE_DOWNLOAD_BYTES = 512 * 1024 * 1024;
+export const MAX_PACKAGE_SELECTOR_LENGTH = 250;
+const DEFAULT_SYMBOL_REFERENCE_BYTES = 512 * 1024 * 1024;
 const MAX_VERSION_PART = 2_147_483_647;
 const GUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const installTails = new Map<string, Promise<void>>();
@@ -22,11 +26,20 @@ export interface PackageSelector {
 
 interface NormalizedPackageSelector extends PackageSelector {
   versionParts: readonly [number, number, number, number];
+  requestedAppId?: string;
+}
+
+export interface PackageInstallFileOps {
+  rename(source: string, destination: string): Promise<void>;
+  remove(path: string): Promise<void>;
 }
 
 export interface PackageDownloadOptions {
   timeoutMs?: number;
   maxBytes?: number;
+  // Test/integration seam for proving the DEFLATE allocation bound without a huge fixture.
+  maxSymbolBytes?: number;
+  installFileOps?: PackageInstallFileOps;
 }
 
 export interface PackageDownloadResult {
@@ -57,6 +70,9 @@ function nonblank(value: unknown, field: "publisher" | "appName"): string {
   if (typeof value !== "string" || value.trim() === "") throw invalid(`${field} must be a nonblank string`);
   const trimmed = value.trim();
   if (/[\r\n]/.test(trimmed)) throw invalid(`${field} must not contain newline characters`);
+  if (trimmed.length > MAX_PACKAGE_SELECTOR_LENGTH) {
+    throw invalid(`${field} must not exceed ${MAX_PACKAGE_SELECTOR_LENGTH} characters`);
+  }
   return trimmed;
 }
 
@@ -75,20 +91,35 @@ function parseVersion(value: unknown, field = "version"): {
   return { text: parts.join("."), parts };
 }
 
+function isApplicationConcept(publisher: string, appName: string): boolean {
+  // Only the Microsoft/Application identity was validated as the special concept selector.
+  // An ordinary third-party app named Application retains its app ID and identity check.
+  return publisher.toLowerCase() === "microsoft" && appName.toLowerCase() === "application";
+}
+
 function normalizeSelector(selector: PackageSelector): NormalizedPackageSelector {
   const publisher = nonblank(selector.publisher, "publisher");
   const appName = nonblank(selector.appName, "appName");
   const version = parseVersion(selector.version);
   let appId: string | undefined;
+  let requestedAppId: string | undefined;
   if (selector.appId !== undefined) {
     if (typeof selector.appId !== "string" || !GUID.test(selector.appId.trim())) {
       throw invalid("appId must be a GUID");
     }
-    // WIRE: Application is a concept reference rather than an app-ID reference, so the
-    // official AL client omits appId even when its specification carries one.
-    if (appName.toLowerCase() !== "application") appId = selector.appId.trim().toLowerCase();
+    requestedAppId = selector.appId.trim().toLowerCase();
+    // WIRE: BC28 SaaS resolves the case-insensitive Microsoft/Application concept without appId and
+    // ignores a deliberately supplied ID. See scripts/e2e-on-demand-source-symbols-2026-07-30.md.
+    if (!isApplicationConcept(publisher, appName)) appId = requestedAppId;
   }
-  return { publisher, appName, version: version.text, versionParts: version.parts, ...(appId ? { appId } : {}) };
+  return {
+    publisher,
+    appName,
+    version: version.text,
+    versionParts: version.parts,
+    ...(appId ? { appId } : {}),
+    ...(requestedAppId ? { requestedAppId } : {}),
+  };
 }
 
 function packageUrl(c: ConnectionConfig, selector: NormalizedPackageSelector): string {
@@ -97,16 +128,14 @@ function packageUrl(c: ConnectionConfig, selector: NormalizedPackageSelector): s
     appName: selector.appName,
     versionText: selector.version,
   });
-  // WIRE: PackagesApiClient.DownloadPackage sends appId except for the case-insensitive
-  // "Application" concept reference (dep-decomp PackagesApiClient.cs and
-  // al-codeanalysis-decomp SymbolReferenceSpecification.IsApplicationConceptReference).
-  if (selector.appId && selector.appName.toLowerCase() !== "application") {
+  // WIRE: BC28 SaaS accepts appId for ordinary packages and omits it for the case-insensitive
+  // Microsoft/Application concept. See scripts/e2e-on-demand-source-symbols-2026-07-30.md.
+  if (selector.appId) {
     params.set("appId", selector.appId);
   }
   if (c.tenant) params.set("tenant", c.tenant);
-  // WIRE: the official AL client downloads one package with GET dev/packages and the
-  // publisher/appName/versionText selector above (dep-decomp PackagesApiClient.cs).
-  // Validated live on BC28 on-prem 2026-07-04 and SaaS Sandbox 2026-07-30.
+  // WIRE: BC28 SaaS downloads one package with GET dev/packages and the
+  // publisher/appName/versionText selector above. Validated 2026-07-30; see the dated evidence.
   return `${baseClientUrl(c)}dev/packages?${params.toString()}`;
 }
 
@@ -160,10 +189,14 @@ function protocolError(
   );
 }
 
-function packageIdentity(bytes: Buffer, selector: NormalizedPackageSelector): PackageIdentity {
+function packageIdentity(
+  bytes: Buffer,
+  selector: NormalizedPackageSelector,
+  maxSymbolBytes: number,
+): PackageIdentity {
   let symbolBytes: Buffer | null;
   try {
-    symbolBytes = extractEntry(bytes, "SymbolReference.json");
+    symbolBytes = extractEntry(bytes, "SymbolReference.json", maxSymbolBytes);
   } catch (error) {
     throw protocolError("Business Central returned an invalid application package archive", {}, error);
   }
@@ -230,9 +263,8 @@ function packageIdentity(bytes: Buffer, selector: NormalizedPackageSelector): Pa
 }
 
 function packageFilename(identity: PackageIdentity): string {
-  // WIRE: NavAppManifest.DefaultPackageName builds Publisher_Name_Version, then
-  // FileNameUtilities.SanitizeFilename removes invalid filename/path characters
-  // (al-codeanalysis-decomp NavAppManifest.cs and FileNameUtilities.cs).
+  // SAFETY: derive the destination from the validated package identity instead of trusting a
+  // response filename, and remove the Windows invalid/control character set on every platform.
   const defaultName = `${identity.publisher}_${identity.appName}_${identity.version}`;
   const safe = defaultName.replace(/[\u0000-\u001f<>:"/\\|?*]/g, "");
   if (safe === "") throw protocolError("Business Central returned package identity that cannot form a safe filename");
@@ -330,9 +362,19 @@ async function existingFile(path: string): Promise<Buffer | null> {
   }
 }
 
-async function replaceValidatedFile(tempPath: string, destination: string, hadExisting: boolean): Promise<void> {
+const defaultInstallFileOps: PackageInstallFileOps = {
+  rename: async (source, destination) => rename(source, destination),
+  remove: async (path) => rm(path, { force: true }),
+};
+
+async function replaceValidatedFile(
+  tempPath: string,
+  destination: string,
+  hadExisting: boolean,
+  fileOps: PackageInstallFileOps,
+): Promise<void> {
   try {
-    await rename(tempPath, destination);
+    await fileOps.rename(tempPath, destination);
     return;
   } catch (error) {
     // POSIX rename replaces an existing file atomically. Windows can reject that with
@@ -341,14 +383,16 @@ async function replaceValidatedFile(tempPath: string, destination: string, hadEx
   }
 
   const backup = `${destination}.${randomUUID()}.backup`;
-  await rename(destination, backup);
+  await fileOps.rename(destination, backup);
+  // A process crash after this rename can leave only the ignored .backup. A later validated
+  // download recreates the canonical destination; the backup remains evidence, never a partial app.
   try {
-    await rename(tempPath, destination);
+    await fileOps.rename(tempPath, destination);
   } catch (error) {
-    await rename(backup, destination).catch(() => undefined);
+    await fileOps.rename(backup, destination).catch(() => undefined);
     throw error;
   }
-  await rm(backup, { force: true });
+  await fileOps.remove(backup);
 }
 
 async function withInstallLock<T>(destination: string, operation: () => Promise<T>): Promise<T> {
@@ -368,19 +412,36 @@ async function withInstallLock<T>(destination: string, operation: () => Promise<
   }
 }
 
-async function installPackage(projectRoot: string, filename: string, bytes: Buffer, sha256: string): Promise<{
+async function installPackage(
+  projectRoot: string,
+  filename: string,
+  bytes: Buffer,
+  sha256: string,
+  fileOps: PackageInstallFileOps,
+): Promise<{
   status: PackageDownloadResult["status"];
   packagePath: string;
 }> {
   const packageDir = join(projectRoot, ".alpackages");
   try {
     await mkdir(packageDir, { recursive: true });
-    const packageDirStat = await lstat(packageDir);
-    if (!packageDirStat.isDirectory() || packageDirStat.isSymbolicLink()) {
-      throw new Error(".alpackages is not a direct directory");
-    }
   } catch (error) {
     throw filesystemError("Unable to create the AL package directory", packageDir, error);
+  }
+  let packageDirStat;
+  try {
+    packageDirStat = await lstat(packageDir);
+  } catch (error) {
+    throw filesystemError("Unable to inspect the AL package directory", packageDir, error);
+  }
+  if (!packageDirStat.isDirectory() || packageDirStat.isSymbolicLink()) {
+    throw new BcDevError(
+      "CONFIGURATION_ERROR",
+      "AL package directory must be a direct directory, not a file, symlink, or junction",
+      "configuration",
+      false,
+      { path: packageDir },
+    );
   }
 
   const packagePath = join(packageDir, filename);
@@ -393,11 +454,11 @@ async function installPackage(projectRoot: string, filename: string, bytes: Buff
     const tempPath = join(packageDir, `.${filename}.${randomUUID()}.tmp`);
     try {
       await writeFile(tempPath, bytes, { flag: "wx" });
-      await replaceValidatedFile(tempPath, packagePath, existing !== null);
+      await replaceValidatedFile(tempPath, packagePath, existing !== null, fileOps);
     } catch (error) {
       throw filesystemError("Unable to install the downloaded AL package", packagePath, error);
     } finally {
-      await rm(tempPath, { force: true }).catch(() => undefined);
+      await fileOps.remove(tempPath).catch(() => undefined);
     }
     return { status: existing === null ? "downloaded" : "replaced", packagePath };
   });
@@ -421,10 +482,20 @@ export async function downloadPackage(
   options: PackageDownloadOptions = {},
 ): Promise<PackageDownloadResult> {
   const selector = normalizeSelector(requested);
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_PACKAGE_DOWNLOAD_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? DEFAULT_PACKAGE_DOWNLOAD_BYTES;
+  const maxSymbolBytes = options.maxSymbolBytes ?? DEFAULT_SYMBOL_REFERENCE_BYTES;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw invalid("package download timeout must be positive");
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw invalid("package download size limit must be positive");
+  if (timeoutMs > MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS) {
+    throw invalid(`package download timeout cannot exceed ${MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS} ms`);
+  }
+  if (maxBytes > MAX_PACKAGE_DOWNLOAD_BYTES) {
+    throw invalid(`package download size limit cannot exceed ${MAX_PACKAGE_DOWNLOAD_BYTES} bytes`);
+  }
+  if (!Number.isSafeInteger(maxSymbolBytes) || maxSymbolBytes <= 0 || maxSymbolBytes > DEFAULT_SYMBOL_REFERENCE_BYTES) {
+    throw invalid(`package symbol size limit must be between 1 and ${DEFAULT_SYMBOL_REFERENCE_BYTES} bytes`);
+  }
   const projectRoot = await requireAlProject(project);
   const authorizationHeader = await authorization.getAuthorizationHeader();
 
@@ -453,14 +524,15 @@ export async function downloadPackage(
       await cancelUnusedBody(response);
       throw new BcDevError(
         "NOT_FOUND",
-        `No installed Business Central package matched ${selector.publisher}/${selector.appName} at version ${selector.version} or newer`,
+        `No installed Business Central package matched ${selector.publisher}/${selector.appName} at version ${selector.version} or newer, or this server does not expose dev/packages`,
         "server",
         false,
         {
           publisher: selector.publisher,
           appName: selector.appName,
           version: selector.version,
-          appId: selector.appId ?? null,
+          appId: selector.requestedAppId ?? null,
+          appIdSent: selector.appId !== undefined,
         },
       );
     }
@@ -499,9 +571,15 @@ export async function downloadPackage(
     clearTimeout(timeout);
   }
 
-  const identity = packageIdentity(bytes, selector);
+  const identity = packageIdentity(bytes, selector, maxSymbolBytes);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const installed = await installPackage(projectRoot, packageFilename(identity), bytes, sha256);
+  const installed = await installPackage(
+    projectRoot,
+    packageFilename(identity),
+    bytes,
+    sha256,
+    options.installFileOps ?? defaultInstallFileOps,
+  );
   return {
     ...installed,
     publisher: identity.publisher,

@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { downloadPackage } from "../../core/package-download";
+import {
+  DEFAULT_PACKAGE_DOWNLOAD_BYTES,
+  DEFAULT_PACKAGE_DOWNLOAD_TIMEOUT_MS,
+  downloadPackage,
+  MAX_PACKAGE_DOWNLOAD_BYTES,
+  MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS,
+  MAX_PACKAGE_SELECTOR_LENGTH,
+} from "../../core/package-download";
 import { fetchSourceContent, type SourceContentResult } from "../../core/source-content";
 import type { ServerState } from "../state";
 import { connectionShape, resolve, type ToolDefinition, type ToolDeps } from "./shared";
@@ -57,7 +64,7 @@ export function createSourceTools(state: ServerState, deps: ToolDeps): ToolDefin
       name: "bcdev_package_download",
       title: "Download one AL dependency package",
       description:
-        "Download one explicitly identified installed Business Central .app dependency/symbol package into <project>/.alpackages. The version is a minimum; this does not enumerate or synchronize dependencies.",
+        "Download one explicitly identified installed Business Central .app dependency/symbol package into <project>/.alpackages. The version is a minimum; a 404 can also mean the server lacks dev/packages. This does not enumerate or synchronize dependencies.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -66,10 +73,10 @@ export function createSourceTools(state: ServerState, deps: ToolDeps): ToolDefin
       },
       schema: {
         ...connectionShape,
-        publisher: z.string().trim().min(1)
+        publisher: z.string().trim().min(1).max(MAX_PACKAGE_SELECTOR_LENGTH)
           .regex(/^[^\r\n]+$/, "publisher must not contain newline characters")
           .describe("Installed package publisher"),
-        appName: z.string().trim().min(1)
+        appName: z.string().trim().min(1).max(MAX_PACKAGE_SELECTOR_LENGTH)
           .regex(/^[^\r\n]+$/, "appName must not contain newline characters")
           .describe("Installed package name"),
         version: z.string().trim()
@@ -79,6 +86,12 @@ export function createSourceTools(state: ServerState, deps: ToolDeps): ToolDefin
           .regex(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i, "appId must be a GUID")
           .optional()
           .describe("Package app ID when known; omitted for publisher/name selection and the special Application package"),
+        timeoutMs: z.number().int().min(1).max(MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS).optional().describe(
+          `Whole-request timeout in milliseconds (default ${DEFAULT_PACKAGE_DOWNLOAD_TIMEOUT_MS}; maximum ${MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS})`,
+        ),
+        maxBytes: z.number().int().min(1).max(MAX_PACKAGE_DOWNLOAD_BYTES).optional().describe(
+          `Maximum compressed package download size in bytes (default ${DEFAULT_PACKAGE_DOWNLOAD_BYTES}; maximum ${MAX_PACKAGE_DOWNLOAD_BYTES})`,
+        ),
       },
       outputSchema: z.object({
         status: z.enum(["downloaded", "replaced", "unchanged"])
@@ -111,6 +124,10 @@ export function createSourceTools(state: ServerState, deps: ToolDeps): ToolDefin
             appId: params["appId"] as string | undefined,
           },
           deps.fetchFn,
+          {
+            timeoutMs: params["timeoutMs"] as number | undefined,
+            maxBytes: params["maxBytes"] as number | undefined,
+          },
         );
       },
     },

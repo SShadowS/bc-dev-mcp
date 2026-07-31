@@ -40,10 +40,16 @@ for the same returned identity/version, and `"unchanged"` retained a byte-identi
 - The output directory is fixed to `.alpackages`; there is no arbitrary destination.
   Packages are bounded, validated through `SymbolReference.json`, hashed, and installed
   only after the complete response passes validation.
+- Package requests default to 120 seconds and 256 MiB. If a legitimate package exceeds a
+  default, set `timeoutMs` or `maxBytes` deliberately; the hard limits are 300 seconds and
+  512 MiB, and inflated `SymbolReference.json` output has its own 512 MiB cap.
 - The selected project must already be an AL project with an `app.json`. A missing or
   mistyped project path is rejected before authentication or download and is never created.
-- For the special Microsoft `Application` concept package, omit `appId`; the official
-  package request selects it by publisher, name, and minimum version.
+- For the special Microsoft `Application` concept package, omit `appId`; the validated
+  package request selects it by publisher, name, and minimum version. Third-party apps named
+  `Application` remain ordinary app-ID selectors.
+- `NOT_FOUND` cannot distinguish a missing package from an older server that does not expose
+  `dev/packages`; confirm server capability when a known installed package returns that code.
 - A downloaded package supplies compiler symbols and may contain source according to the
   publisher's resource-exposure policy. The tool does not extract or claim source that
   Business Central did not expose through `bcdev_source`.

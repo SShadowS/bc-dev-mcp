@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { rename as renameFile, rm as removeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { BasicAuthorizationProvider } from "../../src/core/authorization";
@@ -8,10 +9,11 @@ import { BcDevError } from "../../src/core/agent-errors";
 import {
   downloadPackage,
   packageDownloadUrl,
+  type PackageInstallFileOps,
   type PackageSelector,
 } from "../../src/core/package-download";
 import type { ConnectionConfig } from "../../src/core/types";
-import { buildAppPackage, buildStoredZip } from "../fixtures/app-package";
+import { buildAppPackage, buildDeflatedZip, buildStoredZip } from "../fixtures/app-package";
 
 const APP_ID = "63ca2fa4-4f03-4f2b-a480-172fef340d3f";
 const OTHER_ID = "00000000-0000-0000-0000-000000000001";
@@ -68,7 +70,7 @@ function responseFetch(
 }
 
 describe("packageDownloadUrl", () => {
-  test("builds the official on-prem selector and tenant query", () => {
+  test("builds the on-prem selector and tenant query", () => {
     expect(packageDownloadUrl(config, selector)).toBe(
       "http://localhost:7049/BC/dev/packages?publisher=Microsoft&appName=System+Application&versionText=28.0.0.0&appId=63ca2fa4-4f03-4f2b-a480-172fef340d3f&tenant=default",
     );
@@ -89,12 +91,19 @@ describe("packageDownloadUrl", () => {
     })).toBe(
       "https://api.businesscentral.dynamics.com/v2.0/My%20Sandbox/dev/packages?publisher=Microsoft&appName=application&versionText=28.0.0.0&tenant=tenant-id",
     );
+    expect(packageDownloadUrl(cloud, {
+      publisher: "Third Party",
+      appName: "Application",
+      version: "28.0.0.0",
+      appId: APP_ID,
+    })).toContain(`appId=${APP_ID}`);
   });
 
   test("rejects malformed selectors before making a request", () => {
     expect(() => packageDownloadUrl(config, { ...selector, publisher: " \n" })).toThrow(/publisher/);
     expect(() => packageDownloadUrl(config, { ...selector, version: "28.0" })).toThrow(/four-part/);
     expect(() => packageDownloadUrl(config, { ...selector, appId: "not-a-guid" })).toThrow(/GUID/);
+    expect(() => packageDownloadUrl(config, { ...selector, appName: "x".repeat(251) })).toThrow(/250 characters/);
   });
 });
 
@@ -156,6 +165,69 @@ describe("downloadPackage", () => {
     expect(replaced.status).toBe("replaced");
     expect(replaced.packagePath).toBe(first.packagePath);
     expect(readFileSync(replaced.packagePath).equals(secondBytes)).toBe(true);
+  });
+
+  test("exercises the Windows backup swap and removes its backup after success", async () => {
+    const dir = project();
+    const firstBytes = appPackage({}, "first");
+    const secondBytes = appPackage({}, "second");
+    const first = await downloadPackage(config, auth, dir, selector, responseFetch(firstBytes));
+    let destinationAttempts = 0;
+    const fileOps: PackageInstallFileOps = {
+      rename: async (source, destination) => {
+        if (source.endsWith(".tmp") && destination === first.packagePath && ++destinationAttempts === 1) {
+          throw Object.assign(new Error("destination locked"), { code: "EPERM" });
+        }
+        await renameFile(source, destination);
+      },
+      remove: async (path) => removeFile(path, { force: true }),
+    };
+
+    const replaced = await downloadPackage(
+      config,
+      auth,
+      dir,
+      selector,
+      responseFetch(secondBytes),
+      { installFileOps: fileOps },
+    );
+    expect(replaced.status).toBe("replaced");
+    expect(destinationAttempts).toBe(2);
+    expect(readFileSync(first.packagePath).equals(secondBytes)).toBe(true);
+    expect(readdirSync(join(dir, ".alpackages")).filter((name) => name.endsWith(".backup"))).toEqual([]);
+  });
+
+  test("restores the original package when the Windows backup swap cannot install the new file", async () => {
+    const dir = project();
+    const firstBytes = appPackage({}, "first");
+    const secondBytes = appPackage({}, "second");
+    const first = await downloadPackage(config, auth, dir, selector, responseFetch(firstBytes));
+    let destinationAttempts = 0;
+    const fileOps: PackageInstallFileOps = {
+      rename: async (source, destination) => {
+        if (source.endsWith(".tmp") && destination === first.packagePath) {
+          destinationAttempts++;
+          throw Object.assign(new Error("destination remains locked"), {
+            code: destinationAttempts === 1 ? "EPERM" : "EACCES",
+          });
+        }
+        await renameFile(source, destination);
+      },
+      remove: async (path) => removeFile(path, { force: true }),
+    };
+
+    await expect(downloadPackage(
+      config,
+      auth,
+      dir,
+      selector,
+      responseFetch(secondBytes),
+      { installFileOps: fileOps },
+    )).rejects.toMatchObject({ code: "CONFIGURATION_ERROR" });
+    expect(destinationAttempts).toBe(2);
+    expect(readFileSync(first.packagePath).equals(firstBytes)).toBe(true);
+    expect(readdirSync(join(dir, ".alpackages")).filter((name) =>
+      name.endsWith(".backup") || name.endsWith(".tmp"))).toEqual([]);
   });
 
   test("serializes simultaneous identical installs into downloaded then unchanged", async () => {
@@ -241,6 +313,25 @@ describe("downloadPackage", () => {
     }
   });
 
+  test("bounds inflated SymbolReference output before JSON parsing", async () => {
+    const symbols = Buffer.alloc(4096, 0x41);
+    const bytes = Buffer.concat([
+      Buffer.from("NAVX"),
+      Buffer.alloc(36),
+      buildDeflatedZip([{ name: "SymbolReference.json", content: symbols }]),
+    ]);
+    const dir = project();
+    await expect(downloadPackage(
+      config,
+      auth,
+      dir,
+      selector,
+      responseFetch(bytes),
+      { maxSymbolBytes: 128 },
+    )).rejects.toMatchObject({ code: "PROTOCOL_ERROR" });
+    expect(readdirSync(dir)).toEqual(["app.json"]);
+  });
+
   test("does not replace an existing package when the new response fails validation", async () => {
     const dir = project();
     const good = appPackage();
@@ -258,7 +349,17 @@ describe("downloadPackage", () => {
     });
     await expect(downloadPackage(config, auth, project(), selector, responseFetch(null, 404))).rejects.toMatchObject({
       code: "NOT_FOUND",
-      details: { appId: APP_ID },
+      details: { appId: APP_ID, appIdSent: true },
+    });
+    await expect(downloadPackage(
+      config,
+      auth,
+      project(),
+      { ...selector, appName: "Application" },
+      responseFetch(null, 404),
+    )).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      details: { appId: APP_ID, appIdSent: false },
     });
     await expect(downloadPackage(config, auth, project(), selector, responseFetch(null, 503))).rejects.toMatchObject({
       code: "SERVER_REJECTED",
@@ -400,16 +501,16 @@ describe("downloadPackage", () => {
     expect(fetches).toBe(0);
   });
 
-  if (process.platform !== "win32") {
-    test("rejects a symlinked .alpackages directory instead of writing outside the project", async () => {
-      const dir = project();
-      const outside = project();
-      mkdirSync(outside, { recursive: true });
-      symlinkSync(outside, join(dir, ".alpackages"), "dir");
-      await expect(downloadPackage(config, auth, dir, selector, responseFetch(appPackage()))).rejects.toMatchObject({
-        code: "CONFIGURATION_ERROR",
-      });
-      expect(readdirSync(outside).filter((name) => name.endsWith(".app"))).toEqual([]);
+  test("rejects a symlink or Windows junction instead of writing outside the project", async () => {
+    const dir = project();
+    const outside = project();
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(dir, ".alpackages"), process.platform === "win32" ? "junction" : "dir");
+    const error = await downloadPackage(config, auth, dir, selector, responseFetch(appPackage())).catch((caught) => caught);
+    expect(error).toMatchObject({
+      code: "CONFIGURATION_ERROR",
+      message: expect.stringContaining("direct directory"),
     });
-  }
+    expect(readdirSync(outside).filter((name) => name.endsWith(".app"))).toEqual([]);
+  });
 });

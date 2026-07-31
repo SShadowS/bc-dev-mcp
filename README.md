@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-645%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-649%20passing-green)]()
 
 ## Overview
 
@@ -236,7 +236,10 @@ The package is size- and time-bounded, validated through `SymbolReference.json`,
 the requested identity, hashed, and only then installed under a filename derived from the returned
 metadata. A byte-identical file returns `unchanged`; different validated server bytes replace the
 same package path. This is deliberately a single-package operation, not dependency enumeration or
-full Download Symbols synchronization.
+full Download Symbols synchronization. The default request bounds are 120 seconds and 256 MiB;
+`timeoutMs` and `maxBytes` can raise them to hard limits of 300 seconds and 512 MiB. Inflated symbol
+metadata is independently capped at 512 MiB. A `NOT_FOUND` response can mean either no installed
+package matched or the target server does not expose `dev/packages`.
 
 ## Profiling
 

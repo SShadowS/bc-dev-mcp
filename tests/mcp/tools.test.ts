@@ -729,6 +729,8 @@ describe("tools", () => {
       appName: "Demo Symbols",
       version: "1.0.0.0",
       appId: "2ca1721e-459e-4745-b96a-803517331326",
+      timeoutMs: 1_000,
+      maxBytes: 1_000_000,
     }) as Record<string, unknown>;
 
     expect(result).toMatchObject({
@@ -743,6 +745,8 @@ describe("tools", () => {
       expect.stringContaining("rerun the AL compile"),
     ]);
     expect(requestUrl).toContain("dev/packages?");
+    expect(JSON.stringify(tool.schema["timeoutMs"])).toContain("300000");
+    expect(JSON.stringify(tool.schema["maxBytes"])).toContain("536870912");
     expect(() => tool.outputSchema.parse(result)).not.toThrow();
   });
 

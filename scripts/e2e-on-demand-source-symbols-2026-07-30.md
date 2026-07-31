@@ -54,13 +54,22 @@ Business Central operation in this run was an HTTP GET.
 
 ## Deterministic gates
 
-- `bun test`: 645 passed, 0 failed.
+- `bun test`: 649 passed, 0 failed after the deterministic review corrections.
 - `bun run typecheck`: passed.
 - `bun run build`: passed; four embedded skills generated.
 - Package URL/query, Application app-ID omission, typed authentication,
   pre-request project validation, timeout, streamed/declared size bounds,
-  corrupt/missing symbols, identity/version mismatch, compiler-compatible safe
-  naming, simultaneous installation, safe replacement, response-body
-  cancellation, symlink refusal, and cleanup are covered by unit tests.
+  corrupt/missing symbols, identity/version mismatch, identity-derived safe
+  naming, simultaneous installation, safe replacement and restoration,
+  response-body cancellation, symlink/junction refusal, bounded DEFLATE output,
+  and cleanup are covered by unit tests.
+
+The post-review corrections were deterministic and made no additional Sandbox
+call: `SymbolReference.json` inflation is capped, the Windows backup-swap success
+and restore paths use injected filesystem faults, the link guard runs as a
+junction test on Windows, selector lengths and caller-adjustable request bounds
+are validated, and 404 details distinguish a supplied app ID from an ID sent on
+the wire. Wire comments now cite this tracked evidence instead of an unavailable
+local decompilation directory.
 
 No Production call was made.
