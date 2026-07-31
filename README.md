@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-622%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-641%20passing-green)]()
 
 ## Overview
 
@@ -24,6 +24,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 |---------|-------------|
 | **Agent-grade responses** | Every success returns schema-validated `structuredContent` plus contextual `nextSteps`; failures use stable, redacted JSON error bodies |
 | **Structured test runs** | Run-level pass/fail/abort counts, per-method duration, parsed AL call stacks, and local source mappings while retaining raw server output |
+| **Test orchestration** | Repeat one test selection, diff adjacent passed/failed sets, retain every run, and classify stable, flaky, inconsistent, or incomplete methods |
 | **Code coverage** | `procedure` mode, mapped back to local source files (`line` mode exists but is unproven against real BC) |
 | **Coverage gap analysis** | Cross a Git diff with exact procedure coverage to report which changed procedures the selected tests did and did not exercise |
 | **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
@@ -74,9 +75,10 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 1. `bcdev_status` — verify reachability, auth, and that test running is supported.
 2. `bcdev_test_discover` — list test codeunits and `[Test]` methods from local `.al` files.
 3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results. Add `coverageAgainst: "origin/main"` for changed-procedure analysis. After publishing the current changed objects to the target, also pass `changesDeployed: true` to permit `covered`/`uncovered` classifications; without that explicit assertion, changed procedures remain `unknown`.
-4. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
-5. To find writers of one table without stepping through every stop: `bcdev_record_writes_start { tableId: 18 }` → trigger the matching workload → check `bcdev_record_writes_status` → call `bcdev_record_writes_finish` for grouped stacks.
-6. To use Business Central's own MCP catalog: `bcdev_native_list { company: "...", context: "business" }` → inspect the returned schemas → `bcdev_native_call` with one exact returned tool name.
+4. `bcdev_test_orchestrate { codeunits: [{ id: 50100 }], runs: 3 }` — repeat the same selection, retain every run, diff adjacent pass/fail sets, and flag flaky methods.
+5. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
+6. To find writers of one table without stepping through every stop: `bcdev_record_writes_start { tableId: 18 }` → trigger the matching workload → check `bcdev_record_writes_status` → call `bcdev_record_writes_finish` for grouped stacks.
+7. To use Business Central's own MCP catalog: `bcdev_native_list { company: "...", context: "business" }` → inspect the returned schemas → `bcdev_native_call` with one exact returned tool name.
 
 Debugger attach returns as soon as Business Central accepts the request; binding is asynchronous. With no selector it binds the next session of the `breakOnNext` client type. Pass `userId` to filter that next session by Business Central user, or pass a known positive `sessionId` to attach to an existing NST session. `sessionId` and `userId` are mutually exclusive; exact `sessionId` targeting takes precedence over `breakOnNext`. `bcdev_debug_wait` reports `{ kind: "sessionBound", sessionId, hostId }` after binding; `hostId` may be null when Business Central omits that optional field. If identity lookup fails, it reports a nonfatal warning-form `sessionBound` event and debugging remains active. If Business Central emits a fatal user-filter rejection before `sessionBound`, the debugger tears down without binding or delivering breaks and reports an actionable `fatal` event.
 
@@ -117,7 +119,7 @@ Azure access tokens are acquired with `az account get-access-token`, cached only
 MCP client (agent)
   |
   v  (stdio)
-src/mcp/server.ts ── tools/ (22 bcdev_* tools) ── state.ts (debug/test/profile ownership)
+src/mcp/server.ts ── tools/ (23 bcdev_* tools) ── state.ts (debug/test/profile ownership)
   |
   v
 src/core/  (pure library — typed returns, injected deps)
@@ -137,6 +139,7 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_status` | Preflight: reachability, auth, dev API version, feature gates |
 | `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files |
 | `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, optional coverage, and Git-aware changed-procedure gaps |
+| `bcdev_test_orchestrate` | Repeat one selection 2–20 times, retain every run, diff adjacent pass/fail sets, and flag flaky/incomplete methods |
 | `bcdev_debug_attach` | Arm next-session/user-filtered attach or target an existing NST session; optionally set breakpoints |
 | `bcdev_debug_run_tests` | Run tests with breakpoints live |
 | `bcdev_debug_wait` | Long-poll for session-bound / break / run-finished lifecycle events |
@@ -188,7 +191,8 @@ requires an exact `company` and one explicit context:
 - `business` lists the dynamic `bc_actions_*` catalog. Pass `configurationName` only when selecting
   a named Business Central MCP configuration.
 - `runtime` lists the BC28 AL runtime catalog. Native runtime calls share the same singleton
-  test-run lock as `bcdev_test_run` and `bcdev_debug_run_tests`.
+  test-run lock as `bcdev_test_run`, `bcdev_test_orchestrate`, and
+  `bcdev_debug_run_tests`.
 - `debugging` lists troubleshooting tools for the active manual debugger. Attach, trigger the
   workload, and wait for a `break` first; a merely bound or resumed session is rejected.
 
@@ -261,9 +265,26 @@ Test runs add `summary`; failed method rows add `failure.message`, `failure.pars
 `failure.callStack` frames. The original `output` and each frame's `raw` text are retained so an
 unrecognized or localized server format never loses evidence. Local source mapping is lazy and
 best-effort: passing runs without coverage do not scan the AL tree, indexes are reused per MCP
-server and project, and an unreadable/missing project returns complete server results plus a
+server and project, and an unreadable/missing project preserves the server evidence plus a
 nonfatal `sourceMappingWarning` that identifies whether call-stack or coverage file mapping was
 unavailable.
+
+Use `bcdev_test_orchestrate` when repeatability is the question. It claims the same singleton
+test-run slot for the entire sequence, executes 2–20 ordinary TestRunnerHub runs sequentially,
+retains each enriched attempt, and returns exact adjacent additions/removals for the passed and failed
+sets. A method is `flaky` only with positive pass-and-fail evidence. Missing or duplicate
+observations, an aborted run, or a run with no real methods forces `complete: false`; mixed
+passed/skipped or failed/skipped observations are `inconsistent`, not mislabeled as flaky.
+If an attempt cannot start, earlier evidence and a final aborted attempt remain in `runs[]`.
+After an aborted attempt, later requested runs are left as missing rather than started while
+the prior server-side run may still be active. Client cancellation is observed between attempts;
+it does not cancel an active Business Central run. `tests[].method` keeps the first requested or
+observed spelling, so its casing can differ from raw server rows. An all-skipped selection retains
+the existing `passed` outcome convention but warns that it contains no passing execution evidence.
+Overlapping codeunit/method selections are rejected, while disjoint method groups for one codeunit
+remain valid. Non-rolled-back test side effects repeat on every attempt.
+Orchestration intentionally does not aggregate coverage — use `bcdev_test_run` for coverage and
+changed-procedure analysis.
 
 Pass `coverageAgainst` to `bcdev_test_run` for roadmap item 5's coverage-gap analysis. The tool
 resolves the ref's merge base with `HEAD`, compares that commit with the current working tree
@@ -325,9 +346,10 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 |------|---------|
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
-| `src/mcp/tools/` | The 22 bcdev_* tool definitions (zod schemas + metadata + handlers) |
+| `src/mcp/tools/` | The 23 bcdev_* tool definitions (zod schemas + metadata + handlers) |
 | `src/mcp/state.ts` | Debug session singleton, event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
+| `src/core/test-orchestration.ts` | Pure repeat-run identity, stability classification, and adjacent pass/fail diff analysis |
 | `src/core/hubs/debugger-hub.ts` | DebuggerHub client (attach, breakpoints, stepping, inspection) |
 | `src/core/hubs/signalr-base.ts` | Hub seam: auth query params, key normalization, `HubProxy` |
 | `src/core/authorization.ts` | Shared Basic/Azure CLI authorization provider and token cache |
@@ -347,7 +369,7 @@ Ordered by intent, not commitment:
 3. **CPU profiling** (`bcdev_profile_*`) — **shipped.** Capture a sampling CPU profile (`.alcpuprofile`, V8 format) of a live session and get back a ranked AL-hotspot summary, not just a blob. Four tools (status/start/poll/finish), validated end-to-end against a live BC28 — a real profile with AL call frames captured through the tools (`scripts/e2e-profile-results-2026-07-04.md`). (Full snapshot recording for VS Code replay shares the same core and stays deferred.)
 4. **Entra ID auth** — **shipped.** Azure CLI-backed cloud sandbox/production access alongside explicit on-prem UserPassword.
 5. **Coverage gap analysis** — **shipped.** Pass `coverageAgainst` to `bcdev_test_run` to cross the merge-base-to-working-tree Git diff with exact procedure coverage and identify covered, uncovered, or unresolved changed procedures.
-6. **Test orchestration** — repeat runs, diff pass/fail sets, flag flaky tests.
+6. **Test orchestration** — **shipped.** Repeat one selected test plan, retain every enriched run, diff adjacent passed/failed sets, and flag flaky or incomplete method outcomes.
 7. **Break-on-record-write triage** — **shipped.** Arm bounded write triage for one numeric table ID and automatically collect grouped exact writer stacks.
 8. **BC native MCP passthrough** — **shipped.** Dynamically list and invoke BC28 cloud business-action, AL-runtime, and active-debugger native tools through one agent-facing bridge while retaining complete upstream results.
 9. **On-demand source & symbols** — fetch a server object's source, or download a single dependency package, without leaving the agent.

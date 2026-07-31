@@ -12,7 +12,7 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
         : ["Use a Business Central server with developer API 7.0 or newer for test and debugger tools."];
     case "bcdev_test_discover":
       return Array.isArray(result["tests"]) && result["tests"].length > 0
-        ? ["Call bcdev_test_run with the returned codeunit IDs."]
+        ? ["Call bcdev_test_run with the returned codeunit IDs, or bcdev_test_orchestrate when repeatability is the question."]
         : [];
     case "bcdev_test_run": {
       const summary = result["summary"] as Record<string, unknown> | undefined;
@@ -40,6 +40,24 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
         steps.push("Review coverageGaps warnings and resolve incomplete discovery or an aborted run before using the result as a gate.");
       }
       return steps;
+    }
+    case "bcdev_test_orchestrate": {
+      if (result["outcome"] === "incomplete") {
+        return [
+          "Review orchestration warnings and aborted raw runs, correct the server or test selection, then rerun bcdev_test_orchestrate before making a stability claim.",
+        ];
+      }
+      if (result["outcome"] === "unstable") {
+        return [
+          "Rerun only the methods classified flaky or inconsistent to reproduce each transition, then use bcdev_debug_attach and bcdev_debug_run_tests on the smallest unstable selection.",
+        ];
+      }
+      if (result["outcome"] === "failed") {
+        return [
+          "Use bcdev_debug_attach and bcdev_debug_run_tests for the methods classified stableFailed.",
+        ];
+      }
+      return [];
     }
     case "bcdev_debug_attach":
       return params["sessionId"] === undefined
@@ -152,8 +170,8 @@ export function withAgentResponses(tool: ToolDefinition): ToolDefinition {
   return {
     ...tool,
     outputSchema,
-    handler: async (params) => {
-      const value = await handler(params);
+    handler: async (params, context) => {
+      const value = await handler(params, context);
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
         throw new Error(`Tool ${tool.name} returned a non-object success result`);
       }

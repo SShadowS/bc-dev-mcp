@@ -43,7 +43,32 @@ Never record access tokens, Authorization headers, authenticated URLs, or unreda
 - [x] bcdev_test_run with two codeunits: results for both, sequential execution. <!-- 2026-07-03: confirmed against BC28, codeunits 132536 + 132606 -->
 - [x] bcdev_debug_attach + bcdev_debug_run_tests + bcdev_debug_wait → break → bcdev_debug_variables → bcdev_debug_continue → testRunFinished. <!-- 2026-07-03 round 3 (fix 56f32de): full tool-level flow validated end-to-end against BC28 — attach (no fatal queued), started:true, break-on-error event w/ 2-frame stack, variables + eval at frame 0, stepOver → step break, continue → testRunFinished with results attached; detach + immediate re-attach both clean. See "Round 3" in scripts/e2e-results-2026-07-03.md -->
 - [x] bcdev_debug_detach mid-break: BC session released (check server). <!-- 2026-07-03 round 2: raw StopDebugging+disconnect while held at a break released the session immediately; test completed as failed with "The debugger stopped the current activity."; Get-NAVServerSession shows no leftovers -->
-- [ ] tools/list shows title/annotations/outputSchema for all 20 tools; resources/list shows the three skill:// resources.
+- [ ] tools/list shows title/annotations/outputSchema for all 23 tools; resources/list shows the three skill:// resources.
+
+## Test orchestration (SaaS Sandbox, BC28)
+
+Run only against the existing disposable SaaS Sandbox test fixture. Never retain tenant,
+environment, company, user, token, authorization, authenticated URL, or raw server payloads.
+Evidence belongs in `scripts/e2e-test-orchestration-2026-07-29.md`.
+
+- [x] `bcdev_test_orchestrate` repeats a known passing method three times sequentially,
+  returns three enriched raw runs, empty adjacent diffs, `stablePassed:1`, and
+  `complete:true`. <!-- 2026-07-29 SaaS BC28; see dated orchestration evidence -->
+- [x] Repeating a known deterministic failure returns `stableFailed:1`, `flaky:0`,
+  `outcome:"failed"`, and retains parsed failure evidence in every raw run.
+  <!-- 2026-07-29 SaaS BC28; raw failure and stack content intentionally not retained -->
+- [x] A pass/fail sequence is classified `flaky`, while pass/skip is `inconsistent`; exact
+  passed/failed additions and removals are reported between adjacent runs. <!-- deterministic core vectors 2026-07-29; no deliberately flaky live test required -->
+- [x] Missing, duplicate, synthetic-only, and aborted observations fail the aggregate closed;
+  an aborted attempt stops the sequence, retains its evidence, and marks later requested
+  observations missing rather than risking an overlapping server-side run. <!-- 2026-07-29 SaaS: duplicate group historically produced one retained pass then an aborted attempt and missing later observation; overlapping input is now rejected before BC; unknown method retained synthetic rows and stayed incomplete; duplicate-row ambiguity also deterministic-tested -->
+- [x] A later setup/auth rejection retains earlier runs plus an aborted attempt, client
+  cancellation stops only between attempts, disjoint same-codeunit groups remain valid, and
+  overlapping method coverage is rejected. <!-- deterministic lifecycle and schema tests 2026-07-31; active server-run cancellation is deliberately not claimed -->
+- [x] One orchestration holds the shared singleton slot against direct, debug-bound,
+  native-runtime, and second orchestration calls. <!-- 2026-07-29 SaaS: direct and second-orchestration contention returned TEST_RUN_ACTIVE while a five-run owner completed; debug-bound/native-runtime variants deterministic-tested -->
+- [x] No Production or on-premises call is made during live acceptance.
+  <!-- 2026-07-29: harness accepted only Sandbox and used the existing disposable fixture -->
 
 ## Break-on-record-write triage (SaaS Sandbox)
 

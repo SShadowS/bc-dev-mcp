@@ -11,6 +11,7 @@ import type { ConnectionConfig } from "../../core/types";
 import { DEFAULT_DEV_PORT } from "../../core/urls";
 import type { GitChangeSet } from "../../core/git-changes";
 import type { NativeMcpGateway } from "../../core/native-mcp";
+import { upperInvariantUtf16 } from "../../core/al-identifiers";
 import { DebugSession, ServerState } from "../state";
 
 export interface ToolDeps {
@@ -33,7 +34,11 @@ export interface ToolDefinition {
   schema: z.ZodRawShape;
   outputSchema: z.ZodTypeAny;
   annotations: ToolAnnotations;
-  handler(params: Record<string, unknown>): Promise<unknown>;
+  handler(params: Record<string, unknown>, context?: ToolExecutionContext): Promise<unknown>;
+}
+
+export interface ToolExecutionContext {
+  signal?: AbortSignal;
 }
 
 export interface DebugTarget {
@@ -164,7 +169,9 @@ export const runTestsOutputSchema = z.looseObject({
     syntheticResults: z.number(),
     failedTests: z.array(z.object({ codeunitId: z.number(), method: z.string() })),
   }),
-  sourceMappingWarning: z.string().optional().describe("Nonfatal warning when local AL files could not be indexed; server test results remain complete"),
+  sourceMappingWarning: z.string().optional().describe(
+    "Nonfatal warning when local AL files could not be indexed; server test evidence remains available",
+  ),
   coverage: z
     .array(
       z.looseObject({
@@ -298,6 +305,47 @@ export const codeunitsShape = z
     }),
   )
   .min(1)
+  .superRefine((groups, context) => {
+    const selections = new Map<number, { all: boolean; methods: Set<string> }>();
+    groups.forEach((group, groupIndex) => {
+      const existing = selections.get(group.id);
+      const methods = group.methods ?? [];
+      const selectsAll = methods.length === 0;
+      if (existing?.all === true || (existing !== undefined && selectsAll)) {
+        context.addIssue({
+          code: "custom",
+          path: [groupIndex, "methods"],
+          message: `Test codeunit ${group.id} is selected more than once with overlapping method coverage`,
+        });
+      } else if (existing) {
+        for (const method of methods) {
+          if (existing.methods.has(upperInvariantUtf16(method.trim()))) {
+            context.addIssue({
+              code: "custom",
+              path: [groupIndex, "methods"],
+              message: `Test codeunit ${group.id} method ${method} is selected more than once`,
+            });
+          }
+        }
+      }
+      const methodsInGroup = new Set<string>();
+      for (const method of methods) {
+        const key = upperInvariantUtf16(method.trim());
+        if (methodsInGroup.has(key)) {
+          context.addIssue({
+            code: "custom",
+            path: [groupIndex, "methods"],
+            message: `Test codeunit ${group.id} method ${method} is selected more than once`,
+          });
+        }
+        methodsInGroup.add(key);
+      }
+      const next = existing ?? { all: false, methods: new Set<string>() };
+      next.all ||= selectsAll;
+      for (const method of methods) next.methods.add(upperInvariantUtf16(method.trim()));
+      selections.set(group.id, next);
+    });
+  })
   .describe("Test codeunits to run, optionally restricted to named methods");
 
 export const breakpointShape = z.object({

@@ -51,8 +51,8 @@ passthrough.
   derives them from the configured cloud target and Azure CLI identity.
 - Native passthrough supports cloud Sandbox and Production. It does not expose a profiling
   context; the separate `bcdev_profile_*` tools remain the supported BC28 profiling path.
-- A native `runtime` call shares the one-test-run lock with direct and debug-bound test runs.
-  Wait for the active run to finish instead of retrying concurrently.
+- A native `runtime` call shares the one-test-run lock with direct, orchestrated, and
+  debug-bound test runs. Wait for the active run to finish instead of retrying concurrently.
 - A timeout after a native runtime call begins does not cancel Business Central's server-side
   test run. When the error reports `upstreamRunCancelled: false`, do not retry or start another
   test run until you have confirmed that the upstream run finished.

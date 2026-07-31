@@ -1,6 +1,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { AL_OBJECT_TYPE } from "./al-objects";
+import { upperInvariantUtf16 } from "./al-identifiers";
 import { BcDevError } from "./agent-errors";
 import { extractEntry } from "./snapshot/zip";
 
@@ -983,16 +984,6 @@ function parseProcedures(
   }
   unattributedCode.sort((left, right) => (left.lines[0] ?? 0) - (right.lines[0] ?? 0));
   return { procedures, unsupportedExecutables, unattributedCode, complete: warnings.length === 0, warnings };
-}
-
-function upperInvariantUtf16(value: string): string {
-  let result = "";
-  for (let index = 0; index < value.length; index++) {
-    const unit = value[index]!;
-    const upper = unit.toUpperCase();
-    result += upper.length === 1 ? upper : unit;
-  }
-  return result;
 }
 
 function fnvUtf16(value: string): number {
