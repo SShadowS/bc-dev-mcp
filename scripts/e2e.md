@@ -34,6 +34,10 @@ Never record access tokens, Authorization headers, authenticated URLs, or unreda
 - [x] The cloud developer-service base is `https://api.businesscentral.dynamics.com/v2.0/<environment>/dev`, with the environment path segment URL-encoded and `tenant` on metadata/query requests. <!-- 2026-07-10: confirmed against a live SaaS Sandbox; sensitive transcript was not retained -->
 - [x] The SaaS snapshot-debugger base is `https://api.businesscentral.dynamics.com/v2.0/<environment>/snapshotdebugger` on the standard HTTPS origin, not the on-prem snapshot port. <!-- 2026-07-10: snapshot metadata confirmed against a live SaaS Sandbox; sensitive transcript was not retained -->
 - [x] SaaS SignalR negotiation accepts the same authorization value in the HTTP `Authorization` header and the `Authentication` query parameter. <!-- 2026-07-10: live negotiation confirmed against a SaaS Sandbox; token and authenticated URL were intentionally not retained -->
+- [x] SaaS `GET dev/sourcecontent` returns deployed AL source for an exposed object using the same encoded environment base and tenant query. <!-- 2026-07-30 built-server validation; see scripts/e2e-on-demand-source-symbols-2026-07-30.md -->
+- [x] `GET dev/packages` accepts `publisher`, `appName`, `versionText`, optional `appId`, and tenant; a lower `versionText` can resolve a higher installed package. <!-- 2026-07-30 exact/lower/negative SaaS selectors; see dated evidence -->
+- [x] A successful package response is a NAVX/ZIP containing top-level `SymbolReference.json` identity fields `AppId`, `Name`, `Publisher`, and `Version`. <!-- 2026-07-30 validated before local install -->
+- [x] The case-insensitive Microsoft `Application` concept request omits `appId`; the SaaS endpoint resolves the installed aggregate package by publisher/name/minimum version. Third-party apps with that name retain ordinary app-ID selection. <!-- 2026-07-30 built-server validation with omitted and deliberately irrelevant supplied IDs; third-party fail-safe behavior deterministic-tested 2026-07-31 -->
 
 ## Scenarios
 
@@ -43,7 +47,7 @@ Never record access tokens, Authorization headers, authenticated URLs, or unreda
 - [x] bcdev_test_run with two codeunits: results for both, sequential execution. <!-- 2026-07-03: confirmed against BC28, codeunits 132536 + 132606 -->
 - [x] bcdev_debug_attach + bcdev_debug_run_tests + bcdev_debug_wait → break → bcdev_debug_variables → bcdev_debug_continue → testRunFinished. <!-- 2026-07-03 round 3 (fix 56f32de): full tool-level flow validated end-to-end against BC28 — attach (no fatal queued), started:true, break-on-error event w/ 2-frame stack, variables + eval at frame 0, stepOver → step break, continue → testRunFinished with results attached; detach + immediate re-attach both clean. See "Round 3" in scripts/e2e-results-2026-07-03.md -->
 - [x] bcdev_debug_detach mid-break: BC session released (check server). <!-- 2026-07-03 round 2: raw StopDebugging+disconnect while held at a break released the session immediately; test completed as failed with "The debugger stopped the current activity."; Get-NAVServerSession shows no leftovers -->
-- [ ] tools/list shows title/annotations/outputSchema for all 23 tools; resources/list shows the three skill:// resources.
+- [x] tools/list shows title/annotations/outputSchema for all 24 tools; resources/list shows the four skill:// resources. <!-- deterministic server tests plus built-server item 9 listing 2026-07-30 -->
 
 ## Test orchestration (SaaS Sandbox, BC28)
 
@@ -69,6 +73,28 @@ Evidence belongs in `scripts/e2e-test-orchestration-2026-07-29.md`.
   native-runtime, and second orchestration calls. <!-- 2026-07-29 SaaS: direct and second-orchestration contention returned TEST_RUN_ACTIVE while a five-run owner completed; debug-bound/native-runtime variants deterministic-tested -->
 - [x] No Production or on-premises call is made during live acceptance.
   <!-- 2026-07-29: harness accepted only Sandbox and used the existing disposable fixture -->
+
+## On-demand source and symbols (SaaS Sandbox)
+
+Use one disposable package in a temporary AL project. The workflow is read-only on Business
+Central and writes only the local temporary project’s `.alpackages` directory. Never retain
+tenant, environment, user, token, authorization, authenticated URL, or machine-path values.
+Evidence belongs in `scripts/e2e-on-demand-source-symbols-2026-07-30.md`.
+
+- [x] `bcdev_source` returns the deployed AL source and `source:"rest"` for one exposed object in the disposable package. <!-- 2026-07-30 built server -->
+- [x] `bcdev_package_download` with exact publisher/name/version/app ID returns `downloaded`, a real NAVX/ZIP file, matching `SymbolReference.json` identity, byte count, and SHA-256. <!-- 2026-07-30 built server -->
+- [x] Repeating the same request returns `unchanged` and retains the same digest. <!-- 2026-07-30 built server -->
+- [x] A lower minimum version resolves the installed higher version and reports distinct requested/resolved versions. <!-- 2026-07-30 built server -->
+- [x] Omitting app ID for an ordinary uniquely named package resolves the same validated package. <!-- 2026-07-30 built server -->
+- [x] Replacing deliberately corrupt local cache bytes returns `replaced`, restores a NAVX package, and reports its matching digest. <!-- 2026-07-30 built server; temporary project only -->
+- [x] Two simultaneous identical calls against an empty destination serialize into one `downloaded` and one `unchanged` result at the same path. <!-- 2026-07-30 built server -->
+- [x] A large Microsoft Base Application dependency downloads and validates within the default bounds. <!-- 2026-07-30 built server -->
+- [x] The special Microsoft Application concept downloads without app ID; repeating with an irrelevant supplied ID omits it and returns `unchanged` at the same path. <!-- 2026-07-30 built server -->
+- [x] A no-source object returns the neutral empty result and does not claim that every base-application object lacks source. <!-- 2026-07-30 SaaS REST route -->
+- [x] A mistyped project path returns `CONFIGURATION_ERROR` and is not created. <!-- 2026-07-30 built server; no package request made by deterministic core test -->
+- [x] Too-new version, wrong app ID, and unknown name selectors return typed `NOT_FOUND` errors and leave no temporary files. <!-- 2026-07-30 built server -->
+- [x] Corrupt/missing symbols, identity/version mismatch, compressed and inflated size bounds, adjustable timeout bounds, identity-derived safe naming, authorization propagation, pre-request project validation, error-body cancellation, symlink/Windows-junction refusal, backup-swap success/restoration, cleanup, and on-prem/cloud URL shapes are deterministic unit tests. <!-- 2026-07-30, expanded 2026-07-31 after review -->
+- [x] No Production call is made. <!-- 2026-07-30: SaaS Sandbox GET requests only -->
 
 ## Break-on-record-write triage (SaaS Sandbox)
 

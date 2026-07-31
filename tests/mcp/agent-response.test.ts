@@ -88,4 +88,28 @@ describe("withAgentResponses", () => {
       (await wrapped("passed").handler({}) as { nextSteps: string[] }).nextSteps,
     ).toEqual([]);
   });
+
+  test("source and package guidance connect missing source to installed symbols", async () => {
+    const missingSource = withAgentResponses(tool({
+      name: "bcdev_source",
+      handler: async () => ({ isAlContent: false }),
+    }));
+    expect((await missingSource.handler({}) as { nextSteps: string[] }).nextSteps.join(" ")).toContain(
+      "bcdev_package_download",
+    );
+
+    const sourceFound = withAgentResponses(tool({
+      name: "bcdev_source",
+      handler: async () => ({ isAlContent: true }),
+    }));
+    expect((await sourceFound.handler({}) as { nextSteps: string[] }).nextSteps).toEqual([]);
+
+    const downloaded = withAgentResponses(tool({
+      name: "bcdev_package_download",
+      handler: async () => ({ status: "downloaded" }),
+    }));
+    expect((await downloaded.handler({}) as { nextSteps: string[] }).nextSteps.join(" ")).toContain(
+      ".alpackages",
+    );
+  });
 });

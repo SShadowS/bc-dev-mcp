@@ -80,7 +80,13 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
     case "bcdev_debug_breakpoints":
       return ["Continue the current investigation or call bcdev_debug_continue if the debugger is paused."];
     case "bcdev_source":
-      return [];
+      return result["isAlContent"] === false
+        ? ["Call bcdev_package_download with the owning app identity if package symbols are sufficient even though deployed source is unavailable."]
+        : [];
+    case "bcdev_package_download":
+      return [
+        "Use the validated package in .alpackages, then rerun the AL compile, source mapping, or coverage operation that required its symbols.",
+      ];
     case "bcdev_native_list": {
       const catalog = result["catalog"] as Record<string, unknown> | undefined;
       return Array.isArray(catalog?.["tools"]) && catalog.tools.length > 0

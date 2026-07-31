@@ -10,6 +10,7 @@ import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 import type { GitChangeSet } from "../../src/core/git-changes";
 import { calculateProcedureMethodId } from "../../src/core/al-procedures";
 import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
+import { buildAppPackage } from "../fixtures/app-package";
 
 function makeProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "bcmcp-tools-"));
@@ -66,7 +67,7 @@ describe("tools", () => {
     hub = new FakeHub();
   });
 
-  test("registers all 23 tools", () => {
+  test("registers all 24 tools", () => {
     const { tools } = setup(hub);
     expect([...tools.keys()].sort()).toEqual([
       "bcdev_debug_attach",
@@ -80,6 +81,7 @@ describe("tools", () => {
       "bcdev_debug_wait",
       "bcdev_native_call",
       "bcdev_native_list",
+      "bcdev_package_download",
       "bcdev_profile_finish",
       "bcdev_profile_poll",
       "bcdev_profile_start",
@@ -689,6 +691,7 @@ describe("tools", () => {
     const baseApp = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 1 })) as Record<string, unknown>;
     expect(baseApp).toMatchObject({ content: "", isAlContent: false, source: "rest" });
     expect(baseApp["message"]).toContain("No deployed source");
+    expect(baseApp["message"]).not.toContain("base-application");
     expect(hub.invoked("GetSourceContent")).toHaveLength(0);
   });
 
@@ -705,6 +708,46 @@ describe("tools", () => {
     await tools.get("bcdev_debug_attach")!.handler({});
     const viaHub = (await tools.get("bcdev_source")!.handler({ objectType: 5, objectId: 50130 })) as Record<string, unknown>;
     expect(viaHub).toMatchObject({ content: "from hub", source: "hub" });
+  });
+
+  test("bcdev_package_download installs one validated package and returns agent guidance", async () => {
+    const bytes = buildAppPackage({
+      publisher: "SShadowS",
+      name: "Demo Symbols",
+      appId: "2ca1721e-459e-4745-b96a-803517331326",
+      version: "1.2.0.0",
+    });
+    let requestUrl = "";
+    const packageFetch = (async (input: RequestInfo | URL) => {
+      requestUrl = input.toString();
+      return new Response(Uint8Array.from(bytes));
+    }) as unknown as typeof fetch;
+    const { tools } = setup(hub, packageFetch);
+    const tool = tools.get("bcdev_package_download")!;
+    const result = await tool.handler({
+      publisher: "SShadowS",
+      appName: "Demo Symbols",
+      version: "1.0.0.0",
+      appId: "2ca1721e-459e-4745-b96a-803517331326",
+      timeoutMs: 1_000,
+      maxBytes: 1_000_000,
+    }) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      status: "downloaded",
+      publisher: "SShadowS",
+      appName: "Demo Symbols",
+      requestedVersion: "1.0.0.0",
+      resolvedVersion: "1.2.0.0",
+    });
+    expect(result["packagePath"]).toBeString();
+    expect(result["nextSteps"]).toEqual([
+      expect.stringContaining("rerun the AL compile"),
+    ]);
+    expect(requestUrl).toContain("dev/packages?");
+    expect(JSON.stringify(tool.schema["timeoutMs"])).toContain("300000");
+    expect(JSON.stringify(tool.schema["maxBytes"])).toContain("536870912");
+    expect(() => tool.outputSchema.parse(result)).not.toThrow();
   });
 
   test("profiling next steps reflect unreachable, unsupported, and empty-capture results", async () => {

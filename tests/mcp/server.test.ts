@@ -48,7 +48,7 @@ describe("server wiring", () => {
   test("tools/list exposes names, titles, annotations, schemas", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(23);
+    expect(tools).toHaveLength(24);
     const status = tools.find((t) => t.name === "bcdev_status")!;
     expect(status.title).toBe("BC server status");
     expect(status.annotations?.readOnlyHint).toBe(true);
@@ -156,6 +156,7 @@ describe("server wiring", () => {
     const uris = resources.map((r) => r.uri).sort();
     expect(uris).toEqual([
       "skill://bc-al-debugging/SKILL.md",
+      "skill://bc-al-source-symbols/SKILL.md",
       "skill://bc-al-testing/SKILL.md",
       "skill://bc-native-mcp/SKILL.md",
       "skill://index.json",
@@ -165,7 +166,7 @@ describe("server wiring", () => {
     const parsed = JSON.parse((index.contents[0] as { text: string }).text) as {
       skills: Array<{ url: string; type: string }>;
     };
-    expect(parsed.skills).toHaveLength(3);
+    expect(parsed.skills).toHaveLength(4);
     for (const s of parsed.skills) expect(uris).toContain(s.url);
 
     const skill = await client.readResource({ uri: "skill://bc-al-debugging/SKILL.md" });
@@ -195,7 +196,7 @@ describe("server wiring", () => {
   test("start exposes the kind:instrumentation option", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(23);
+    expect(tools).toHaveLength(24);
     const start = tools.find((t) => t.name === "bcdev_profile_start")!;
     expect(JSON.stringify(start.inputSchema)).toContain("instrumentation");
   });

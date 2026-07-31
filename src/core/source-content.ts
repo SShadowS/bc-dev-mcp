@@ -8,9 +8,18 @@ export interface SourceContentResult {
   isAlContent: boolean;
 }
 
+async function cancelUnusedBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Preserve the endpoint result when an already-discarded body cannot be cancelled.
+  }
+}
+
 export function sourceContentUrl(c: ConnectionConfig, objectType: number, objectId: number): string {
   // WIRE: GET dev/sourcecontent?type=<int>&id=<int>[&tenant=] (dep-decomp SourceContentApiClient.GetSource),
-  // requires DevApiFeature.GetSourceCode => dev API 2.0 (dep-decomp DevApiFeatureExtensions.cs). Validated live 2026-07-04.
+  // requires DevApiFeature.GetSourceCode => dev API 2.0 (dep-decomp DevApiFeatureExtensions.cs).
+  // Validated live on BC28 on-prem 2026-07-04 and SaaS Sandbox 2026-07-30.
   const params = new URLSearchParams({ type: String(objectType), id: String(objectId) });
   if (c.tenant) params.set("tenant", c.tenant);
   return `${baseClientUrl(c)}dev/sourcecontent?${params.toString()}`;
@@ -24,28 +33,32 @@ export async function fetchSourceContent(
   fetchFn: typeof fetch = fetch,
 ): Promise<SourceContentResult> {
   const url = sourceContentUrl(c, objectType, objectId);
+  const authorizationHeader = await authorization.getAuthorizationHeader();
   let response: Response;
   try {
-    response = await fetchFn(url, { headers: { Authorization: await authorization.getAuthorizationHeader() } });
-  } catch (err) {
+    response = await fetchFn(url, { headers: { Authorization: authorizationHeader } });
+  } catch {
     throw new DevEndpointError(
-      `Dev endpoint unreachable at ${url} — is the BC server running and the developer service port open? (${String(err)})`,
+      "Business Central source-content endpoint is unreachable — is the server running and the developer service reachable?",
       "unreachable",
     );
   }
   if (response.status === 401 || response.status === 403) {
+    await cancelUnusedBody(response);
     const hint = c.authentication === "UserPassword"
       ? "verify BC_DEV_USER and BC_DEV_PASSWORD"
       : "verify the Azure CLI login, tenant, and Business Central account access";
     throw new DevEndpointError(`Dev endpoint rejected authentication; ${hint}`, "auth");
   }
   if (response.status === 404) {
+    await cancelUnusedBody(response);
     // WIRE: BC28 returns 404 from dev/sourcecontent for objects without deployed source (live E2E
     // 2026-07-16: codeunit 1 -> 404, published app object -> 200 + JSON). Indistinguishable from a
     // pre-2.0 server missing the route entirely, so both surface as the empty no-source result.
     return { content: "", isAlContent: false };
   }
   if (!response.ok) {
+    await cancelUnusedBody(response);
     throw new DevEndpointError(`dev/sourcecontent returned HTTP ${response.status}`, "http");
   }
   const body = await response.text();
