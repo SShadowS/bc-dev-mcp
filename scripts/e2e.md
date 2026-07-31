@@ -61,7 +61,10 @@ Evidence belongs in `scripts/e2e-test-orchestration-2026-07-29.md`.
   passed/failed additions and removals are reported between adjacent runs. <!-- deterministic core vectors 2026-07-29; no deliberately flaky live test required -->
 - [x] Missing, duplicate, synthetic-only, and aborted observations fail the aggregate closed;
   an aborted attempt stops the sequence, retains its evidence, and marks later requested
-  observations missing rather than risking an overlapping server-side run. <!-- 2026-07-29 SaaS: duplicate group produced one retained pass then an aborted attempt and missing later observation; unknown method retained synthetic rows and stayed incomplete; duplicate-row ambiguity also deterministic-tested -->
+  observations missing rather than risking an overlapping server-side run. <!-- 2026-07-29 SaaS: duplicate group historically produced one retained pass then an aborted attempt and missing later observation; overlapping input is now rejected before BC; unknown method retained synthetic rows and stayed incomplete; duplicate-row ambiguity also deterministic-tested -->
+- [x] A later setup/auth rejection retains earlier runs plus an aborted attempt, client
+  cancellation stops only between attempts, disjoint same-codeunit groups remain valid, and
+  overlapping method coverage is rejected. <!-- deterministic lifecycle and schema tests 2026-07-31; active server-run cancellation is deliberately not claimed -->
 - [x] One orchestration holds the shared singleton slot against direct, debug-bound,
   native-runtime, and second orchestration calls. <!-- 2026-07-29 SaaS: direct and second-orchestration contention returned TEST_RUN_ACTIVE while a five-run owner completed; debug-bound/native-runtime variants deterministic-tested -->
 - [x] No Production or on-premises call is made during live acceptance.

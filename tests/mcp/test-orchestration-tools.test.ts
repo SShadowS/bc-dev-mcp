@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
+import type { AuthorizationProviderFactory } from "../../src/core/authorization";
 import type { HubFactory } from "../../src/core/hubs/signalr-base";
 import type { GitChangeSet } from "../../src/core/git-changes";
 import { ServerState } from "../../src/mcp/state";
@@ -35,6 +36,7 @@ function makeProject(): string {
 interface SetupOptions {
   configureHub?: (hub: FakeHub, index: number) => void;
   fetchFn?: typeof fetch;
+  authorizationFactory?: AuthorizationProviderFactory;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -66,7 +68,7 @@ function setup(options: SetupOptions = {}) {
   const gateway = new FakeNativeMcpGateway();
   const deps: ToolDeps = {
     hubFactory,
-    authorizationFactory: createAuthorizationProviderFactory(),
+    authorizationFactory: options.authorizationFactory ?? createAuthorizationProviderFactory(),
     fetchFn: options.fetchFn
       ?? ((async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch),
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
@@ -242,7 +244,7 @@ describe("bcdev_test_orchestrate", () => {
       codeunits: [{ id: 50100, methods: ["A"] }],
       runs: 3,
     }) as {
-      runsCompleted: number;
+      runsAttempted: number;
       complete: boolean;
       outcome: string;
       runs: Array<{ runAborted?: boolean }>;
@@ -257,7 +259,7 @@ describe("bcdev_test_orchestrate", () => {
     };
 
     expect(result).toMatchObject({
-      runsCompleted: 1,
+      runsAttempted: 1,
       complete: false,
       outcome: "incomplete",
     });
@@ -277,6 +279,98 @@ describe("bcdev_test_orchestrate", () => {
     expect(hubs).toHaveLength(1);
     expect(state.testRunActive).toBe(false);
     expect(() => tool.outputSchema.parse(result)).not.toThrow();
+  });
+
+  test("retains earlier attempts when authorization rejects between runs", async () => {
+    let authorizationCalls = 0;
+    const { hubs, state, tools } = setup({
+      authorizationFactory: () => ({
+        getAuthorizationHeader: async () => {
+          authorizationCalls++;
+          if (authorizationCalls === 3) {
+            throw new Error("Authorization: Bearer must-not-leak");
+          }
+          return "Basic dTpw";
+        },
+      }),
+      configureHub: (hub) => {
+        hub.onInvoke = (method) => {
+          if (method === "RunTests") {
+            queueMicrotask(() => {
+              hub.emit("TestCompleted", 50100, "A", 0, "", 1);
+              hub.emit("TestRunCompleted", { Tests: [] });
+            });
+          }
+          return undefined;
+        };
+      },
+    });
+
+    const tool = tools.get("bcdev_test_orchestrate")!;
+    const result = await tool.handler({
+      codeunits: [{ id: 50100, methods: ["A"] }],
+      runs: 3,
+    }) as {
+      runsAttempted: number;
+      complete: boolean;
+      outcome: string;
+      runs: Array<{ run: number; runAborted?: boolean; abortReason?: string }>;
+      tests: Array<{ observations: Array<{ status: string }> }>;
+    };
+
+    expect(result).toMatchObject({
+      runsAttempted: 2,
+      complete: false,
+      outcome: "incomplete",
+      runs: [
+        { run: 1 },
+        { run: 2, runAborted: true },
+      ],
+    });
+    expect(result.runs[1]?.abortReason).toContain("Attempt 2 failed");
+    expect(result.runs[1]?.abortReason).toContain("[REDACTED]");
+    expect(result.runs[1]?.abortReason).not.toContain("must-not-leak");
+    expect(result.tests[0]?.observations.map((entry) => entry.status)).toEqual([
+      "passed",
+      "missing",
+      "missing",
+    ]);
+    expect(hubs).toHaveLength(1);
+    expect(state.testRunActive).toBe(false);
+    expect(() => tool.outputSchema.parse(result)).not.toThrow();
+  });
+
+  test("observes client cancellation between attempts without cancelling an active server run", async () => {
+    const controller = new AbortController();
+    const { hubs, state, tools } = setup({
+      configureHub: (hub, index) => {
+        hub.onInvoke = (method) => {
+          if (method === "RunTests") {
+            queueMicrotask(() => {
+              hub.emit("TestCompleted", 50100, "A", 0, "", 1);
+              if (index === 0) controller.abort();
+              hub.emit("TestRunCompleted", { Tests: [] });
+            });
+          }
+          return undefined;
+        };
+      },
+    });
+
+    const result = await tools.get("bcdev_test_orchestrate")!.handler({
+      codeunits: [{ id: 50100, methods: ["A"] }],
+      runs: 3,
+    }, { signal: controller.signal }) as {
+      runsAttempted: number;
+      complete: boolean;
+      warnings: string[];
+    };
+
+    expect(result.runsAttempted).toBe(1);
+    expect(result.complete).toBe(false);
+    expect(result.warnings.join(" ")).toContain("Client cancellation was observed between attempts");
+    expect(hubs).toHaveLength(1);
+    expect(state.testRunActive).toBe(false);
   });
 
   test("keeps source mapping nonfatal when the explicit project is unreadable", async () => {
@@ -349,5 +443,29 @@ describe("bcdev_test_orchestrate", () => {
     expect(schema.safeParse(2).success).toBe(true);
     expect(schema.safeParse(20).success).toBe(true);
     expect(schema.safeParse(21).success).toBe(false);
+  });
+
+  test("rejects overlapping codeunit selections while allowing disjoint split groups", () => {
+    const { tools } = setup();
+    const orchestrationSchema = tools.get("bcdev_test_orchestrate")!.schema["codeunits"] as unknown as {
+      safeParse(value: unknown): { success: boolean };
+    };
+    const directSchema = tools.get("bcdev_test_run")!.schema["codeunits"] as unknown as {
+      safeParse(value: unknown): { success: boolean };
+    };
+    const overlapping = [
+      [{ id: 50100 }, { id: 50100, methods: ["A"] }],
+      [{ id: 50100, methods: ["A"] }, { id: 50100, methods: ["a"] }],
+      [{ id: 50100, methods: ["A", "A"] }],
+    ];
+    for (const plan of overlapping) {
+      expect(orchestrationSchema.safeParse(plan).success).toBe(false);
+      expect(directSchema.safeParse(plan).success).toBe(false);
+    }
+    expect(orchestrationSchema.safeParse([
+      { id: 50100, methods: ["A"] },
+      { id: 50100, methods: ["B"] },
+      { id: 50101 },
+    ]).success).toBe(true);
   });
 });

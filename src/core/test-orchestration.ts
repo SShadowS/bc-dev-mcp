@@ -4,6 +4,7 @@ import type {
   TestMethodResult,
   TestStatus,
 } from "./types";
+import { upperInvariantUtf16 } from "./al-identifiers";
 
 export type TestObservationStatus = TestStatus | "missing" | "ambiguous";
 export type TestStabilityClassification =
@@ -68,7 +69,7 @@ export interface TestOrchestrationSummary {
 
 export interface TestOrchestrationAnalysis {
   runsRequested: number;
-  runsCompleted: number;
+  runsAttempted: number;
   complete: boolean;
   outcome: TestOrchestrationOutcome;
   summary: TestOrchestrationSummary;
@@ -79,19 +80,6 @@ export interface TestOrchestrationAnalysis {
 
 interface IdentityRecord extends OrchestratedTestIdentity {
   key: string;
-}
-
-// AL identifiers are case-insensitive. Keep the transformation length-preserving so legal
-// quoted identifiers such as "Größe" are not silently expanded (matching the compiler-facing
-// normalization used by the procedure identity engine).
-function upperInvariantUtf16(value: string): string {
-  let result = "";
-  for (let index = 0; index < value.length; index++) {
-    const unit = value[index]!;
-    const upper = unit.toUpperCase();
-    result += upper.length === 1 ? upper : unit;
-  }
-  return result;
 }
 
 function identityKey(codeunitId: number, method: string): string {
@@ -152,6 +140,12 @@ export function analyzeTestOrchestration(
   runs: RunTestsResult[],
   runsRequested: number,
 ): TestOrchestrationAnalysis {
+  if (!Number.isInteger(runsRequested) || runsRequested < 1) {
+    throw new RangeError("runsRequested must be a positive integer");
+  }
+  if (runs.length > runsRequested) {
+    throw new RangeError("The number of attempted runs cannot exceed runsRequested");
+  }
   const warnings: string[] = [];
   const identities = new Map<string, IdentityRecord>();
 
@@ -178,6 +172,16 @@ export function analyzeTestOrchestration(
       else rows.set(key, [row]);
     }
     return rows;
+  });
+
+  rowsByRun.forEach((rows, index) => {
+    const duplicateIdentities = [...rows.values()].filter((matches) => matches.length > 1).length;
+    if (duplicateIdentities > 0) {
+      warnings.push(
+        `Run ${index + 1} reported duplicate rows for ${duplicateIdentities} test `
+        + `${duplicateIdentities === 1 ? "identity" : "identities"}; inspect tests[].observations.`,
+      );
+    }
   });
 
   if (runs.length !== runsRequested) {
@@ -210,10 +214,6 @@ export function analyzeTestOrchestration(
           return { run: index + 1, status: "missing", durationMs: null };
         }
         if (matches.length > 1) {
-          warnings.push(
-            `Run ${index + 1} reported ${matches.length} rows for `
-            + `${testIdentity.codeunitId}.${testIdentity.method}; that observation is ambiguous.`,
-          );
           return { run: index + 1, status: "ambiguous", durationMs: null };
         }
         const row = matches[0]!;
@@ -252,15 +252,23 @@ export function analyzeTestOrchestration(
     const currentPassed = statusSet(tests, index, "passed");
     const previousFailed = statusSet(tests, index - 1, "failed");
     const currentFailed = statusSet(tests, index, "failed");
-    const changed = tests
-      .filter((test) => test.observations[index - 1]!.status !== test.observations[index]!.status)
-      .map((test) => ({
-        codeunitId: test.codeunitId,
-        method: test.method,
-        from: test.observations[index - 1]!.status,
-        to: test.observations[index]!.status,
-      }))
-      .sort(compareIdentity);
+    const changed: TestObservationChange[] = [];
+    for (const test of tests) {
+      const from = test.observations[index - 1];
+      const to = test.observations[index];
+      if (!from || !to) {
+        throw new RangeError("Run observations did not match the requested orchestration bounds");
+      }
+      if (from.status !== to.status) {
+        changed.push({
+          codeunitId: test.codeunitId,
+          method: test.method,
+          from: from.status,
+          to: to.status,
+        });
+      }
+    }
+    changed.sort(compareIdentity);
     diffs.push({
       fromRun: index,
       toRun: index + 1,
@@ -292,6 +300,11 @@ export function analyzeTestOrchestration(
     && runs.every((run) => run.runAborted !== true)
     && tests.length > 0
     && tests.every((test) => test.complete);
+  if (tests.length > 0 && summary.stableSkipped === tests.length) {
+    warnings.push(
+      "Every selected test was skipped in every attempted run; outcome passed contains no passing execution evidence.",
+    );
+  }
   const outcome: TestOrchestrationOutcome = !complete
     ? "incomplete"
     : summary.flaky > 0 || summary.inconsistent > 0
@@ -302,7 +315,7 @@ export function analyzeTestOrchestration(
 
   return {
     runsRequested,
-    runsCompleted: runs.length,
+    runsAttempted: runs.length,
     complete,
     outcome,
     summary,

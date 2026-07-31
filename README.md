@@ -5,7 +5,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-636%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-641%20passing-green)]()
 
 ## Overview
 
@@ -271,13 +271,19 @@ unavailable.
 
 Use `bcdev_test_orchestrate` when repeatability is the question. It claims the same singleton
 test-run slot for the entire sequence, executes 2–20 ordinary TestRunnerHub runs sequentially,
-retains each enriched run, and returns exact adjacent additions/removals for the passed and failed
+retains each enriched attempt, and returns exact adjacent additions/removals for the passed and failed
 sets. A method is `flaky` only with positive pass-and-fail evidence. Missing or duplicate
 observations, an aborted run, or a run with no real methods forces `complete: false`; mixed
 passed/skipped or failed/skipped observations are `inconsistent`, not mislabeled as flaky.
+If an attempt cannot start, earlier evidence and a final aborted attempt remain in `runs[]`.
 After an aborted attempt, later requested runs are left as missing rather than started while
-the prior server-side run may still be active.
-Orchestration intentionally does not aggregate coverage—use `bcdev_test_run` for coverage and
+the prior server-side run may still be active. Client cancellation is observed between attempts;
+it does not cancel an active Business Central run. `tests[].method` keeps the first requested or
+observed spelling, so its casing can differ from raw server rows. An all-skipped selection retains
+the existing `passed` outcome convention but warns that it contains no passing execution evidence.
+Overlapping codeunit/method selections are rejected, while disjoint method groups for one codeunit
+remain valid. Non-rolled-back test side effects repeat on every attempt.
+Orchestration intentionally does not aggregate coverage — use `bcdev_test_run` for coverage and
 changed-procedure analysis.
 
 Pass `coverageAgainst` to `bcdev_test_run` for roadmap item 5's coverage-gap analysis. The tool

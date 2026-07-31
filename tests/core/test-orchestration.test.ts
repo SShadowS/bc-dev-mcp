@@ -41,7 +41,7 @@ describe("test orchestration analysis", () => {
       complete: true,
       outcome: "failed",
       runsRequested: 3,
-      runsCompleted: 3,
+      runsAttempted: 3,
       summary: {
         tests: 3,
         stablePassed: 1,
@@ -188,7 +188,7 @@ describe("test orchestration analysis", () => {
     ]);
     expect(result.warnings.join("\n")).toContain("Run 2 aborted");
     expect(result.warnings.join("\n")).toContain("Run 2 reported no real test methods");
-    expect(result.warnings.join("\n")).toContain("observation is ambiguous");
+    expect(result.warnings.join("\n")).toContain("duplicate rows for 1 test identity");
     expect(result.warnings.join("\n")).toContain("2 test identities");
   });
 
@@ -250,7 +250,7 @@ describe("test orchestration analysis", () => {
     );
     expect(result).toMatchObject({
       runsRequested: 3,
-      runsCompleted: 1,
+      runsAttempted: 1,
       complete: false,
       outcome: "incomplete",
     });
@@ -286,5 +286,29 @@ describe("test orchestration analysis", () => {
         { run: 2, status: "missing" },
       ],
     });
+  });
+
+  test("rejects impossible run bounds instead of indexing missing observations", () => {
+    expect(() => analyzeTestOrchestration(
+      [{ id: 50100, methods: ["A"] }],
+      [run([row("A", "passed")]), run([row("A", "passed")])],
+      1,
+    )).toThrow(/cannot exceed runsRequested/);
+    expect(() => analyzeTestOrchestration([], [], 0)).toThrow(/positive integer/);
+  });
+
+  test("warns when every selected test is consistently skipped", () => {
+    const result = analyzeTestOrchestration(
+      [{ id: 50100, methods: ["Skipped"] }],
+      [run([row("Skipped", "skipped")]), run([row("Skipped", "skipped")])],
+      2,
+    );
+
+    expect(result).toMatchObject({
+      complete: true,
+      outcome: "passed",
+      summary: { stablePassed: 0, stableSkipped: 1 },
+    });
+    expect(result.warnings.join(" ")).toContain("contains no passing execution evidence");
   });
 });

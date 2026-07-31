@@ -97,10 +97,18 @@ printed only role labels, counts, classifications, and stable error codes.
   cancellation could not be confirmed. A clean orchestration immediately
   afterward succeeded, confirming lock release.
 
-The duplicate-group behavior is a server/input ergonomics observation, not a
-false all-clear: identical groups are not currently normalized or rejected
-before reaching Business Central, but the result fails closed and preserves
-the partial evidence.
+This live duplicate-group result remains historical server evidence. The
+post-review correction now rejects overlapping codeunit/method selections at
+the MCP boundary while continuing to accept disjoint method groups for one
+codeunit; deterministic tests cover both shapes. No additional server call was
+needed for that input-only correction.
+
+The post-review correction also retains a synthetic aborted attempt when a
+later setup or authorization call rejects, observes client cancellation between
+attempts without claiming to cancel the active server run, aggregates duplicate
+row warnings per run, and warns on an all-skipped selection. These lifecycle
+and analysis paths are deterministic tests; they were not induced against the
+Sandbox.
 
 ### Live singleton contention
 

@@ -92,9 +92,9 @@ export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
         outputSchema: tool.outputSchema,
         annotations: tool.annotations,
       },
-      async (params: Record<string, unknown>) => {
+      async (params: Record<string, unknown>, extra) => {
         try {
-          return toToolResponse(await tool.handler(params));
+          return toToolResponse(await tool.handler(params, { signal: extra.signal }));
         } catch (err) {
           return toAgentToolError(tool.name, err);
         }

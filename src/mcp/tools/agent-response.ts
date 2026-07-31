@@ -170,8 +170,8 @@ export function withAgentResponses(tool: ToolDefinition): ToolDefinition {
   return {
     ...tool,
     outputSchema,
-    handler: async (params) => {
-      const value = await handler(params);
+    handler: async (params, context) => {
+      const value = await handler(params, context);
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
         throw new Error(`Tool ${tool.name} returned a non-object success result`);
       }
