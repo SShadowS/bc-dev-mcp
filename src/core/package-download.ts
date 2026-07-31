@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/pro
 import { join, resolve } from "node:path";
 import type { AuthorizationProvider } from "./authorization";
 import { BcDevError } from "./agent-errors";
+import { upperInvariantUtf16 } from "./al-identifiers";
 import { extractEntry } from "./snapshot/zip";
 import type { ConnectionConfig } from "./types";
 import { baseClientUrl } from "./urls";
@@ -141,16 +142,6 @@ function packageUrl(c: ConnectionConfig, selector: NormalizedPackageSelector): s
 
 export function packageDownloadUrl(c: ConnectionConfig, selector: PackageSelector): string {
   return packageUrl(c, normalizeSelector(selector));
-}
-
-function upperInvariantUtf16(value: string): string {
-  let result = "";
-  for (let index = 0; index < value.length; index++) {
-    const unit = value[index]!;
-    const upper = unit.toUpperCase();
-    result += upper.length === 1 ? upper : unit;
-  }
-  return result;
 }
 
 function sameText(left: string, right: string): boolean {

@@ -54,7 +54,7 @@ Business Central operation in this run was an HTTP GET.
 
 ## Deterministic gates
 
-- `bun test`: 649 passed, 0 failed after the deterministic review corrections.
+- `bun test`: 668 passed, 0 failed after rebasing onto the merged test-orchestration branch.
 - `bun run typecheck`: passed.
 - `bun run build`: passed; four embedded skills generated.
 - Package URL/query, Application app-ID omission, typed authentication,
