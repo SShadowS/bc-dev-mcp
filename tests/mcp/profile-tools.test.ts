@@ -8,6 +8,7 @@ import { createProfileTools } from "../../src/mcp/tools/profile-tools";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import type { ToolDeps } from "../../src/mcp/tools/shared";
 import { BcDevError } from "../../src/core/agent-errors";
+import { MAX_TEXT_ENTRY_BYTES } from "../../src/core/snapshot/zip";
 import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
 
 // Reuse the zip fixture builder from the core zip test (copy the two helpers here).
@@ -20,6 +21,14 @@ function makeZip(name: string, content: Buffer) {
   const cdRec = Buffer.concat([cd, nameBuf]);
   const eocd = Buffer.alloc(22); eocd.writeUInt32LE(0x06054b50,0); eocd.writeUInt16LE(1,8); eocd.writeUInt16LE(1,10); eocd.writeUInt32LE(cdRec.length,12); eocd.writeUInt32LE(localHeader.length,16);
   return Uint8Array.from(Buffer.concat([localHeader, cdRec, eocd]));
+}
+
+function withDeclaredUncompressedSize(zip: Uint8Array, size: number): Uint8Array {
+  const bytes = Buffer.from(zip);
+  const central = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  if (central < 0) throw new Error("fixture has no central directory");
+  bytes.writeUInt32LE(size, central + 24);
+  return Uint8Array.from(bytes);
 }
 
 const profileJson = JSON.stringify({
@@ -93,6 +102,29 @@ describe("profile tools", () => {
     expect(JSON.parse(readFileSync(outPath, "utf8")).nodes).toHaveLength(1);
     expect(state.profile).toBeNull();
     expect(f["nextSteps"]).toBeUndefined(); // added only by the MCP response decorator
+  });
+
+  test("finish bounds sampling profile extraction to the runtime-safe text limit", async () => {
+    let ctx = "";
+    const fetchFn = (async (u: RequestInfo | URL) => {
+      const url = u.toString();
+      if (url.includes("attach")) {
+        ctx = new URL(url).searchParams.get("debuggingcontext")!;
+        return new Response('"NextSessionOnTenant"');
+      }
+      if (url.includes("finish")) {
+        const zip = makeZip(`${ctx}.alcpuprofile`, Buffer.from(profileJson));
+        return new Response(Buffer.from(withDeclaredUncompressedSize(zip, MAX_TEXT_ENTRY_BYTES + 1)), {
+          headers: { ETag: '"Sampling"' },
+        });
+      }
+      return new Response("{}");
+    }) as unknown as typeof fetch;
+    const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));
+    await tools.get("bcdev_profile_start")!.handler({ ...conn });
+
+    await expect(tools.get("bcdev_profile_finish")!.handler({})).rejects.toThrow(/output limit/);
+    expect(state.profile).toBeNull();
   });
 
   test("finish on empty body reports captured:false", async () => {

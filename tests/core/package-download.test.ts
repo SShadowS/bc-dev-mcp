@@ -197,6 +197,42 @@ describe("downloadPackage", () => {
     expect(readdirSync(join(dir, ".alpackages")).filter((name) => name.endsWith(".backup"))).toEqual([]);
   });
 
+  test("reports backup cleanup failure as a warning after a successful Windows swap", async () => {
+    const dir = project();
+    const firstBytes = appPackage({}, "first");
+    const secondBytes = appPackage({}, "second");
+    const first = await downloadPackage(config, auth, dir, selector, responseFetch(firstBytes));
+    let destinationAttempts = 0;
+    const fileOps: PackageInstallFileOps = {
+      rename: async (source, destination) => {
+        if (source.endsWith(".tmp") && destination === first.packagePath && ++destinationAttempts === 1) {
+          throw Object.assign(new Error("destination locked"), { code: "EPERM" });
+        }
+        await renameFile(source, destination);
+      },
+      remove: async (path) => {
+        if (path.endsWith(".backup")) throw new Error("backup cleanup denied");
+        await removeFile(path, { force: true });
+      },
+    };
+
+    const replaced = await downloadPackage(
+      config,
+      auth,
+      dir,
+      selector,
+      responseFetch(secondBytes),
+      { installFileOps: fileOps },
+    );
+
+    expect(replaced).toMatchObject({
+      status: "replaced",
+      warning: "The package was installed, but a stale .backup file could not be removed from .alpackages.",
+    });
+    expect(readFileSync(first.packagePath).equals(secondBytes)).toBe(true);
+    expect(readdirSync(join(dir, ".alpackages")).filter((name) => name.endsWith(".backup"))).toHaveLength(1);
+  });
+
   test("restores the original package when the Windows backup swap cannot install the new file", async () => {
     const dir = project();
     const firstBytes = appPackage({}, "first");

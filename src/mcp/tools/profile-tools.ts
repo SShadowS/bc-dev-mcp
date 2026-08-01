@@ -5,7 +5,7 @@ import { z } from "zod";
 import { BcDevError } from "../../core/agent-errors";
 import { SnapshotClient } from "../../core/snapshot/snapshot-client";
 import { summarizeProfile } from "../../core/snapshot/profile-summary";
-import { extractEntry, listEntryNames } from "../../core/snapshot/zip";
+import { extractEntry, listEntryNames, MAX_TEXT_ENTRY_BYTES } from "../../core/snapshot/zip";
 import { convertMdcZip, resolveConverter, type ConverterEnv, type SpawnRunner } from "../../core/snapshot/converter";
 import { DEFAULT_SNAPSHOT_PORT } from "../../core/urls";
 import type { ServerState } from "../state";
@@ -181,7 +181,7 @@ export function createProfileTools(
               return { captured: false, kind: "recording", hint: `Got a ${fin.etag ?? "recording"} archive, not a sampling profile. Snapshot recording (.mdc) replay is a VS Code concern.` };
             }
             const member = `${p.debuggingContext}.alcpuprofile`;
-            const profileBytes = extractEntry(fin.body, member);
+            const profileBytes = extractEntry(fin.body, member, MAX_TEXT_ENTRY_BYTES);
             if (!profileBytes) {
               return { captured: false, hint: `finish returned a zip without the expected ${member} member.` };
             }

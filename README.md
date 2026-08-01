@@ -235,11 +235,13 @@ project must already contain `app.json`.
 The package is size- and time-bounded, validated through `SymbolReference.json`, checked against
 the requested identity, hashed, and only then installed under a filename derived from the returned
 metadata. A byte-identical file returns `unchanged`; different validated server bytes replace the
-same package path. This is deliberately a single-package operation, not dependency enumeration or
+same package path. A nonfatal `warning` can report that the validated replacement succeeded but a
+stale `.backup` file could not be removed. This is deliberately a single-package operation, not dependency enumeration or
 full Download Symbols synchronization. The default request bounds are 120 seconds and 256 MiB;
 `timeoutMs` and `maxBytes` can raise them to hard limits of 300 seconds and 512 MiB. Inflated symbol
-metadata is independently capped at 512 MiB. A `NOT_FOUND` response can mean either no installed
-package matched or the target server does not expose `dev/packages`.
+metadata is independently capped at the runtime-safe text limit (at most 512 MiB). A `NOT_FOUND`
+response can mean either no installed package matched or the target server does not expose
+`dev/packages`.
 
 ## Profiling
 
