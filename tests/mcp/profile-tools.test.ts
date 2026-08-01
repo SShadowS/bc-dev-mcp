@@ -123,7 +123,9 @@ describe("profile tools", () => {
     const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));
     await tools.get("bcdev_profile_start")!.handler({ ...conn });
 
-    await expect(tools.get("bcdev_profile_finish")!.handler({})).rejects.toThrow(/output limit/);
+    const error = await tools.get("bcdev_profile_finish")!.handler({}).catch((caught) => caught);
+    expect(error).toMatchObject({ code: "PROTOCOL_ERROR", category: "protocol", retryable: false });
+    expect((error as Error).cause).toMatchObject({ message: expect.stringContaining("output limit") });
     expect(state.profile).toBeNull();
   });
 

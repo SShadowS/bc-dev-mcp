@@ -25,6 +25,16 @@ function requireProfile(state: ServerState) {
   return state.profile;
 }
 
+// A malformed or oversized archive is server-returned data, not a bug in this server. Type it
+// like the package path does so it does not fall through to INTERNAL_ERROR's "report an issue".
+function readArchive<T>(read: () => T, message: string): T {
+  try {
+    return read();
+  } catch (error) {
+    throw new BcDevError("PROTOCOL_ERROR", message, "protocol", false, {}, { cause: error });
+  }
+}
+
 export function createProfileTools(
   state: ServerState,
   deps: ToolDeps,
@@ -181,7 +191,10 @@ export function createProfileTools(
               return { captured: false, kind: "recording", hint: `Got a ${fin.etag ?? "recording"} archive, not a sampling profile. Snapshot recording (.mdc) replay is a VS Code concern.` };
             }
             const member = `${p.debuggingContext}.alcpuprofile`;
-            const profileBytes = extractEntry(fin.body, member, MAX_TEXT_ENTRY_BYTES);
+            const profileBytes = readArchive(
+              () => extractEntry(fin.body, member, MAX_TEXT_ENTRY_BYTES),
+              "Business Central returned an unreadable or oversized sampling profile archive",
+            );
             if (!profileBytes) {
               return { captured: false, hint: `finish returned a zip without the expected ${member} member.` };
             }
@@ -191,7 +204,10 @@ export function createProfileTools(
             return { captured: true, profilePath: outPath, kind: "sampling", summary };
           }
           // instrumentation: body is a .zip of .mdc
-          const names = listEntryNames(fin.body);
+          const names = readArchive(
+            () => listEntryNames(fin.body),
+            "Business Central returned an unreadable instrumentation recording archive",
+          );
           if (!names.some((n) => n.endsWith(".mdc"))) {
             return { captured: false, hint: "finish returned no .mdc members — not an instrumentation recording." };
           }
