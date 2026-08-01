@@ -29,6 +29,8 @@ source fetch.
 
 `status: "downloaded"` created the local package, `"replaced"` updated different bytes
 for the same returned identity/version, and `"unchanged"` retained a byte-identical file.
+If the result also has `warning`, the validated package is installed; review the nonfatal
+local cleanup warning before deleting any stale `.backup` file.
 
 ## Guardrails
 
@@ -42,7 +44,8 @@ for the same returned identity/version, and `"unchanged"` retained a byte-identi
   only after the complete response passes validation.
 - Package requests default to 120 seconds and 256 MiB. If a legitimate package exceeds a
   default, set `timeoutMs` or `maxBytes` deliberately; the hard limits are 300 seconds and
-  512 MiB, and inflated `SymbolReference.json` output has its own 512 MiB cap.
+  512 MiB, and inflated `SymbolReference.json` output has its own runtime-safe text cap of
+  at most 512 MiB.
 - The selected project must already be an AL project with an `app.json`. A missing or
   mistyped project path is rejected before authentication or download and is never created.
 - For the special Microsoft `Application` concept package, omit `appId`; the validated
