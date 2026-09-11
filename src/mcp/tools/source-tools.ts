@@ -110,6 +110,7 @@ export function createSourceTools(state: ServerState, deps: ToolDeps): ToolDefin
           .describe("Installed package version returned by Business Central"),
         bytes: z.number().int().nonnegative().describe("Downloaded package size in bytes"),
         sha256: z.string().regex(/^[0-9a-f]{64}$/).describe("SHA-256 digest of the installed package"),
+        warning: z.string().optional().describe("Nonfatal local cleanup warning; the validated package is installed"),
       }),
       handler: async (params) => {
         const { config, authorization, project } = resolve(params, deps);

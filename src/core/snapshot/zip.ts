@@ -1,3 +1,4 @@
+import { constants as bufferConstants } from "node:buffer";
 import { inflateRawSync } from "node:zlib";
 
 // Minimal ZIP reader: central-directory scan + extract-by-name. node:zlib only, no dependency.
@@ -5,6 +6,10 @@ import { inflateRawSync } from "node:zlib";
 const EOCD_SIG = 0x06054b50;
 const CD_SIG = 0x02014b50;
 const LOCAL_SIG = 0x04034b50;
+
+// Buffers can be larger than strings. Bound entries that will be decoded as text to the
+// active runtime's maximum string length so extraction cannot succeed only for toString().
+export const MAX_TEXT_ENTRY_BYTES = bufferConstants.MAX_STRING_LENGTH;
 
 interface CentralEntry {
   name: string;

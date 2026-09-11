@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { AuthorizationProvider } from "./authorization";
 import { BcDevError } from "./agent-errors";
 import { upperInvariantUtf16 } from "./al-identifiers";
-import { extractEntry } from "./snapshot/zip";
+import { extractEntry, MAX_TEXT_ENTRY_BYTES } from "./snapshot/zip";
 import type { ConnectionConfig } from "./types";
 import { baseClientUrl } from "./urls";
 
@@ -13,7 +13,7 @@ export const MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS = 300_000;
 export const DEFAULT_PACKAGE_DOWNLOAD_BYTES = 256 * 1024 * 1024;
 export const MAX_PACKAGE_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 export const MAX_PACKAGE_SELECTOR_LENGTH = 250;
-const DEFAULT_SYMBOL_REFERENCE_BYTES = 512 * 1024 * 1024;
+const DEFAULT_SYMBOL_REFERENCE_BYTES = Math.min(512 * 1024 * 1024, MAX_TEXT_ENTRY_BYTES);
 const MAX_VERSION_PART = 2_147_483_647;
 const GUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const installTails = new Map<string, Promise<void>>();
@@ -53,6 +53,7 @@ export interface PackageDownloadResult {
   resolvedVersion: string;
   bytes: number;
   sha256: string;
+  warning?: string;
 }
 
 interface PackageIdentity {
@@ -363,10 +364,10 @@ async function replaceValidatedFile(
   destination: string,
   hadExisting: boolean,
   fileOps: PackageInstallFileOps,
-): Promise<void> {
+): Promise<string | null> {
   try {
     await fileOps.rename(tempPath, destination);
-    return;
+    return null;
   } catch (error) {
     // POSIX rename replaces an existing file atomically. Windows can reject that with
     // EEXIST/EPERM, so use a recoverable backup swap only for that known case.
@@ -383,7 +384,12 @@ async function replaceValidatedFile(
     await fileOps.rename(backup, destination).catch(() => undefined);
     throw error;
   }
-  await fileOps.remove(backup);
+  try {
+    await fileOps.remove(backup);
+    return null;
+  } catch {
+    return "The package was installed, but a stale .backup file could not be removed from .alpackages.";
+  }
 }
 
 async function withInstallLock<T>(destination: string, operation: () => Promise<T>): Promise<T> {
@@ -412,6 +418,7 @@ async function installPackage(
 ): Promise<{
   status: PackageDownloadResult["status"];
   packagePath: string;
+  warning?: string;
 }> {
   const packageDir = join(projectRoot, ".alpackages");
   try {
@@ -445,13 +452,17 @@ async function installPackage(
     const tempPath = join(packageDir, `.${filename}.${randomUUID()}.tmp`);
     try {
       await writeFile(tempPath, bytes, { flag: "wx" });
-      await replaceValidatedFile(tempPath, packagePath, existing !== null, fileOps);
+      const warning = await replaceValidatedFile(tempPath, packagePath, existing !== null, fileOps);
+      return {
+        status: existing === null ? "downloaded" : "replaced",
+        packagePath,
+        ...(warning ? { warning } : {}),
+      };
     } catch (error) {
       throw filesystemError("Unable to install the downloaded AL package", packagePath, error);
     } finally {
       await fileOps.remove(tempPath).catch(() => undefined);
     }
-    return { status: existing === null ? "downloaded" : "replaced", packagePath };
   });
 }
 

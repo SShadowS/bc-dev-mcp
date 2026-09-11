@@ -93,7 +93,8 @@ Evidence belongs in `scripts/e2e-on-demand-source-symbols-2026-07-30.md`.
 - [x] A no-source object returns the neutral empty result and does not claim that every base-application object lacks source. <!-- 2026-07-30 SaaS REST route -->
 - [x] A mistyped project path returns `CONFIGURATION_ERROR` and is not created. <!-- 2026-07-30 built server; no package request made by deterministic core test -->
 - [x] Too-new version, wrong app ID, and unknown name selectors return typed `NOT_FOUND` errors and leave no temporary files. <!-- 2026-07-30 built server -->
-- [x] Corrupt/missing symbols, identity/version mismatch, compressed and inflated size bounds, adjustable timeout bounds, identity-derived safe naming, authorization propagation, pre-request project validation, error-body cancellation, symlink/Windows-junction refusal, backup-swap success/restoration, cleanup, and on-prem/cloud URL shapes are deterministic unit tests. <!-- 2026-07-30, expanded 2026-07-31 after review -->
+- [x] Corrupt/missing symbols, identity/version mismatch, compressed and runtime-safe inflated size bounds, adjustable timeout bounds, identity-derived safe naming, authorization propagation, pre-request project validation, error-body cancellation, symlink/Windows-junction refusal, backup-swap success/restoration, nonfatal cleanup warnings, and on-prem/cloud URL shapes are deterministic unit tests. <!-- 2026-07-30, expanded 2026-07-31 after review -->
+- [ ] Download and validate one installed package through `dev/packages` on on-prem BC28. <!-- 2026-07-31: local Cronus28 target unavailable and BC_DEV_USER/BC_DEV_PASSWORD unset; SaaS wire evidence only -->
 - [x] No Production call is made. <!-- 2026-07-30: SaaS Sandbox GET requests only -->
 
 ## Break-on-record-write triage (SaaS Sandbox)

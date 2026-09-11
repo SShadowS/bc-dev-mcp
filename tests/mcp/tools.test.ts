@@ -748,6 +748,7 @@ describe("tools", () => {
     expect(JSON.stringify(tool.schema["timeoutMs"])).toContain("300000");
     expect(JSON.stringify(tool.schema["maxBytes"])).toContain("536870912");
     expect(() => tool.outputSchema.parse(result)).not.toThrow();
+    expect(() => tool.outputSchema.parse({ ...result, warning: "stale backup remains" })).not.toThrow();
   });
 
   test("profiling next steps reflect unreachable, unsupported, and empty-capture results", async () => {
