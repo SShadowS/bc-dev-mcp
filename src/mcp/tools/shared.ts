@@ -12,6 +12,7 @@ import { DEFAULT_DEV_PORT } from "../../core/urls";
 import type { GitChangeSet } from "../../core/git-changes";
 import type { NativeMcpGateway } from "../../core/native-mcp";
 import { upperInvariantUtf16 } from "../../core/al-identifiers";
+import type { Http10Get } from "../../core/http10";
 import { DebugSession, ServerState } from "../state";
 
 export interface ToolDeps {
@@ -19,7 +20,7 @@ export interface ToolDeps {
   authorizationFactory: AuthorizationProviderFactory;
   fetchFn: typeof fetch;
   /** Test seam for on-prem Automation API GETs (HTTP/1.0); defaults to the real client. */
-  http10Get?: import("../../core/http10").Http10Get;
+  http10Get: Http10Get;
   env: Record<string, string | undefined>;
   cwd: string;
   serverInfoCacheTtlMs?: number;

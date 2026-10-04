@@ -9,7 +9,7 @@
  * Scope: one GET per connection, Content-Length or close-delimited body, bounded size, abortable.
  * Never returns a truncated body as success. Never logs.
  */
-import { connect as netConnect, type Socket } from "node:net";
+import { connect as netConnect, isIP, type Socket } from "node:net";
 import { connect as tlsConnect } from "node:tls";
 import { BcDevError } from "./agent-errors";
 
@@ -77,9 +77,11 @@ export function createHttp10Get(maxBytes: number = MAX_HTTP10_RESPONSE_BYTES): H
       ].join("\r\n");
 
       // TLS keeps certificate verification on (rejectUnauthorized defaults to true) and sends SNI.
+      // URL keeps IPv6 literals bracketed; sockets want them bare. SNI is for DNS names only (DEP0123).
+      const host = target.hostname.replace(/^\[|\]$/g, "");
       const socket: Socket = secure
-        ? tlsConnect({ host: target.hostname, port, servername: target.hostname })
-        : netConnect({ host: target.hostname, port });
+        ? tlsConnect({ host, port, ...(isIP(host) === 0 ? { servername: host } : {}) })
+        : netConnect({ host, port });
       const chunks: Buffer[] = [];
       let received = 0;
       let settled = false;

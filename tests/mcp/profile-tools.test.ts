@@ -40,6 +40,7 @@ function deps(fetchFn: typeof fetch): ToolDeps {
   return {
     hubFactory: (() => { throw new Error("no hub in profile tests"); }) as never,
     authorizationFactory: createAuthorizationProviderFactory(),
+    http10Get: async () => { throw new Error("http10Get not expected in this test"); },
     fetchFn,
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: mkdtempSync(join(tmpdir(), "bcprof-")),

@@ -78,6 +78,7 @@ function setup(options: {
     authorizationFactory: () => ({
       getAuthorizationHeader: async () => "Bearer unit-test-token",
     }),
+    http10Get: async () => { throw new Error("http10Get not expected in this test"); },
     fetchFn: (async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch,
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: project(options.environmentType),

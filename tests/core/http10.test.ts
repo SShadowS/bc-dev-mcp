@@ -107,3 +107,20 @@ describe("createHttp10Get", () => {
     expect((error as { code?: string }).code).not.toBe("PROTOCOL_ERROR");
   });
 });
+
+describe("createHttp10Get IPv6", () => {
+  test("connects to a bracketed IPv6 literal", async () => {
+    const server = createServer((socket) => {
+      socket.on("data", () => socket.end("HTTP/1.0 200 OK\r\n\r\n{}"));
+      socket.on("error", () => {});
+    });
+    servers.push(server);
+    const listening = await new Promise<boolean>((resolve) => {
+      server.once("error", () => resolve(false));
+      server.listen(0, "::1", () => resolve(true));
+    });
+    if (!listening) return; // no IPv6 loopback on this machine
+    const port = (server.address() as { port: number }).port;
+    expect(await createHttp10Get()(`http://[::1]:${port}/x`, {}, signal())).toEqual({ status: 200, body: "{}" });
+  });
+});

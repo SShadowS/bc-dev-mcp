@@ -431,6 +431,13 @@ describe("listApps paging", () => {
   });
 });
 
+describe("listApps malformed nextLink", () => {
+  test("an unparseable nextLink is PROTOCOL_ERROR, not a raw TypeError", async () => {
+    const { fetchFn } = scripted(companies(), json({ value: [row()], "@odata.nextLink": "http://[" }));
+    await expect(listApps(ctx(fetchFn))).rejects.toMatchObject({ code: "PROTOCOL_ERROR" });
+  });
+});
+
 describe("uninstallApp vanished rows", () => {
   test("an app installed before but missing afterwards produces a warning naming it", async () => {
     const { fetchFn } = scripted(

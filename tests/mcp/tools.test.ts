@@ -37,6 +37,7 @@ function setup(
   const deps: ToolDeps = {
     hubFactory,
     authorizationFactory: createAuthorizationProviderFactory(),
+    http10Get: async () => { throw new Error("http10Get not expected in this test"); },
     fetchFn: fetchFn ?? ((async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch),
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: makeProject(),

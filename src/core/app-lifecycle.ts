@@ -192,7 +192,12 @@ async function getAllRows(ctx: AppLifecycleContext, firstUrl: string, operation:
       url = undefined;
     } else {
       // Never send credentials to a host Business Central's response names; same origin only.
-      const nextUrl: URL | undefined = typeof next === "string" ? new URL(next, url) : undefined;
+      let nextUrl: URL | undefined;
+      try {
+        nextUrl = typeof next === "string" ? new URL(next, url) : undefined;
+      } catch {
+        nextUrl = undefined;
+      }
       if (!nextUrl || nextUrl.origin !== origin) throw protocol(`${operation}: Business Central returned a nextLink outside the original origin`);
       url = nextUrl.toString();
     }
