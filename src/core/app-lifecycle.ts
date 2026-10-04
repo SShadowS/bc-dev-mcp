@@ -215,3 +215,115 @@ export async function listApps(ctx: AppLifecycleContext, filter: AppListFilter =
     .filter((app) => appId === undefined || app.appId === appId);
   return { companyId, apps };
 }
+
+export interface UninstallAppResult {
+  status: "uninstalled" | "alreadyUninstalled";
+  app: AppRecord;
+  dataDeleted: boolean;
+  alsoUninstalled: AppRecord[] | null;
+  warning?: string;
+}
+
+export interface UnpublishAppResult {
+  status: "unpublished";
+  app: AppRecord;
+}
+
+function requireVersion(value: string): string {
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(value.trim())) {
+    throw invalid("version must be a four-part numeric version such as 1.0.0.0", { version: value });
+  }
+  return value.trim().split(".").map(Number).join(".");
+}
+
+function notPublished(appId: string): BcDevError {
+  return new BcDevError("NOT_FOUND", `No published app has appId ${appId}`, "server", false, { appId });
+}
+
+function actionUrl(ctx: AppLifecycleContext, companyId: string, packageId: string, action: string): string {
+  // WIRE: bound actions Microsoft.NAV.install|uninstall|uninstallAndDeleteExtensionData|unpublish
+  // on extensions(<packageId>) take only the binding parameter; 204 on success
+  // (Cronus28 BC28.4 $metadata and live calls, 2026-10-03).
+  return automationUrl(ctx.config, `companies(${companyId})/extensions(${packageId})/Microsoft.NAV.${action}`, ctx.apiPort);
+}
+
+export async function uninstallApp(
+  ctx: AppLifecycleContext,
+  options: { appId: string; deleteData?: boolean },
+): Promise<UninstallAppResult> {
+  const appId = requireGuid(options.appId, "appId");
+  const deleteData = options.deleteData ?? false;
+  const before = await listApps(ctx);
+  const scoped: AppLifecycleContext = { ...ctx, companyId: before.companyId };
+  const rows = before.apps.filter((app) => app.appId === appId);
+  if (rows.length === 0) throw notPublished(appId);
+  const target = rows.find((app) => app.isInstalled);
+  if (!target) return { status: "alreadyUninstalled", app: rows[0]!, dataDeleted: false, alsoUninstalled: [] };
+
+  const action = deleteData ? "uninstallAndDeleteExtensionData" : "uninstall";
+  await bcRequest(scoped, actionUrl(ctx, before.companyId, target.packageId, action), "POST", `Uninstall ${target.name}`);
+
+  // WIRE: uninstall also uninstalls installed dependents and says nothing about it in the
+  // 204 response (Cronus28 BC28.4, 2026-10-03). The before/after diff is the only report.
+  let after: AppRecord[];
+  try {
+    after = (await listApps(scoped)).apps;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "unknown error";
+    return {
+      status: "uninstalled",
+      app: { ...target, isInstalled: false },
+      dataDeleted: deleteData,
+      alsoUninstalled: null,
+      warning: `Uninstall succeeded, but listing extensions afterwards failed (${reason}); call bcdev_app_list to see which dependent apps Business Central also uninstalled.`,
+    };
+  }
+  const afterByPackage = new Map(after.map((app) => [app.packageId, app]));
+  const alsoUninstalled = before.apps
+    .filter((app) => app.isInstalled && app.packageId !== target.packageId && afterByPackage.get(app.packageId)?.isInstalled === false)
+    .map((app) => ({ ...app, isInstalled: false }));
+  return {
+    status: "uninstalled",
+    app: afterByPackage.get(target.packageId) ?? { ...target, isInstalled: false },
+    dataDeleted: deleteData,
+    alsoUninstalled,
+  };
+}
+
+export async function unpublishApp(
+  ctx: AppLifecycleContext,
+  options: { appId: string; version?: string },
+): Promise<UnpublishAppResult> {
+  const appId = requireGuid(options.appId, "appId");
+  const version = options.version === undefined ? undefined : requireVersion(options.version);
+  const listed = await listApps(ctx, { appId });
+  const publishedVersions = listed.apps.map((app) => app.version).join(", ");
+  const matches = version === undefined ? listed.apps : listed.apps.filter((app) => app.version === version);
+  if (matches.length === 0) {
+    if (version === undefined) throw notPublished(appId);
+    throw new BcDevError(
+      "NOT_FOUND",
+      `App ${appId} is not published at version ${version}${publishedVersions ? ` (published: ${publishedVersions})` : ""}`,
+      "server",
+      false,
+      { appId, version, publishedVersions },
+    );
+  }
+  if (matches.length > 1) {
+    throw invalid(`App ${appId} is published at several versions (${publishedVersions}); pass version to choose one`, {
+      appId,
+      publishedVersions,
+    });
+  }
+  const target = matches[0]!;
+  // WIRE: BC refuses unpublish while installed (400 Application_DialogException) and while a
+  // dependent is still published (400 naming the dependents); both pass through as
+  // SERVER_REJECTED (Cronus28 BC28.4, 2026-10-03).
+  await bcRequest(
+    { ...ctx, companyId: listed.companyId },
+    actionUrl(ctx, listed.companyId, target.packageId, "unpublish"),
+    "POST",
+    `Unpublish ${target.name} ${target.version}`,
+  );
+  return { status: "unpublished", app: target };
+}
