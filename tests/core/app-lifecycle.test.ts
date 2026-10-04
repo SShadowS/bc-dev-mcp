@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { BasicAuthorizationProvider } from "../../src/core/authorization";
-import { listApps, uninstallApp, unpublishApp, type AppLifecycleContext } from "../../src/core/app-lifecycle";
+import { listApps, publishApp, uninstallApp, unpublishApp, type AppLifecycleContext } from "../../src/core/app-lifecycle";
 import type { ConnectionConfig } from "../../src/core/types";
+import { buildAppPackage } from "../fixtures/app-package";
 
 // Fixture identities are the throwaway probe apps used live on Cronus28, 2026-10-03.
 export const COMPANY = "f95feb05-5f9a-f111-90dd-70a8a5531db6";
@@ -293,6 +297,70 @@ describe("unpublishApp", () => {
   test("malformed version → INVALID_ARGUMENT before any request", async () => {
     const { fetchFn, calls } = scripted();
     await expect(unpublishApp(ctx(fetchFn), { appId: BASE_APP, version: "1.0" })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("publishApp", () => {
+  function appFile(name = "probe.app", bytes?: Buffer): { path: string; bytes: Buffer } {
+    const content = bytes ?? buildAppPackage({ publisher: "SShadowS Probe", name: "probe-base", appId: BASE_APP, version: "1.0.0.0" });
+    const path = join(mkdtempSync(join(tmpdir(), "bcmcp-publish-")), name);
+    writeFileSync(path, content);
+    return { path, bytes: content };
+  }
+
+  test("posts one multipart part named after the file and reports the package identity", async () => {
+    const file = appFile();
+    const { fetchFn, calls } = scripted(() => new Response(null, { status: 200 }));
+    const result = await publishApp(ctx(fetchFn), { appPath: file.path, schemaUpdateMode: "recreate", dependencyPublishingOption: "strict" });
+    expect(result).toEqual({
+      status: "published",
+      appId: BASE_APP,
+      name: "probe-base",
+      publisher: "SShadowS Probe",
+      version: "1.0.0.0",
+      bytes: file.bytes.length,
+      schemaUpdateMode: "recreate",
+      dependencyPublishingOption: "strict",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe("http://cronus28:7049/BC/dev/apps?tenant=default&SchemaUpdateMode=recreate&DependencyPublishingOption=strict");
+    const form = calls[0]!.body as FormData;
+    expect(form).toBeInstanceOf(FormData);
+    const part = form.get("probe.app") as File;
+    expect(part.name).toBe("probe.app");
+    expect(part.size).toBe(file.bytes.length);
+    expect(calls[0]!.headers["Content-Type"]).toBeUndefined();
+  });
+
+  test("defaults to synchronize and default dependency publishing", async () => {
+    const file = appFile();
+    const { fetchFn, calls } = scripted(() => new Response("", { status: 200 }));
+    const result = await publishApp(ctx(fetchFn), { appPath: file.path });
+    expect(result).toMatchObject({ schemaUpdateMode: "synchronize", dependencyPublishingOption: "default" });
+    expect(calls[0]!.url).toContain("SchemaUpdateMode=synchronize&DependencyPublishingOption=default");
+  });
+
+  test("422 compile failure passes through as SERVER_REJECTED with BC's message", async () => {
+    const file = appFile();
+    const message = "Publishing failed due to 'Extension compilation failed\r\nerror AL1024: A package with publisher 'SShadowS Probe', name 'probe-base' ... could not be loaded.'. The original extensions have been restored.";
+    const { fetchFn } = scripted(json({ Message: message, ErrorType: "InvalidOperation" }, 422));
+    const error = (await publishApp(ctx(fetchFn), { appPath: file.path }).catch((e: unknown) => e)) as Error & { code: string; details: Record<string, unknown> };
+    expect(error.code).toBe("SERVER_REJECTED");
+    expect(error.details).toMatchObject({ httpStatus: 422, bcErrorCode: "InvalidOperation" });
+    expect(String(error.details["bcMessage"])).toContain("AL1024");
+  });
+
+  test("relative, non-.app, missing, and invalid files are INVALID_ARGUMENT with no request", async () => {
+    const { fetchFn, calls } = scripted();
+    await expect(publishApp(ctx(fetchFn), { appPath: "probe.app" })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(publishApp(ctx(fetchFn), { appPath: appFile("probe.zip").path })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(publishApp(ctx(fetchFn), { appPath: join(tmpdir(), "does-not-exist-bcmcp.app") })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(publishApp(ctx(fetchFn), { appPath: appFile("bad.app", Buffer.from("not a zip")).path })).rejects.toMatchObject({
+      code: "INVALID_ARGUMENT",
+      message: expect.stringContaining("not a valid AL .app package"),
+    });
     expect(calls).toHaveLength(0);
   });
 });

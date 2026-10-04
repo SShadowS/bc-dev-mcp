@@ -6,10 +6,13 @@
  *
  * SECURITY: never put the Authorization value or an authenticated URL into an error.
  */
+import { readFile } from "node:fs/promises";
+import { basename, isAbsolute } from "node:path";
 import type { AuthorizationProvider } from "./authorization";
 import { BcDevError } from "./agent-errors";
 import type { ConnectionConfig } from "./types";
-import { automationUrl } from "./urls";
+import { readPackageIdentity } from "./package-download";
+import { automationUrl, devAppsUrl, type DependencyPublishingOption, type SchemaUpdateMode } from "./urls";
 
 export const DEFAULT_APP_LIFECYCLE_TIMEOUT_MS = 120_000;
 export const MAX_APP_LIFECYCLE_TIMEOUT_MS = 600_000;
@@ -326,4 +329,58 @@ export async function unpublishApp(
     `Unpublish ${target.name} ${target.version}`,
   );
   return { status: "unpublished", app: target };
+}
+
+export interface PublishAppResult {
+  status: "published";
+  appId: string;
+  name: string;
+  publisher: string;
+  version: string;
+  bytes: number;
+  schemaUpdateMode: SchemaUpdateMode;
+  dependencyPublishingOption: DependencyPublishingOption;
+}
+
+export async function publishApp(
+  ctx: AppLifecycleContext,
+  options: { appPath: string; schemaUpdateMode?: SchemaUpdateMode; dependencyPublishingOption?: DependencyPublishingOption },
+): Promise<PublishAppResult> {
+  const { appPath } = options;
+  const schemaUpdateMode = options.schemaUpdateMode ?? "synchronize";
+  const dependencyPublishingOption = options.dependencyPublishingOption ?? "default";
+  if (!isAbsolute(appPath)) throw invalid("appPath must be an absolute path to a compiled .app file", { appPath });
+  if (!appPath.toLowerCase().endsWith(".app")) throw invalid("appPath must name a .app file", { appPath });
+
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(appPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? "read failed";
+    throw invalid(`appPath could not be read (${code})`, { appPath });
+  }
+  let identity: ReturnType<typeof readPackageIdentity>;
+  try {
+    identity = readPackageIdentity(bytes);
+  } catch (error) {
+    if (error instanceof BcDevError) throw invalid(`appPath is not a valid AL .app package: ${error.message}`, { appPath });
+    throw error;
+  }
+
+  const fileName = basename(appPath);
+  const form = new FormData();
+  // WIRE: dev/apps takes multipart/form-data with one part named after the file (dep-decomp
+  // AppsApiClient.cs SendPackage); a raw octet-stream body is refused with 415.
+  form.append(fileName, new Blob([new Uint8Array(bytes)]), fileName);
+  await bcRequest(ctx, devAppsUrl(ctx.config, schemaUpdateMode, dependencyPublishingOption), "POST", `Publish ${fileName}`, form);
+  return {
+    status: "published",
+    appId: identity.appId,
+    name: identity.appName,
+    publisher: identity.publisher,
+    version: identity.version,
+    bytes: bytes.length,
+    schemaUpdateMode,
+    dependencyPublishingOption,
+  };
 }
