@@ -1,0 +1,40 @@
+name: Release to npm
+
+# Publishes bc-dev-mcp to npm via trusted publishing (GitHub OIDC; no npm token secret).
+# Requires a Trusted Publisher on npmjs.com for this package:
+#   GitHub Actions · SShadowS / bc-dev-mcp · workflow release.yml
+# Provenance is generated automatically for this public repo.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14; Node 24 ships both.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - name: Check release tag matches package.json version
+        if: github.event_name == 'release'
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "${{ github.event.release.tag_name }}" ]; then
+            echo "::error::Release tag ${{ github.event.release.tag_name }} does not match package.json $version"
+            exit 1
+          fi
+      - run: bun install --frozen-lockfile
+      # prepublishOnly runs bun test, typecheck and build before the upload.
+      - run: npm publish
