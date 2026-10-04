@@ -47,3 +47,51 @@ export function snapshotUrl(
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
+
+// WIRE: on-prem Automation API answers on the BC API services port, 7048 by default
+// (Cronus28 BC28.4, 2026-10-03). Launch configurations do not carry it.
+export const DEFAULT_API_PORT = 7048;
+
+export type SchemaUpdateMode = "synchronize" | "recreate" | "forcesync";
+export type DependencyPublishingOption = "default" | "ignore" | "strict";
+
+function odataQuery(query: Record<string, string>): string {
+  const entries = Object.entries(query);
+  // OData system options need a literal "$" and %20 for spaces; URLSearchParams would
+  // emit %24 and "+". encodeURIComponent leaves the quote characters of a literal intact.
+  return entries.length === 0
+    ? ""
+    : `?${entries.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&")}`;
+}
+
+export function automationUrl(
+  c: ConnectionConfig,
+  path: string,
+  apiPort: number = DEFAULT_API_PORT,
+  query: Record<string, string> = {},
+): string {
+  if (c.environmentType !== "OnPrem") {
+    // SaaS: the Entra token carries the tenant, so no tenant query. Not yet verified live;
+    // listed as an open box in scripts/e2e.md.
+    return `${baseClientUrl(c)}api/microsoft/automation/v2.0/${path}${odataQuery(query)}`;
+  }
+  const u = new URL(c.server);
+  // WIRE: <proto>//<host>:<apiPort>/<instance>/api/microsoft/automation/v2.0/<path>?tenant=<t>
+  // (Cronus28 BC28.4, 2026-10-03).
+  return `${u.protocol}//${u.hostname}:${apiPort}/${encodeURIComponent(c.serverInstance)}/api/microsoft/automation/v2.0/${path}${odataQuery({ ...query, tenant: c.tenant ?? "default" })}`;
+}
+
+export function devAppsUrl(
+  c: ConnectionConfig,
+  schemaUpdateMode: SchemaUpdateMode,
+  dependencyPublishingOption: DependencyPublishingOption,
+): string {
+  // WIRE: dev/apps takes tenant, SchemaUpdateMode and DependencyPublishingOption with lower-case
+  // enum values (dep-decomp AppsApiClient.cs PublishPackageFile); 200 on Cronus28 2026-10-03.
+  const params = new URLSearchParams({
+    tenant: c.tenant ?? "default",
+    SchemaUpdateMode: schemaUpdateMode,
+    DependencyPublishingOption: dependencyPublishingOption,
+  });
+  return `${baseClientUrl(c)}dev/apps?${params.toString()}`;
+}
