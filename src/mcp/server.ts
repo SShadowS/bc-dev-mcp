@@ -76,7 +76,7 @@ export function toToolResponse(result: unknown): {
 
 export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
   const server = new McpServer(
-    { name: "bc-dev-mcp", version: "0.3.0" },
+    { name: "bc-dev-mcp", version: "0.4.0" },
     // Skills served as resources under skill:// — tracks draft SEP-2640 (io.modelcontextprotocol/skills).
     { capabilities: { extensions: { "io.modelcontextprotocol/skills": {} } } },
   );

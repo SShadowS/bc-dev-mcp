@@ -111,7 +111,7 @@ function sdkConnectionFactory(
   headers: Headers,
   fetchFn: typeof fetch,
 ): NativeMcpConnection {
-  const client = new Client({ name: "bc-dev-mcp", version: "0.3.0" });
+  const client = new Client({ name: "bc-dev-mcp", version: "0.4.0" });
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: { headers },
     fetch: fetchFn,
