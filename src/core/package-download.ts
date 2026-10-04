@@ -56,7 +56,7 @@ export interface PackageDownloadResult {
   warning?: string;
 }
 
-interface PackageIdentity {
+export interface PackageIdentity {
   publisher: string;
   appName: string;
   appId: string;
@@ -181,19 +181,18 @@ function protocolError(
   );
 }
 
-function packageIdentity(
+export function readPackageIdentity(
   bytes: Buffer,
-  selector: NormalizedPackageSelector,
-  maxSymbolBytes: number,
+  maxSymbolBytes: number = DEFAULT_SYMBOL_REFERENCE_BYTES,
 ): PackageIdentity {
   let symbolBytes: Buffer | null;
   try {
     symbolBytes = extractEntry(bytes, "SymbolReference.json", maxSymbolBytes);
   } catch (error) {
-    throw protocolError("Business Central returned an invalid application package archive", {}, error);
+    throw protocolError("Application package is not a valid archive", {}, error);
   }
   if (!symbolBytes) {
-    throw protocolError("Business Central returned an application package without SymbolReference.json");
+    throw protocolError("Application package has no SymbolReference.json");
   }
 
   let symbols: Record<string, unknown>;
@@ -202,7 +201,7 @@ function packageIdentity(
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
     symbols = parsed as Record<string, unknown>;
   } catch (error) {
-    throw protocolError("Business Central returned an application package with invalid SymbolReference.json", {}, error);
+    throw protocolError("Application package has an invalid SymbolReference.json", {}, error);
   }
 
   // WIRE: AL compiler .app packages identify their module at the top level of
@@ -211,47 +210,49 @@ function packageIdentity(
   const publisher = stringField(symbols, "Publisher");
   const appName = stringField(symbols, "Name");
   const appId = stringField(symbols, "AppId");
-  const resolvedVersionText = stringField(symbols, "Version");
-  if (!publisher || !appName || !appId || !resolvedVersionText || !GUID.test(appId)) {
-    throw protocolError("Business Central returned incomplete package identity metadata");
+  const versionText = stringField(symbols, "Version");
+  if (!publisher || !appName || !appId || !versionText || !GUID.test(appId)) {
+    throw protocolError("Application package has incomplete identity metadata");
   }
 
-  let resolvedVersion: ReturnType<typeof parseVersion>;
+  let version: ReturnType<typeof parseVersion>;
   try {
-    resolvedVersion = parseVersion(resolvedVersionText, "returned package version");
+    version = parseVersion(versionText, "package version");
   } catch (error) {
-    throw protocolError("Business Central returned an invalid package version", {}, error);
+    throw protocolError("Application package has an invalid version", {}, error);
   }
-  if (!sameText(publisher, selector.publisher) || !sameText(appName, selector.appName)) {
+  return { publisher, appName, appId: appId.toLowerCase(), version: version.text, versionParts: version.parts };
+}
+
+function packageIdentity(
+  bytes: Buffer,
+  selector: NormalizedPackageSelector,
+  maxSymbolBytes: number,
+): PackageIdentity {
+  const identity = readPackageIdentity(bytes, maxSymbolBytes);
+  if (!sameText(identity.publisher, selector.publisher) || !sameText(identity.appName, selector.appName)) {
     throw protocolError("Business Central returned a package with a different publisher or name", {
       requestedPublisher: selector.publisher,
       requestedAppName: selector.appName,
-      returnedPublisher: publisher,
-      returnedAppName: appName,
+      returnedPublisher: identity.publisher,
+      returnedAppName: identity.appName,
     });
   }
-  if (selector.appId && appId.toLowerCase() !== selector.appId) {
+  if (selector.appId && identity.appId !== selector.appId) {
     throw protocolError("Business Central returned a package with a different app ID", {
       requestedAppId: selector.appId,
-      returnedAppId: appId,
+      returnedAppId: identity.appId,
     });
   }
   // WIRE: versionText is a minimum-version selector, not exact. A lower version request
   // resolved to the installed higher version on SaaS Sandbox 2026-07-30.
-  if (compareVersion(resolvedVersion.parts, selector.versionParts) < 0) {
+  if (compareVersion(identity.versionParts, selector.versionParts) < 0) {
     throw protocolError("Business Central returned a package older than the requested minimum version", {
       requestedVersion: selector.version,
-      returnedVersion: resolvedVersion.text,
+      returnedVersion: identity.version,
     });
   }
-
-  return {
-    publisher,
-    appName,
-    appId: appId.toLowerCase(),
-    version: resolvedVersion.text,
-    versionParts: resolvedVersion.parts,
-  };
+  return identity;
 }
 
 function packageFilename(identity: PackageIdentity): string {

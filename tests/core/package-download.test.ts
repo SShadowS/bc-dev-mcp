@@ -9,6 +9,7 @@ import { BcDevError } from "../../src/core/agent-errors";
 import {
   downloadPackage,
   packageDownloadUrl,
+  readPackageIdentity,
   type PackageInstallFileOps,
   type PackageSelector,
 } from "../../src/core/package-download";
@@ -548,5 +549,39 @@ describe("downloadPackage", () => {
       message: expect.stringContaining("direct directory"),
     });
     expect(readdirSync(outside).filter((name) => name.endsWith(".app"))).toEqual([]);
+  });
+});
+
+describe("readPackageIdentity", () => {
+  test("reads identity from a compiled .app and lower-cases the app ID", () => {
+    const bytes = buildAppPackage({
+      publisher: "SShadowS Probe",
+      name: "probe-base",
+      appId: "7A1C0001-0000-4000-8000-0000000000B1",
+      version: "1.0.0.0",
+    });
+    expect(readPackageIdentity(bytes)).toEqual({
+      publisher: "SShadowS Probe",
+      appName: "probe-base",
+      appId: "7a1c0001-0000-4000-8000-0000000000b1",
+      version: "1.0.0.0",
+      versionParts: [1, 0, 0, 0],
+    });
+  });
+
+  test("rejects bytes that are not an app package", () => {
+    let caught: unknown;
+    try {
+      readPackageIdentity(Buffer.from("not a zip"));
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(BcDevError);
+    expect(caught).toMatchObject({ code: "PROTOCOL_ERROR" });
+  });
+
+  test("rejects a package without SymbolReference.json", () => {
+    const bytes = buildStoredZip([{ name: "NavxManifest.xml", content: Buffer.from("<Package />") }]);
+    expect(() => readPackageIdentity(bytes)).toThrow(/SymbolReference\.json/);
   });
 });
