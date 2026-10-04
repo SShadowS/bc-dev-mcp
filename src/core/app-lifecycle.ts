@@ -154,7 +154,16 @@ async function bcRequest(
   } catch (error) {
     if (error instanceof BcDevError) throw error;
     if (timedOut) {
-      throw new BcDevError("TIMEOUT", `${operation} timed out after ${timeoutMs} ms`, "network", true, { timeoutMs }, { cause: error });
+      // A POST may have been applied before the timeout; a blind retry would lose the cascade report.
+      const applied = method === "POST";
+      throw new BcDevError(
+        "TIMEOUT",
+        `${operation} timed out after ${timeoutMs} ms${applied ? "; the action may have been applied; call bcdev_app_list before retrying" : ""}`,
+        "network",
+        !applied,
+        { timeoutMs },
+        { cause: error },
+      );
     }
     throw new BcDevError("ENDPOINT_UNREACHABLE", `${operation}: Business Central endpoint is unreachable`, "network", true, {}, { cause: error });
   } finally {
@@ -301,7 +310,14 @@ export async function uninstallApp(
   const rows = before.apps.filter((app) => app.appId === appId);
   if (rows.length === 0) throw notPublished(appId);
   const target = rows.find((app) => app.isInstalled);
-  if (!target) return { status: "alreadyUninstalled", app: rows[0]!, dataDeleted: false, alsoUninstalled: [] };
+  if (!target) {
+    const result: UninstallAppResult = { status: "alreadyUninstalled", app: rows[0]!, dataDeleted: false, alsoUninstalled: [] };
+    if (deleteData) {
+      result.warning =
+        "No data was deleted because the app is not installed; Business Central keeps an uninstalled app's data, so publishing a LOWER version later is refused (\"newer version ... was already installed\") until that data is removed (reinstall, then uninstall with deleteData: true).";
+    }
+    return result;
+  }
 
   const action = deleteData ? "uninstallAndDeleteExtensionData" : "uninstall";
   await bcRequest(scoped, actionUrl(ctx, before.companyId, target.packageId, action), "POST", `Uninstall ${target.name}`);

@@ -96,6 +96,7 @@ Debugger attach returns as soon as Business Central accepts the request; binding
 | `environmentName` | launch.json / tool param | — | SaaS environment name |
 | `server` | launch.json / tool param | — | BC server URL, e.g. `http://bcserver` |
 | `serverInstance` | launch.json / tool param | — | Server instance, e.g. `BC` |
+| `BC_DEV_API_PORT` | env var | `7048` | On-prem Automation API port used by the `bcdev_app_*` tools |
 | `port` | launch.json / tool param | `7049` | Developer service port |
 | `tenant` | launch.json / tool param | `default` | Tenant (hub negotiate requires one) |
 | `project` | tool param | server cwd | AL project dir for launch.json and `.al` scanning |

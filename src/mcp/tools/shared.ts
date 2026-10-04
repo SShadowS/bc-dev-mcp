@@ -19,7 +19,7 @@ export interface ToolDeps {
   hubFactory: HubFactory;
   authorizationFactory: AuthorizationProviderFactory;
   fetchFn: typeof fetch;
-  /** Test seam for on-prem Automation API GETs (HTTP/1.0); defaults to the real client. */
+  /** HTTP/1.0 GET client for on-prem Automation API reads; wired in src/mcp/index.ts, tests inject a stub. */
   http10Get: Http10Get;
   env: Record<string, string | undefined>;
   cwd: string;

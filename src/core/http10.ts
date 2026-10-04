@@ -105,6 +105,18 @@ export function createHttp10Get(maxBytes: number = MAX_HTTP10_RESPONSE_BYTES): H
           return;
         }
         chunks.push(chunk);
+        // Resolve as soon as a declared Content-Length is satisfied; don't wait for the socket to end.
+        const raw = Buffer.concat(chunks);
+        const split = raw.indexOf("\r\n\r\n");
+        if (split < 0) return;
+        const declared = /^content-length:[ \t]*(\d+)[ \t]*$/im.exec(raw.subarray(0, split).toString("latin1"));
+        if (declared && raw.length - split - 4 >= Number(declared[1])) {
+          try {
+            finish(null, parseResponse(raw));
+          } catch (error) {
+            finish(error);
+          }
+        }
       });
       socket.on("error", (error) => finish(error));
       socket.on("end", () => {

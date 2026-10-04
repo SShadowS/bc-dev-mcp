@@ -130,7 +130,7 @@ export function createAppTools(_state: ServerState, deps: ToolDeps): ToolDefinit
       name: "bcdev_app_uninstall",
       title: "Uninstall an app",
       description:
-        "Uninstall the installed version of an app through the Automation API. Business Central also uninstalls every installed dependent app, without warning; those are reported in alsoUninstalled. deleteData: true also deletes the app's data. Returns alreadyUninstalled when the app is published but not installed.",
+        "Uninstall the installed version of an app through the Automation API. Business Central also uninstalls every installed dependent app, without warning; those are reported in alsoUninstalled. deleteData: true also deletes the app's data. Uninstalling without deleteData keeps the app's data, and Business Central then refuses to publish a lower version of it; pass deleteData: true when you intend to downgrade or start clean. Returns alreadyUninstalled when the app is published but not installed (nothing is deleted then, even with deleteData).",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
       schema: {
         ...lifecycleShape,

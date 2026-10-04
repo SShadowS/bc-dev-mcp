@@ -296,6 +296,7 @@ recorded, not periodically sampled. `grep // WIRE:` in `src/core/snapshot/snapsh
 - [x] `isInstalled` is not filterable on `extensions` (400 `BadRequest_NotSupported`). <!-- 2026-10-04 -->
 - [ ] SaaS Sandbox: `automationUrl` under `api.businesscentral.dynamics.com/v2.0/<env>/api/microsoft/automation/v2.0/` with no tenant query; list/uninstall/unpublish of a PTE; `dev/apps` publish. <!-- not run: no SaaS credentials on this machine -->
 - [ ] Global-scope replace refusal from #47 reproduced and recovered via list → uninstall → unpublish → publish. <!-- needs Publish-NAVApp -Scope Global on the host -->
+
 ## Known server behaviours
 
 - AddBreakpoint for an object not deployed on the server succeeds but poisons the debuggee session with "metadata object ... was not found" errors — only set breakpoints in deployed objects (live E2E 2026-07-03).

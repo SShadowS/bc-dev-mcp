@@ -230,6 +230,30 @@ describe("uninstallApp", () => {
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
+  test("alreadyUninstalled with deleteData warns that no data was deleted, with no POST", async () => {
+    const { fetchFn, calls } = scripted(companies(), extensions(row({ isInstalled: false })));
+    const result = await uninstallApp(ctx(fetchFn), { appId: BASE_APP, deleteData: true });
+    expect(result).toMatchObject({ status: "alreadyUninstalled", dataDeleted: false });
+    expect(result.warning).toContain("not installed");
+    expect(result.warning).toContain("LOWER version");
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  test("POST timeout is not retryable and says to list first", async () => {
+    let n = 0;
+    const base = scripted(companies(), extensions(row()));
+    const fetchFn = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST" || n >= 2) {
+        return new Promise((_r, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+      }
+      n++;
+      return (base.fetchFn as (i: RequestInfo | URL, o?: RequestInit) => Promise<Response>)(input, init);
+    }) as unknown as typeof fetch;
+    const error = await uninstallApp(ctx(fetchFn, { timeoutMs: 20 }), { appId: BASE_APP }).catch((e) => e);
+    expect(error).toMatchObject({ code: "TIMEOUT", retryable: false });
+    expect(error.message).toContain("bcdev_app_list");
+  });
+
   test("targets the installed row when several versions are published", async () => {
     const OLD_PKG = "11111111-1111-4111-8111-111111111111";
     const { fetchFn, calls } = scripted(

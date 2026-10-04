@@ -43,6 +43,13 @@ describe("createHttp10Get", () => {
     expect(requests[0]).toContain("\r\nAuthorization: Basic dTpw\r\n");
   });
 
+  test("resolves once the full Content-Length body arrived even if the server keeps the socket open", async () => {
+    const { url } = await serve((socket) => {
+      socket.write("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\n{\"value\":1}");
+    });
+    expect(await createHttp10Get()(url, {}, AbortSignal.timeout(3000))).toEqual({ status: 200, body: "{\"value\":1}" });
+  });
+
   test("reads a close-delimited body without Content-Length", async () => {
     const { url } = await serve((socket) => socket.end("HTTP/1.0 400 Bad Request\r\n\r\n{\"error\":{}}"));
     expect(await createHttp10Get()(url, {}, signal())).toEqual({ status: 400, body: "{\"error\":{}}" });

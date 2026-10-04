@@ -104,8 +104,11 @@ function toolRecoverySteps(tool: string, code: AgentErrorCode): string[] {
   if (tool === "bcdev_app_publish" && code === "SERVER_REJECTED") {
     return ["If Business Central refused to replace an existing copy published at Global scope, call bcdev_app_list, then bcdev_app_uninstall and bcdev_app_unpublish for that appId, and retry bcdev_app_publish."];
   }
-  if (tool.startsWith("bcdev_app_") && code === "NOT_FOUND") {
+  if (code === "NOT_FOUND" && (tool === "bcdev_app_uninstall" || tool === "bcdev_app_unpublish")) {
     return ["Call bcdev_app_list to confirm the published appId, version, and company, then retry."];
+  }
+  if (code === "NOT_FOUND" && (tool === "bcdev_app_list" || tool === "bcdev_app_publish")) {
+    return ["Verify the server, serverInstance, apiPort (on-prem Automation API, default 7048) and companyId, then call bcdev_status."];
   }
   return [];
 }

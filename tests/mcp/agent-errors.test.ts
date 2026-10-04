@@ -94,6 +94,9 @@ describe("agent errors", () => {
     expect(rejected.nextSteps[0]).toContain("bcdev_app_unpublish");
     const missing = agentErrorBody("bcdev_app_unpublish", new BcDevError("NOT_FOUND", "No published app", "server"));
     expect(missing.nextSteps[0]).toContain("bcdev_app_list");
+    const listMissing = agentErrorBody("bcdev_app_list", new BcDevError("NOT_FOUND", "x", "server"));
+    expect(listMissing.nextSteps[0]).toContain("bcdev_status");
+    expect(listMissing.nextSteps.join(" ")).not.toContain("Call bcdev_app_list");
     const unrelated = agentErrorBody("bcdev_source", new BcDevError("SERVER_REJECTED", "x", "server"));
     expect(unrelated.nextSteps.join(" ")).not.toContain("Global scope");
   });

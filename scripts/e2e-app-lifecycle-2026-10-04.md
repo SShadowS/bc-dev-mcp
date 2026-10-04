@@ -70,16 +70,16 @@ All outputs validated against each tool's output schema.
   "Cannot install … because a newer version … was already installed". An
   uninstall without `deleteData` keeps that version marker through unpublish;
   `deleteData: true` clears it.
-- The two earlier attempts on the same day were wedged by the stall above
-  (every call after the first few timed out, event 705 at the client timeout
-  cadence); both were cleared by a service restart and are explained by the
-  slot exhaustion, not by the tool logic.
+- The two blocked tool runs earlier on 2026-10-04 (before the HTTP/1.0 fix) were
+  wedged by the HTTP/1.1 chunked stall above and cleared by a service restart.
+  Separately, two pre-runs of the final session failed with 422 "newer version
+  1.0.0.2 was already installed", caused by the data-version marker left by an
+  earlier cleanup without `deleteData`.
 
 ## Known server behaviours
 
-- A BC28 API-services hang (event 705 throttling) was observed before this run
-  and cleared by a service restart; the cause was later traced to the chunked
-  tail stall described above.
+- BC28 API-services hangs (event 705 throttling) seen before this run were the
+  chunked tail stall described above; a service restart clears them.
 
 ## Open items
 
