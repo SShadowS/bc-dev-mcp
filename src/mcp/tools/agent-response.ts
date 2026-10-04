@@ -160,6 +160,16 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       return result["kind"] === "instrumentation"
         ? [AL_PERF_HINT, "Instrumentation self-time is deterministic call-time, not statistical."]
         : [AL_PERF_HINT];
+    case "bcdev_app_uninstall": {
+      const steps: string[] = [];
+      if (result["alsoUninstalled"] === null) {
+        steps.push("Call bcdev_app_list to confirm which dependent apps Business Central uninstalled along with the target.");
+      } else if (Array.isArray(result["alsoUninstalled"]) && result["alsoUninstalled"].length > 0) {
+        steps.push("Business Central also uninstalled the apps in alsoUninstalled; republish or reinstall any that are still needed.");
+      }
+      steps.push("Call bcdev_app_unpublish with the same appId to remove it, or bcdev_app_publish to replace it.");
+      return steps;
+    }
     default:
       return [];
   }

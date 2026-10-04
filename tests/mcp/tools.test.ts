@@ -67,9 +67,13 @@ describe("tools", () => {
     hub = new FakeHub();
   });
 
-  test("registers all 24 tools", () => {
+  test("registers all 28 tools", () => {
     const { tools } = setup(hub);
     expect([...tools.keys()].sort()).toEqual([
+      "bcdev_app_list",
+      "bcdev_app_publish",
+      "bcdev_app_uninstall",
+      "bcdev_app_unpublish",
       "bcdev_debug_attach",
       "bcdev_debug_breakpoints",
       "bcdev_debug_continue",

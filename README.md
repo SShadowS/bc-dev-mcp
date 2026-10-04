@@ -32,6 +32,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | **Record-write triage** | Arm a bounded capture for one numeric table ID, automatically continue every global record-write stop, and group exact matching writer stacks while failing closed on unresolved evidence |
 | **BC native MCP passthrough** | Dynamically discover and invoke BC28 business-action, AL-runtime, and paused-debugger native MCP tools from the same agent |
 | **On-demand source & symbols** | Read one deployed server object or download one validated installed `.app` package into the project’s `.alpackages` cache |
+| **App lifecycle over HTTP** | List, publish, uninstall, and unpublish apps without PowerShell or host access — dev endpoint plus Automation API (on-prem port 7048 or BC_DEV_API_PORT) |
 | **Debug-a-test** | Test run bound to the debug session — breakpoints fire during test execution |
 | **Config auto-discovery** | Server/instance/tenant read from the AL project's `.vscode/launch.json` |
 | **Preflight diagnostics** | `bcdev_status` distinguishes unreachable / bad credentials / unsupported dev API |
@@ -121,7 +122,7 @@ Azure access tokens are acquired with `az account get-access-token`, cached only
 MCP client (agent)
   |
   v  (stdio)
-src/mcp/server.ts ── tools/ (24 bcdev_* tools) ── state.ts (debug/test/profile ownership)
+src/mcp/server.ts ── tools/ (28 bcdev_* tools) ── state.ts (debug/test/profile ownership)
   |
   v
 src/core/  (pure library — typed returns, injected deps)
@@ -157,6 +158,10 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_record_writes_finish` | Release/stop collection and return grouped exact writer stacks plus unresolved evidence |
 | `bcdev_source` | Read the server’s deployed AL source for an object not on local disk |
 | `bcdev_package_download` | Download one validated installed dependency/symbol `.app` into `<project>/.alpackages` |
+| `bcdev_app_list` | List published apps with app ID, version, installed state, and publish scope |
+| `bcdev_app_publish` | Publish and install a compiled `.app` at Dev scope through the dev endpoint |
+| `bcdev_app_uninstall` | Uninstall an app; reports the dependents Business Central uninstalled with it |
+| `bcdev_app_unpublish` | Unpublish one published version of an uninstalled app |
 | `bcdev_native_list` | List the dynamic BC28 native tool catalog for business, AL runtime, or a paused debugger |
 | `bcdev_native_call` | Invoke one exact native tool and preserve its complete upstream result |
 | `bcdev_profile_status` | Preflight the snapshot-debugger endpoint; report whether sampling CPU profiling is supported |
@@ -375,7 +380,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 |------|---------|
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
-| `src/mcp/tools/` | The 24 bcdev_* tool definitions (zod schemas + metadata + handlers) |
+| `src/mcp/tools/` | The 28 bcdev_* tool definitions (zod schemas + metadata + handlers) |
 | `src/mcp/state.ts` | Debug session singleton, event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/test-orchestration.ts` | Pure repeat-run identity, stability classification, and adjacent pass/fail diff analysis |

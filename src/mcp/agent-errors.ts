@@ -100,6 +100,16 @@ function redactDetails(details: Record<string, string | number | boolean | null>
   }));
 }
 
+function toolRecoverySteps(tool: string, code: AgentErrorCode): string[] {
+  if (tool === "bcdev_app_publish" && code === "SERVER_REJECTED") {
+    return ["If Business Central refused to replace an existing copy published at Global scope, call bcdev_app_list, then bcdev_app_uninstall and bcdev_app_unpublish for that appId, and retry bcdev_app_publish."];
+  }
+  if (tool.startsWith("bcdev_app_") && code === "NOT_FOUND") {
+    return ["Call bcdev_app_list to confirm the published appId, version, and company, then retry."];
+  }
+  return [];
+}
+
 export function agentErrorBody(tool: string, error: unknown): AgentErrorBody {
   const normalized = normalizeAgentError(error);
   return {
@@ -111,6 +121,6 @@ export function agentErrorBody(tool: string, error: unknown): AgentErrorBody {
       tool,
       details: redactDetails(normalized.details),
     },
-    nextSteps: recoverySteps(normalized.code, normalized.details),
+    nextSteps: [...toolRecoverySteps(tool, normalized.code), ...recoverySteps(normalized.code, normalized.details)],
   };
 }

@@ -44,7 +44,7 @@ src/core/            # pure library — typed returns, injected deps, never prin
   types.ts, urls.ts
 src/mcp/             # thin frontend
   server.ts              # buildServer: registerTool/registerResource wiring (testable over InMemoryTransport)
-  tools/                 # the 24 bcdev_* tool definitions (zod schemas + metadata + handlers)
+  tools/                 # the 28 bcdev_* tool definitions (zod schemas + metadata + handlers)
   skills.generated.ts    # GENERATED from skills/ by scripts/embed-skills.ts — do not edit
   state.ts               # debug session singleton, event queue, run lock
   index.ts               # stdio entry: builds deps, calls buildServer, connects transport
@@ -75,6 +75,7 @@ live E2E) — changing them will break against real BC:
 - **`AddBreakpoint`** fails ("tenant '' not found") until the session has paused once — attach with `breakOnError`, register breakpoints at the first break.
 - **App publish** (dev endpoint) needs `multipart/form-data` (`-F`), not raw octet-stream (415 otherwise).
 - **Coverage payload** is procedure-level; `line` mode is unproven — validate before trusting.
+- **Automation API** (app lifecycle) is on-prem port **7048** (`BC_DEV_API_PORT` / `apiPort` override), `/<instance>/api/microsoft/automation/v2.0/companies(<id>)/extensions`. Bodyless bound-action POSTs need `Content-Length: 0` (HTTP.sys 411 otherwise). **`uninstall` silently cascades to installed dependents** — report them by diffing a list before and after; there is no API to predict or prevent it. `publishedAs` has a leading space.
 
 ## Testing against a live server
 

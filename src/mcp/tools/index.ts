@@ -2,6 +2,7 @@ export { type ToolDefinition, type ToolDeps } from "./shared";
 import type { ToolDeps } from "./shared";
 import type { ToolDefinition } from "./shared";
 import type { ServerState } from "../state";
+import { createAppTools } from "./app-tools";
 import { createDebugTools } from "./debug-tools";
 import { createProfileTools } from "./profile-tools";
 import { createSourceTools } from "./source-tools";
@@ -18,5 +19,6 @@ export function createTools(state: ServerState, deps: ToolDeps): ToolDefinition[
     ...createNativeMcpTools(state, deps),
     ...createProfileTools(state, deps),
     ...createSourceTools(state, deps),
+    ...createAppTools(state, deps),
   ].map(withAgentResponses);
 }

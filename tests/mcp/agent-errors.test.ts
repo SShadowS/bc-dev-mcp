@@ -87,4 +87,14 @@ describe("agent errors", () => {
     expect(JSON.stringify(body)).not.toContain("user:");
     expect(body.error.message).toBe("bad endpoint https://[REDACTED]@bc.example/dev");
   });
+
+  test("app tools add lifecycle-specific recovery steps", () => {
+    const rejected = agentErrorBody("bcdev_app_publish", new BcDevError("SERVER_REJECTED", "Publish probe.app was rejected", "server", false, { httpStatus: 422 }));
+    expect(rejected.nextSteps[0]).toContain("Global scope");
+    expect(rejected.nextSteps[0]).toContain("bcdev_app_unpublish");
+    const missing = agentErrorBody("bcdev_app_unpublish", new BcDevError("NOT_FOUND", "No published app", "server"));
+    expect(missing.nextSteps[0]).toContain("bcdev_app_list");
+    const unrelated = agentErrorBody("bcdev_source", new BcDevError("SERVER_REJECTED", "x", "server"));
+    expect(unrelated.nextSteps.join(" ")).not.toContain("Global scope");
+  });
 });
