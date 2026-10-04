@@ -58,6 +58,7 @@ function lifecycleContext(params: Record<string, unknown>, deps: ToolDeps): AppL
     config,
     authorization,
     fetchFn: deps.fetchFn,
+    http10Get: deps.http10Get,
     apiPort: apiPort(params, deps),
     companyId: params["companyId"] as string | undefined,
     timeoutMs: params["timeoutMs"] as number | undefined,

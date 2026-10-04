@@ -33,6 +33,10 @@ function setup(responses: Array<() => Response>, env: Record<string, string> = {
     hubFactory: fakeHubFactory(new FakeHub()),
     authorizationFactory: createAuthorizationProviderFactory(),
     fetchFn,
+    http10Get: async (url, headers, signal) => {
+      const response = await fetchFn(url, { method: "GET", headers, signal });
+      return { status: response.status, body: await response.text() };
+    },
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p", ...env },
     cwd: project,
     gitChanges: async () => { throw new Error("unused"); },

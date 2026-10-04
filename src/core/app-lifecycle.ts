@@ -11,6 +11,7 @@ import { basename, isAbsolute } from "node:path";
 import type { AuthorizationProvider } from "./authorization";
 import { BcDevError } from "./agent-errors";
 import type { ConnectionConfig } from "./types";
+import { createHttp10Get, type Http10Get } from "./http10";
 import { readPackageIdentity } from "./package-download";
 import { automationUrl, devAppsUrl, type DependencyPublishingOption, type SchemaUpdateMode } from "./urls";
 
@@ -18,6 +19,7 @@ export const DEFAULT_APP_LIFECYCLE_TIMEOUT_MS = 120_000;
 export const MAX_APP_LIFECYCLE_TIMEOUT_MS = 600_000;
 const GUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const MAX_BC_MESSAGE_LENGTH = 2000;
+const defaultHttp10Get = createHttp10Get();
 
 export interface AppRecord {
   appId: string;
@@ -33,6 +35,7 @@ export interface AppLifecycleContext {
   config: ConnectionConfig;
   authorization: AuthorizationProvider;
   fetchFn: typeof fetch;
+  http10Get?: Http10Get;
   apiPort?: number;
   companyId?: string;
   timeoutMs?: number;
@@ -134,9 +137,19 @@ async function bcRequest(
     controller.abort();
   }, timeoutMs);
   try {
-    const response = await ctx.fetchFn(url, { method, headers, body: requestBody, signal: controller.signal });
-    const text = await response.text();
-    if (!response.ok) throw rejection(ctx.config, operation, response.status, text);
+    let status: number;
+    let text: string;
+    if (method === "GET" && ctx.config.environmentType === "OnPrem") {
+      // WIRE: on-prem API services never send the tail of larger HTTP/1.1 chunked responses, and
+      // each stalled request holds an API slot until restart; HTTP/1.0 returns the full body
+      // (Cronus28 BC28.4, 2026-10-04). See src/core/http10.ts.
+      ({ status, body: text } = await (ctx.http10Get ?? defaultHttp10Get)(url, headers, controller.signal));
+    } else {
+      const response = await ctx.fetchFn(url, { method, headers, body: requestBody, signal: controller.signal });
+      status = response.status;
+      text = await response.text();
+    }
+    if (status < 200 || status > 299) throw rejection(ctx.config, operation, status, text);
     return text;
   } catch (error) {
     if (error instanceof BcDevError) throw error;
@@ -162,6 +175,29 @@ function valueRows(body: unknown, operation: string): unknown[] {
   const value = body !== null && typeof body === "object" ? (body as Record<string, unknown>)["value"] : undefined;
   if (!Array.isArray(value)) throw protocol(`${operation}: Business Central returned no OData value array`);
   return value;
+}
+
+const MAX_LIST_PAGES = 100;
+
+async function getAllRows(ctx: AppLifecycleContext, firstUrl: string, operation: string): Promise<unknown[]> {
+  const origin = new URL(firstUrl).origin;
+  const rows: unknown[] = [];
+  let url: string | undefined = firstUrl;
+  for (let page = 0; url !== undefined; page++) {
+    if (page === MAX_LIST_PAGES) throw protocol(`${operation}: Business Central returned more than ${MAX_LIST_PAGES} result pages`);
+    const body = await getJson(ctx, url, operation);
+    rows.push(...valueRows(body, operation));
+    const next = (body as Record<string, unknown>)["@odata.nextLink"];
+    if (next === undefined) {
+      url = undefined;
+    } else {
+      // Never send credentials to a host Business Central's response names; same origin only.
+      const nextUrl: URL | undefined = typeof next === "string" ? new URL(next, url) : undefined;
+      if (!nextUrl || nextUrl.origin !== origin) throw protocol(`${operation}: Business Central returned a nextLink outside the original origin`);
+      url = nextUrl.toString();
+    }
+  }
+  return rows;
 }
 
 function toAppRecord(row: unknown): AppRecord {
@@ -211,8 +247,7 @@ export async function listApps(ctx: AppLifecycleContext, filter: AppListFilter =
     query["$filter"] = `publisher eq '${filter.publisher.replace(/'/g, "''")}'`;
   }
   const operation = "List Business Central extensions";
-  const body = await getJson(ctx, automationUrl(ctx.config, `companies(${companyId})/extensions`, ctx.apiPort, query), operation);
-  const apps = valueRows(body, operation)
+  const apps = (await getAllRows(ctx, automationUrl(ctx.config, `companies(${companyId})/extensions`, ctx.apiPort, query), operation))
     .map(toAppRecord)
     // appId is filtered here, not with $filter, so no unverified OData GUID-literal syntax is needed.
     .filter((app) => appId === undefined || app.appId === appId);
@@ -285,12 +320,19 @@ export async function uninstallApp(
   const alsoUninstalled = before.apps
     .filter((app) => app.isInstalled && app.packageId !== target.packageId && afterByPackage.get(app.packageId)?.isInstalled === false)
     .map((app) => ({ ...app, isInstalled: false }));
-  return {
+  const vanished = before.apps.filter(
+    (app) => app.isInstalled && app.packageId !== target.packageId && !afterByPackage.has(app.packageId),
+  );
+  const result: UninstallAppResult = {
     status: "uninstalled",
     app: afterByPackage.get(target.packageId) ?? { ...target, isInstalled: false },
     dataDeleted: deleteData,
     alsoUninstalled,
   };
+  if (vanished.length > 0) {
+    result.warning = `${vanished.length} app(s) installed before the uninstall were missing from the list afterwards (${vanished.map((app) => `${app.name} ${app.version}`).join(", ")}); their state is unknown — call bcdev_app_list to check.`;
+  }
+  return result;
 }
 
 export async function unpublishApp(

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BasicAuthorizationProvider } from "../../src/core/authorization";
 import { listApps, publishApp, uninstallApp, unpublishApp, type AppLifecycleContext } from "../../src/core/app-lifecycle";
+import { BcDevError } from "../../src/core/agent-errors";
 import type { ConnectionConfig } from "../../src/core/types";
 import { buildAppPackage } from "../fixtures/app-package";
 
@@ -44,7 +45,17 @@ export function scripted(...responses: Array<() => Response>): { fetchFn: typeof
 }
 
 export function ctx(fetchFn: typeof fetch, over: Partial<AppLifecycleContext> = {}): AppLifecycleContext {
-  return { config, authorization: new BasicAuthorizationProvider("u", "p"), fetchFn, ...over };
+  return {
+    config,
+    authorization: new BasicAuthorizationProvider("u", "p"),
+    fetchFn,
+    // Route the HTTP/1.0 read path through the same scripted queue so tests see one call log.
+    http10Get: async (url, headers, signal) => {
+      const response = await fetchFn(url, { method: "GET", headers, signal });
+      return { status: response.status, body: await response.text() };
+    },
+    ...over,
+  };
 }
 
 export const json = (body: unknown, status = 200) => () =>
@@ -365,3 +376,73 @@ describe("publishApp", () => {
   });
 });
 
+
+describe("transport selection", () => {
+  test("on-prem GETs use http10Get and POSTs use fetch", async () => {
+    const reads: string[] = [];
+    const http10Get = async (url: string) => {
+      reads.push(url);
+      return url.includes("/companies?")
+        ? { status: 200, body: JSON.stringify({ value: [{ id: COMPANY }] }) }
+        : { status: 200, body: JSON.stringify({ value: [row({ isInstalled: false })] }) };
+    };
+    const { fetchFn, calls } = scripted(noContent());
+    await unpublishApp(ctx(fetchFn, { http10Get }), { appId: BASE_APP });
+    expect(reads).toHaveLength(2);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.method).toBe("POST");
+  });
+
+  test("SaaS GETs use fetch, never http10Get", async () => {
+    const cloud: ConnectionConfig = { environmentType: "Sandbox", authentication: "EntraId", environmentName: "Sandbox", tenant: "contoso.onmicrosoft.com" };
+    const http10Get = async () => { throw new Error("http10Get must not be used for SaaS"); };
+    const { fetchFn, calls } = scripted(companies(), extensions(row()));
+    const result = await listApps({ config: cloud, authorization: new BasicAuthorizationProvider("u", "p"), fetchFn, http10Get });
+    expect(result.apps).toHaveLength(1);
+    expect(calls[0]!.url).toStartWith("https://api.businesscentral.dynamics.com/v2.0/Sandbox/api/microsoft/automation/v2.0/companies");
+  });
+
+  test("an HTTP/1.0 protocol failure surfaces as PROTOCOL_ERROR, not ENDPOINT_UNREACHABLE", async () => {
+    const http10Get = async () => { throw new BcDevError("PROTOCOL_ERROR", "Business Central response was truncated (10 of 50 bytes)", "protocol"); };
+    const { fetchFn } = scripted();
+    await expect(listApps(ctx(fetchFn, { http10Get }))).rejects.toMatchObject({ code: "PROTOCOL_ERROR" });
+  });
+});
+
+describe("listApps paging", () => {
+  test("follows @odata.nextLink on the same origin", async () => {
+    const { fetchFn, calls } = scripted(
+      companies(),
+      json({ value: [row()], "@odata.nextLink": `${ROOT}/companies(${COMPANY})/extensions?tenant=default&$skiptoken=abc` }),
+      extensions(depRow()),
+    );
+    const result = await listApps(ctx(fetchFn));
+    expect(result.apps.map((a) => a.appId)).toEqual([BASE_APP, DEP_APP]);
+    expect(calls[2]!.url).toContain("$skiptoken=abc");
+  });
+
+  test("a nextLink to another origin is PROTOCOL_ERROR and is not requested", async () => {
+    const { fetchFn, calls } = scripted(
+      companies(),
+      json({ value: [row()], "@odata.nextLink": "http://evil.example/steal" }),
+    );
+    await expect(listApps(ctx(fetchFn))).rejects.toMatchObject({ code: "PROTOCOL_ERROR" });
+    expect(calls).toHaveLength(2);
+  });
+});
+
+describe("uninstallApp vanished rows", () => {
+  test("an app installed before but missing afterwards produces a warning naming it", async () => {
+    const { fetchFn } = scripted(
+      companies(),
+      extensions(row(), depRow()),
+      noContent(),
+      extensions(row({ isInstalled: false })),
+    );
+    const result = await uninstallApp(ctx(fetchFn), { appId: BASE_APP });
+    expect(result.status).toBe("uninstalled");
+    expect(result.alsoUninstalled).toEqual([]);
+    expect(result.warning).toContain("probe-dependent");
+    expect(result.warning).toContain("bcdev_app_list");
+  });
+});

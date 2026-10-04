@@ -18,6 +18,8 @@ export interface ToolDeps {
   hubFactory: HubFactory;
   authorizationFactory: AuthorizationProviderFactory;
   fetchFn: typeof fetch;
+  /** Test seam for on-prem Automation API GETs (HTTP/1.0); defaults to the real client. */
+  http10Get?: import("../../core/http10").Http10Get;
   env: Record<string, string | undefined>;
   cwd: string;
   serverInfoCacheTtlMs?: number;
