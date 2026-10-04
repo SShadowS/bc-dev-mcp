@@ -285,6 +285,17 @@ recorded, not periodically sampled. `grep // WIRE:` in `src/core/snapshot/snapsh
   (`captured:true`, `kind:"instrumentation-raw"`) and hints to convert manually or open it in VS
   Code, instead of failing the call. <!-- validated 2026-07-05, see scripts/e2e-instrumentation-results-2026-07-04.md RUN B: converterOverride forced unavailable, kind:"instrumentation-raw", 6.48MB zip w/ 11,243 .mdc, converter spawn never invoked -->
 
+## App lifecycle (on-prem BC28; SaaS open)
+
+- [x] Automation API on-prem root `<host>:7048/<instance>/api/microsoft/automation/v2.0/`, tenant query required like every other on-prem route. <!-- 2026-10-04 Cronus28; see scripts/e2e-app-lifecycle-2026-10-04.md -->
+- [x] Bound actions on `extensions(<packageId>)` take only the binding parameter; bodyless POST needs `Content-Length: 0` (HTTP.sys 411 otherwise). <!-- 2026-10-03 probe + 2026-10-04 tools run -->
+- [x] `uninstall` silently cascades to installed dependents; `alsoUninstalled` reports them. <!-- same -->
+- [x] `unpublish` refuses while installed (400 `Application_DialogException`) and while a dependent is published (400 naming it). <!-- same -->
+- [x] `dev/apps` publish with each `SchemaUpdateMode` (synchronize/recreate/forcesync) → 200; missing dependency → 422 `{Message, ErrorType}`; identical package republish → 422 duplicate package ID. <!-- same -->
+- [x] On-prem Automation GETs read over HTTP/1.0: the API services never send the tail of larger HTTP/1.1 chunked responses and each stalled request holds one of ~5 per-user slots (event 705) until restart; HTTP/1.0 returns the full body. <!-- 2026-10-04, same evidence file -->
+- [x] `isInstalled` is not filterable on `extensions` (400 `BadRequest_NotSupported`). <!-- 2026-10-04 -->
+- [ ] SaaS Sandbox: `automationUrl` under `api.businesscentral.dynamics.com/v2.0/<env>/api/microsoft/automation/v2.0/` with no tenant query; list/uninstall/unpublish of a PTE; `dev/apps` publish. <!-- not run: no SaaS credentials on this machine -->
+- [ ] Global-scope replace refusal from #47 reproduced and recovered via list → uninstall → unpublish → publish. <!-- needs Publish-NAVApp -Scope Global on the host -->
 ## Known server behaviours
 
 - AddBreakpoint for an object not deployed on the server succeeds but poisons the debuggee session with "metadata object ... was not found" errors — only set breakpoints in deployed objects (live E2E 2026-07-03).
