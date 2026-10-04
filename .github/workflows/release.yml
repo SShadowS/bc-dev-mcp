@@ -36,5 +36,8 @@ jobs:
             exit 1
           fi
       - run: bun install --frozen-lockfile
-      # prepublishOnly runs bun test, typecheck and build before the upload.
+      # Build first so dist/index.js exists when npm validates the bin entry
+      # (otherwise npm warns "No bin file found" before prepublishOnly runs).
+      - run: bun run build
+      # prepublishOnly still runs bun test, typecheck and build before the upload.
       - run: npm publish
