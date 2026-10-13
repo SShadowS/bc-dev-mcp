@@ -285,7 +285,7 @@ Validated end-to-end against a live BC28 in `scripts/e2e-profile-results-2026-07
 
 The server ships its own operational manual as [Agent Skills](https://agentskills.io) over MCP
 resources (draft [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)):
-`skill://bc-al-testing/SKILL.md`, `skill://bc-al-debugging/SKILL.md`,
+`skill://bc-al-testing/SKILL.md`, `skill://bc-al-debugging/SKILL.md`, `skill://bc-al-profiling/SKILL.md`,
 `skill://bc-al-source-symbols/SKILL.md`,
 `skill://bc-native-mcp/SKILL.md`, discovery index at
 `skill://index.json`. Clients that understand the `io.modelcontextprotocol/skills` extension pick

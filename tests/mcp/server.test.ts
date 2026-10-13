@@ -157,6 +157,7 @@ describe("server wiring", () => {
     const uris = resources.map((r) => r.uri).sort();
     expect(uris).toEqual([
       "skill://bc-al-debugging/SKILL.md",
+      "skill://bc-al-profiling/SKILL.md",
       "skill://bc-al-source-symbols/SKILL.md",
       "skill://bc-al-testing/SKILL.md",
       "skill://bc-native-mcp/SKILL.md",
@@ -167,7 +168,7 @@ describe("server wiring", () => {
     const parsed = JSON.parse((index.contents[0] as { text: string }).text) as {
       skills: Array<{ url: string; type: string }>;
     };
-    expect(parsed.skills).toHaveLength(4);
+    expect(parsed.skills).toHaveLength(5);
     for (const s of parsed.skills) expect(uris).toContain(s.url);
 
     const skill = await client.readResource({ uri: "skill://bc-al-debugging/SKILL.md" });
