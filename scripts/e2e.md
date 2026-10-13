@@ -331,6 +331,16 @@ Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` 
   falling back; D7 (`app.json` only) falls back to all 40. With BC28 symbols in `.alpackages`,
   `meta.apps` becomes `embedded`/`symbolOnly` and the selections do not change. <!-- 2026-10-13 Cronus28 (BC28), alsem engine 1.5.0 (al-sem master 4a2abdbb), alc 30.0.2863738; per-diff table in the fixture README; app uninstalled with deleteData and unpublished afterwards, app list (169 apps) identical before/after -->
 
+### Risk annotation (al-sem digest, offline)
+
+- [x] `alsem digest <project> --file <f>... --deterministic --out <file>` (al-sem 1.5.0, schemaVersion 1.3.0):
+  envelope `kind: "digest"`, `payload.entries[].routine` (`stableId` `<appId>:<Type>:<id>#hash`, 0-based
+  `anchor.line`), `effects[].type` (COMMIT, DB_INSERT/MODIFY/DELETE with `detail.resourceDisplay`, ERROR_THROW,
+  UI_*). Only routines with effects get an entry. `--diff` is not used: a hunk resolves to a routine only
+  when the changed line carries a call/effect site. Known al-sem limits: #28 (two call sites on one line
+  collapse), #9 (Rename not modelled as a write). <!-- 2026-10-13, tests/fixtures/alsem-risk; tests/core/risk.test.ts -->
+- [ ] Live: `bcdev_test_select` / `bcdev_test_run coverageAgainst` against a real app show `risk` on uncovered procedures.
+
 ## Known server behaviours
 
 - AddBreakpoint for an object not deployed on the server succeeds but poisons the debuggee session with "metadata object ... was not found" errors — only set breakpoints in deployed objects (live E2E 2026-07-03).
