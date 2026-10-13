@@ -1,0 +1,370 @@
+{
+  "alsemVersion": "1.5.0",
+  "deterministic": false,
+  "diagnostics": [
+    {
+      "code": "DIAG-dependencies",
+      "message": "dependency \"Base Application\" (437dbf0e-84ff-417a-965d-ed2bb9650972), declared by \"Hotspot Fixture\" at version 28.0.0.0, is missing",
+      "severity": "warning"
+    },
+    {
+      "code": "DIAG-dependencies",
+      "message": "dependency \"System Application\" (63ca2fa4-4f03-4f2b-a480-172fef340d3f), declared by \"Hotspot Fixture\" at version 1.0.0.0, is missing",
+      "severity": "warning"
+    },
+    {
+      "code": "DIAG-dependencies",
+      "message": "dependency \"System\" (8874ed3a-0643-4247-9ced-7a7002f7135d), declared by \"Hotspot Fixture\" at version 1.0.0.0, is missing",
+      "severity": "warning"
+    },
+    {
+      "code": "DIAG-dependencies",
+      "message": "dependency \"Application\" (c1335042-3002-4257-bf8a-75c898ccb1b8), declared by \"Hotspot Fixture\" at version 28.0.0.0, is missing",
+      "severity": "warning"
+    },
+    {
+      "code": "DIAG-dependencies",
+      "message": "dependency \"Business Foundation\" (f3552374-a1f2-4356-848e-196002525837), declared by \"Hotspot Fixture\" at version 28.0.0.0, is missing",
+      "severity": "warning"
+    }
+  ],
+  "generatedAt": "2026-10-13T15:13:46.029Z",
+  "kind": "analyze-report",
+  "payload": {
+    "findings": [
+      {
+        "affectedObjects": [
+          "22222222-0000-0000-0000-00000000a115/Codeunit/50100"
+        ],
+        "affectedTables": [],
+        "confidence": {
+          "level": "likely"
+        },
+        "detector": "d1-db-op-in-loop",
+        "evidencePath": [
+          {
+            "loopId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#bdeeadea79fa1240b577893bd8868715e756b40a99132a121d64bc558dc8fcf7/loop0",
+            "note": "repeat loop",
+            "routineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#bdeeadea79fa1240b577893bd8868715e756b40a99132a121d64bc558dc8fcf7",
+            "sourceAnchor": {
+              "enclosingRoutineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#bdeeadea79fa1240b577893bd8868715e756b40a99132a121d64bc558dc8fcf7",
+              "range": {
+                "endColumn": 37,
+                "endLine": 14,
+                "startColumn": 12,
+                "startLine": 10
+              },
+              "sourceUnitId": "ws:src/SlowLoop.Codeunit.al",
+              "syntaxKind": "repeat_statement"
+            }
+          },
+          {
+            "note": "FindFirst on Cust. Ledger Entry (type not loaded)",
+            "operationId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#bdeeadea79fa1240b577893bd8868715e756b40a99132a121d64bc558dc8fcf7/op3",
+            "routineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#bdeeadea79fa1240b577893bd8868715e756b40a99132a121d64bc558dc8fcf7",
+            "sourceAnchor": {
+              "enclosingRoutineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#bdeeadea79fa1240b577893bd8868715e756b40a99132a121d64bc558dc8fcf7",
+              "range": {
+                "endColumn": 37,
+                "endLine": 12,
+                "startColumn": 19,
+                "startLine": 12
+              },
+              "sourceUnitId": "ws:src/SlowLoop.Codeunit.al",
+              "syntaxKind": "call_expression"
+            }
+          }
+        ],
+        "fingerprint": "a97dc5ed1816e668",
+        "fixHint": {
+          "description": "Move the database operation outside the loop, or batch it into a set-based operation.",
+          "safety": "medium"
+        },
+        "id": "d1/223d1fe038971ae5/f866e30dc0b6539ddfca418a9f8e384fe101eae4c1ef1a4a5c45cd6fe1e99083/223d1fe038971ae5/f866e30dc0b6539ddfca418a9f8e384fe101eae4c1ef1a4a5c45cd6fe1e99083/op3",
+        "pathCount": 1,
+        "primaryLocation": {
+          "column": 20,
+          "file": "ws:src/SlowLoop.Codeunit.al",
+          "line": 13,
+          "objectId": "22222222-0000-0000-0000-00000000a115/Codeunit/50100",
+          "objectName": "Slow Loop",
+          "routineId": "223d1fe038971ae5/f866e30dc0b6539ddfca418a9f8e384fe101eae4c1ef1a4a5c45cd6fe1e99083",
+          "routineName": "SumLines"
+        },
+        "rootCause": "A loop in SumLines reaches FindFirst on Cust. Ledger Entry (type not loaded).",
+        "severity": "medium",
+        "title": "Database operation inside a loop"
+      },
+      {
+        "affectedObjects": [
+          "22222222-0000-0000-0000-00000000a115/Codeunit/50100"
+        ],
+        "affectedTables": [],
+        "confidence": {
+          "level": "likely"
+        },
+        "detector": "d1-db-op-in-loop",
+        "evidencePath": [
+          {
+            "loopId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6/loop0",
+            "note": "repeat loop",
+            "routineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+            "sourceAnchor": {
+              "enclosingRoutineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+              "range": {
+                "endColumn": 37,
+                "endLine": 39,
+                "startColumn": 12,
+                "startLine": 36
+              },
+              "sourceUnitId": "ws:src/SlowLoop.Codeunit.al",
+              "syntaxKind": "repeat_statement"
+            }
+          },
+          {
+            "note": "Modify on Customer (type not loaded)",
+            "operationId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6/op1",
+            "routineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+            "sourceAnchor": {
+              "enclosingRoutineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+              "range": {
+                "endColumn": 33,
+                "endLine": 38,
+                "startColumn": 16,
+                "startLine": 38
+              },
+              "sourceUnitId": "ws:src/SlowLoop.Codeunit.al",
+              "syntaxKind": "call_expression"
+            }
+          }
+        ],
+        "fingerprint": "ae41b8471a0ee7e5",
+        "fixHint": {
+          "description": "Move the database operation outside the loop, or batch it into a set-based operation.",
+          "safety": "medium"
+        },
+        "id": "d1/223d1fe038971ae5/9ba8f84a303ae28da13029f5a67078049175d484a114e29309bfdd3a32773e70/223d1fe038971ae5/9ba8f84a303ae28da13029f5a67078049175d484a114e29309bfdd3a32773e70/op1",
+        "pathCount": 1,
+        "primaryLocation": {
+          "column": 17,
+          "file": "ws:src/SlowLoop.Codeunit.al",
+          "line": 39,
+          "objectId": "22222222-0000-0000-0000-00000000a115/Codeunit/50100",
+          "objectName": "Slow Loop",
+          "routineId": "223d1fe038971ae5/9ba8f84a303ae28da13029f5a67078049175d484a114e29309bfdd3a32773e70",
+          "routineName": "Unblock"
+        },
+        "rootCause": "A loop in Unblock reaches Modify on Customer (type not loaded).",
+        "severity": "high",
+        "title": "Database operation inside a loop"
+      },
+      {
+        "affectedObjects": [
+          "22222222-0000-0000-0000-00000000a115/Codeunit/50100"
+        ],
+        "affectedTables": [],
+        "confidence": {
+          "level": "possible"
+        },
+        "detector": "d5-set-based-opportunity",
+        "evidencePath": [
+          {
+            "note": "FindSet on Customer — loop entry",
+            "operationId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6/op0",
+            "routineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+            "sourceAnchor": {
+              "enclosingRoutineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+              "range": {
+                "endColumn": 29,
+                "endLine": 35,
+                "startColumn": 11,
+                "startLine": 35
+              },
+              "sourceUnitId": "ws:src/SlowLoop.Codeunit.al",
+              "syntaxKind": "call_expression"
+            }
+          },
+          {
+            "loopId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6/loop0",
+            "note": "repeat loop on Customer",
+            "routineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+            "sourceAnchor": {
+              "enclosingRoutineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+              "range": {
+                "endColumn": 37,
+                "endLine": 39,
+                "startColumn": 12,
+                "startLine": 36
+              },
+              "sourceUnitId": "ws:src/SlowLoop.Codeunit.al",
+              "syntaxKind": "repeat_statement"
+            }
+          },
+          {
+            "note": "Modify on Customer — consider ModifyAll",
+            "operationId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6/op1",
+            "routineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+            "sourceAnchor": {
+              "enclosingRoutineId": "22222222-0000-0000-0000-00000000a115:Codeunit:50100#58675d50443923c9eb8a4d886365ace27ef4352be89524eb06854d59a5cebda6",
+              "range": {
+                "endColumn": 33,
+                "endLine": 38,
+                "startColumn": 16,
+                "startLine": 38
+              },
+              "sourceUnitId": "ws:src/SlowLoop.Codeunit.al",
+              "syntaxKind": "call_expression"
+            }
+          }
+        ],
+        "fingerprint": "a10e5348ddb32fd9",
+        "fixHint": {
+          "description": "Replace the FindSet+repeat+Modify pattern with ModifyAll on the same filter.",
+          "safety": "medium"
+        },
+        "id": "d5/223d1fe038971ae5/9ba8f84a303ae28da13029f5a67078049175d484a114e29309bfdd3a32773e70/223d1fe038971ae5/9ba8f84a303ae28da13029f5a67078049175d484a114e29309bfdd3a32773e70/loop0",
+        "pathCount": 1,
+        "primaryLocation": {
+          "column": 17,
+          "file": "ws:src/SlowLoop.Codeunit.al",
+          "line": 39,
+          "objectId": "22222222-0000-0000-0000-00000000a115/Codeunit/50100",
+          "objectName": "Slow Loop",
+          "routineId": "223d1fe038971ae5/9ba8f84a303ae28da13029f5a67078049175d484a114e29309bfdd3a32773e70",
+          "routineName": "Unblock"
+        },
+        "rootCause": "Unblock loops over Customer and Modifies each row with no conditional branches or inter-record DB calls — ModifyAll on the same filter would issue one SQL statement.",
+        "severity": "info",
+        "title": "Loop-and-Modify could be ModifyAll"
+      }
+    ],
+    "summary": {
+      "byDetector": {
+        "d1-db-op-in-loop": 2,
+        "d5-set-based-opportunity": 1
+      },
+      "bySeverity": {
+        "high": 1,
+        "info": 1,
+        "medium": 1
+      },
+      "detectorStats": [
+        {
+          "candidatesConsidered": 4,
+          "detector": "d1-db-op-in-loop",
+          "findingsEmitted": 2,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 4,
+          "detector": "d2-event-fanout-in-loop",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 4,
+          "detector": "d3-missing-setloadfields",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 4,
+          "detector": "d4-repeated-lookup-in-loop",
+          "findingsEmitted": 0,
+          "skipped": {
+            "other": 4
+          }
+        },
+        {
+          "candidatesConsidered": 4,
+          "detector": "d5-set-based-opportunity",
+          "findingsEmitted": 1,
+          "skipped": {
+            "other": 3
+          }
+        },
+        {
+          "candidatesConsidered": 4,
+          "detector": "d18-constant-filter-in-loop",
+          "findingsEmitted": 0,
+          "skipped": {
+            "nonLiteralArgs": 1
+          }
+        },
+        {
+          "candidatesConsidered": 4,
+          "detector": "d21-read-without-load",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 4,
+          "detector": "d22-flowfield-without-calcfields",
+          "findingsEmitted": 0,
+          "skipped": {
+            "unresolvedTable": 4
+          }
+        },
+        {
+          "candidatesConsidered": 0,
+          "detector": "d33-unfiltered-bulk-write",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 0,
+          "detector": "d36-late-setloadfields",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 0,
+          "detector": "d40-transitive-load-missing",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 0,
+          "detector": "d42-cross-call-wrong-setloadfields",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 4,
+          "detector": "d48-io-in-loop",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 0,
+          "detector": "d55-event-publish-in-loop",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 0,
+          "detector": "d56-clone-before-write-in-loop",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 0,
+          "detector": "d58-query-filter-after-open",
+          "findingsEmitted": 0,
+          "skipped": {}
+        },
+        {
+          "candidatesConsidered": 0,
+          "detector": "d60-upgrade-loop-should-be-datatransfer",
+          "findingsEmitted": 0,
+          "skipped": {}
+        }
+      ],
+      "opaqueApps": [],
+      "routinesAnalyzed": 4,
+      "sourceUnitsParsed": 1,
+      "totalFindings": 3
+    }
+  },
+  "schemaVersion": "1.1.0"
+}

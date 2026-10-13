@@ -308,7 +308,7 @@ function unavailable(binary: string, envVar: string, hint: string, cause: unknow
   );
 }
 
-function toolOutput(error: unknown): string {
+export function toolOutput(error: unknown): string {
   const read = (key: "stderr" | "stdout") =>
     typeof error === "object" && error !== null && key in error ? String((error as Record<string, unknown>)[key] ?? "").trim() : "";
   return (read("stderr") || read("stdout")).slice(0, 2000);

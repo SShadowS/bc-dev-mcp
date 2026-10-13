@@ -87,6 +87,10 @@ export class AlObjectIndex {
     return this.byFileMap.get(resolve(file));
   }
 
+  all(): AlObjectRef[] {
+    return [...this.byFileMap.values()];
+  }
+
   byId(objectType: number, objectId: number): AlObjectRef | undefined {
     return this.byIdMap.get(`${objectType}_${objectId}`);
   }
