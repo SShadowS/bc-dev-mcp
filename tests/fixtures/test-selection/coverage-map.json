@@ -1,0 +1,268 @@
+{
+  "format": "bc-dev-mcp.coverage-map",
+  "version": 1,
+  "baseRef": "HEAD",
+  "mergeBase": "2c7c8e2a1fbee2ca28d68363c503bd348f50b4dd",
+  "complete": true,
+  "tests": [
+    {
+      "codeunitId": 50985,
+      "methodId": -579512295,
+      "method": "CalcLineAmountMultiplies",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -568568321
+        }
+      ]
+    },
+    {
+      "codeunitId": 50985,
+      "methodId": 764895704,
+      "method": "CalcLineAmountZeroQuantity",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -568568321
+        }
+      ]
+    },
+    {
+      "codeunitId": 50985,
+      "methodId": 937873058,
+      "method": "RoundAmountHalfUp",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        }
+      ]
+    },
+    {
+      "codeunitId": 50985,
+      "methodId": 2036543607,
+      "method": "ApplyDiscountTenPercent",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": 1673903542
+        }
+      ]
+    },
+    {
+      "codeunitId": 50986,
+      "methodId": -76582023,
+      "method": "FinalizeSmallAmountAddsSurcharge",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": 1164337924
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": 1719684158
+        },
+        {
+          "objectType": 5,
+          "objectId": 50981,
+          "methodId": 182013821
+        },
+        {
+          "objectType": 5,
+          "objectId": 50981,
+          "methodId": 1835424189
+        }
+      ]
+    },
+    {
+      "codeunitId": 50986,
+      "methodId": 203326146,
+      "method": "FinalizeLargeAmountNoSurcharge",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": 1164337924
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": 1719684158
+        },
+        {
+          "objectType": 5,
+          "objectId": 50981,
+          "methodId": 182013821
+        },
+        {
+          "objectType": 5,
+          "objectId": 50981,
+          "methodId": 1835424189
+        }
+      ]
+    },
+    {
+      "codeunitId": 50986,
+      "methodId": 543937170,
+      "method": "CalcLineAmountRaisesNoEvent",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -568568321
+        }
+      ]
+    },
+    {
+      "codeunitId": 50986,
+      "methodId": 1715608932,
+      "method": "FinalizeAfterDiscount",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": 1164337924
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": 1719684158
+        },
+        {
+          "objectType": 5,
+          "objectId": 50981,
+          "methodId": 182013821
+        },
+        {
+          "objectType": 5,
+          "objectId": 50981,
+          "methodId": 1835424189
+        }
+      ]
+    },
+    {
+      "codeunitId": 50987,
+      "methodId": -1565716225,
+      "method": "ShippingCostExpressDispatch",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1767428642
+        },
+        {
+          "objectType": 5,
+          "objectId": 50983,
+          "methodId": -1779255304
+        }
+      ]
+    },
+    {
+      "codeunitId": 50987,
+      "methodId": -1302082552,
+      "method": "StandardRateDirect",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50982,
+          "methodId": -1779255304
+        }
+      ]
+    },
+    {
+      "codeunitId": 50987,
+      "methodId": -1054432059,
+      "method": "ShippingCostExpressZeroWeight",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1767428642
+        },
+        {
+          "objectType": 5,
+          "objectId": 50983,
+          "methodId": -1779255304
+        }
+      ]
+    },
+    {
+      "codeunitId": 50987,
+      "methodId": -773552407,
+      "method": "ShippingCostStandardDispatch",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1889037101
+        },
+        {
+          "objectType": 5,
+          "objectId": 50980,
+          "methodId": -1767428642
+        },
+        {
+          "objectType": 5,
+          "objectId": 50982,
+          "methodId": -1779255304
+        }
+      ]
+    }
+  ]
+}
