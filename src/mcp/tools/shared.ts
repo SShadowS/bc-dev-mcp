@@ -1,3 +1,4 @@
+import type { BreakEffectsProvider } from "../../core/break-effects";
 import { resolve as resolvePath } from "node:path";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -30,6 +31,8 @@ export interface ToolDeps {
   gitChanges: (project: string, baseRef: string) => Promise<GitChangeSet>;
   /** Whole-program AL call graph (altool graph in production, fake in tests). */
   callGraph: CallGraphProvider;
+  /** Optional al-sem enrichment of break events (bcdev_debug_wait effects:true); defaults to the alsem on BC_DEV_ALSEM/PATH. */
+  breakEffects?: BreakEffectsProvider;
   nativeMcpGateway: NativeMcpGateway;
 }
 

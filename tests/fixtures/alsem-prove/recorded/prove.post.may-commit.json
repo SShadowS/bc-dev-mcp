@@ -1,0 +1,95 @@
+{
+  "alsemVersion": "1.5.0",
+  "deterministic": true,
+  "diagnostics": [],
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "kind": "prove",
+  "payload": {
+    "question": "may-commit",
+    "result": {
+      "answer": "yes",
+      "evidence": [
+        {
+          "conditionality": "unconditional-on-success",
+          "confidence": "static",
+          "detail": {},
+          "evidence": {
+            "column": 8,
+            "excerpt": "commit",
+            "file": "ws:src/AspWork.Codeunit.al",
+            "line": 5,
+            "sourceKind": "source"
+          },
+          "factId": "8c357920b1db5a33",
+          "guarantees": [
+            "COMMIT_REACHABLE",
+            "COMMIT_ON_SUCCESS_PATH",
+            "COMMIT_DOMINATES_RETURN",
+            "WRITE_COMMITTED_BEFORE_RETURN"
+          ],
+          "provenance": "direct",
+          "scopedGuarantees": [
+            {
+              "interveningBoundary": "none",
+              "label": "COMMIT_REACHABLE",
+              "scope": "owning-routine",
+              "validForRefutation": false
+            },
+            {
+              "interveningBoundary": "none",
+              "label": "COMMIT_ON_SUCCESS_PATH",
+              "scope": "owning-routine",
+              "validForRefutation": false
+            },
+            {
+              "interveningBoundary": "none",
+              "label": "COMMIT_DOMINATES_RETURN",
+              "scope": "owning-routine",
+              "validForRefutation": false
+            },
+            {
+              "interveningBoundary": "none",
+              "label": "WRITE_COMMITTED_BEFORE_RETURN",
+              "scope": "owning-routine",
+              "validForRefutation": false
+            },
+            {
+              "commitOccurrenceId": "8c357920b1db5a33",
+              "interveningBoundary": "none",
+              "label": "COMMIT_DOMINATES_RETURN",
+              "returnOccurrenceId": "911af8b1cf2bf62a",
+              "scope": "root",
+              "validForRefutation": true
+            }
+          ],
+          "transactionContext": "span-has-known-writes",
+          "type": "COMMIT",
+          "viaPaths": [
+            []
+          ],
+          "viaPathsTruncated": false
+        }
+      ],
+      "obligations": {
+        "analysisGaps": 0,
+        "coneTruncated": false,
+        "coverageComplete": true,
+        "openWorldRows": 0,
+        "unresolvedCallsites": 0
+      }
+    },
+    "routine": {
+      "anchor": {
+        "column": 4,
+        "file": "ws:src/AspWork.Codeunit.al",
+        "line": 2,
+        "sourceKind": "source"
+      },
+      "display": "Post",
+      "objectDisplay": "",
+      "stableId": "0b7a3c52-6a41-4e2b-9f3d-5c1e8a7d2f10:Codeunit:50990#69da3a5a5b5b3eb8cca4fa3198c06e2ef39cc161fdb7b807b8dc70586fb47181"
+    },
+    "workspaceFingerprint": "6b6482001be18d1f3c5411db9dc21ce795627e563c12e9bb061de2a7731d88b5"
+  },
+  "schemaVersion": "1.2.0"
+}

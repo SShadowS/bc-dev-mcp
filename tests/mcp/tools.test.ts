@@ -892,6 +892,29 @@ describe("tools", () => {
     expect(event["kind"]).toBe("break");
   });
 
+  test("bcdev_debug_wait effects:true enriches a break; symbol-only top frame is flagged, plain wait is untouched", async () => {
+    const seen: Array<{ objectName: string; methodName: string; inWorkspace: boolean }> = [];
+    const { tools } = setup(hub, undefined, undefined, {
+      breakEffects: async (input) => {
+        seen.push(input);
+        return { status: input.inWorkspace ? "ok" : "symbolOnly" };
+      },
+    });
+    await tools.get("bcdev_debug_attach")!.handler({});
+    const frameOf = (num: number) => [{ ObjectId: { ObjectType: 5, ObjectNumber: num }, ObjectName: "N", MethodName: "M", StatementSpan: { From: { Line: 0, Column: 0 }, To: { Line: 0, Column: 1 } } }];
+    hub.emit("Break", { ObjectType: 5, ObjectNumber: 50100 }, frameOf(50100), "");
+    const local = (await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 100, effects: true })) as Record<string, any>;
+    expect(local["effects"]).toEqual({ status: "ok" });
+    expect(seen[0]).toMatchObject({ objectName: "N", methodName: "M", inWorkspace: true });
+    hub.emit("Break", { ObjectType: 5, ObjectNumber: 99999 }, frameOf(99999), "");
+    const sym = (await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 100, effects: true })) as Record<string, any>;
+    expect(sym["effects"].status).toBe("symbolOnly");
+    hub.emit("Break", { ObjectType: 5, ObjectNumber: 50100 }, frameOf(50100), "");
+    const plain = (await tools.get("bcdev_debug_wait")!.handler({ timeoutMs: 100 })) as Record<string, any>;
+    expect(plain["effects"]).toBeUndefined();
+    expect(seen).toHaveLength(2);
+  });
+
   test("bcdev_debug_wait returns a schema-valid sessionBound identity event", async () => {
     const { tools } = setup(hub);
     hub.onInvoke = (method) =>

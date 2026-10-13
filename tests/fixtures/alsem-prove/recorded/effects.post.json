@@ -1,0 +1,52 @@
+{
+  "alsemVersion": "1.5.0",
+  "deterministic": true,
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "kind": "query.effects",
+  "payload": {
+    "effectCount": 1,
+    "effects": [
+      {
+        "isUnknownBucket": false,
+        "op": "Insert",
+        "operationId": "3cdc7a5c5958edd5/cab3a1250368dbabe845129ce4bb5291a5ad77539b74b35ee719aded1e5a9ee0/op0",
+        "origin": {
+          "anchor": {
+            "column": 8,
+            "file": "ws:src/AspWork.Codeunit.al",
+            "line": 4
+          },
+          "routine": {
+            "anchor": {
+              "column": 4,
+              "file": "ws:src/AspWork.Codeunit.al",
+              "line": 2
+            },
+            "display": "Post",
+            "objectDisplay": "Codeunit Asp Work",
+            "stableId": "0b7a3c52-6a41-4e2b-9f3d-5c1e8a7d2f10:Codeunit:50990#69da3a5a5b5b3eb8cca4fa3198c06e2ef39cc161fdb7b807b8dc70586fb47181"
+          }
+        },
+        "tableId": "0b7a3c52-6a41-4e2b-9f3d-5c1e8a7d2f10/table/50990",
+        "tableName": "Asp Entry",
+        "tempState": "known(false)",
+        "via": "direct"
+      }
+    ],
+    "routine": {
+      "resolution": "resolved",
+      "routine": {
+        "anchor": {
+          "column": 4,
+          "file": "ws:src/AspWork.Codeunit.al",
+          "line": 2
+        },
+        "display": "Post",
+        "objectDisplay": "Codeunit Asp Work",
+        "stableId": "0b7a3c52-6a41-4e2b-9f3d-5c1e8a7d2f10:Codeunit:50990#69da3a5a5b5b3eb8cca4fa3198c06e2ef39cc161fdb7b807b8dc70586fb47181"
+      },
+      "selector": "Asp Work.Post"
+    }
+  },
+  "schemaVersion": "1.0.0"
+}
