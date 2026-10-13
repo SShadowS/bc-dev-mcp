@@ -18,6 +18,16 @@ function fromKnownMessage(message: string): BcDevError {
   if (lower.includes("unable to attach") || lower.includes("unable to bind") || lower.includes("server rejected")) {
     return new BcDevError("SERVER_REJECTED", message, "server");
   }
+  // WIRE: BC28 releases the debugger registration asynchronously after StopDebugging; an immediate
+  // re-attach fails with this SignalR text after ~10 s, and works once the old slot is gone (live Cronus28 2026-10-13).
+  if (lower.includes("error occurred invoking 'attach'")) {
+    return new BcDevError(
+      "SERVER_REJECTED",
+      `${message} The previous debugger registration is probably still being released; wait about 10 seconds after detach or finish, then retry.`,
+      "server",
+      true,
+    );
+  }
   if (
     lower.includes("server did not return") ||
     lower.includes("business central returned an invalid") ||

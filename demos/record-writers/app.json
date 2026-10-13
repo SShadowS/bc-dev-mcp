@@ -1,0 +1,24 @@
+{
+  "id": "e199433e-3594-4369-8e31-de537a5e2108",
+  "name": "Record Writers Live",
+  "publisher": "SShadowS",
+  "version": "1.0.0.0",
+  "brief": "",
+  "description": "Live E2E fixture for record-write triage and handles: a table, a writer codeunit and an API page workload",
+  "privacyStatement": "",
+  "EULA": "",
+  "help": "",
+  "url": "",
+  "logo": "",
+  "dependencies": [],
+  "screenshots": [],
+  "platform": "28.0.0.0",
+  "application": "28.0.0.0",
+  "idRanges": [{ "from": 50190, "to": 50199 }],
+  "runtime": "17.0",
+  "resourceExposurePolicy": {
+    "allowDebugging": true,
+    "allowDownloadingSource": true,
+    "includeSourceInSymbolFile": true
+  }
+}
