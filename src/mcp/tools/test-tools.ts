@@ -1,12 +1,13 @@
 import { z } from "zod";
-import { resolve as resolvePath } from "node:path";
-import { AlObjectIndex, discoverTests } from "../../core/al-objects";
+import { relative as relativePath, resolve as resolvePath } from "node:path";
+import { AL_OBJECT_TYPE, AlObjectIndex, discoverTests } from "../../core/al-objects";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { fetchServerInfo } from "../../core/server-info";
-import type { CoverageMode, RunTestsResult } from "../../core/types";
+import type { CoverageEntry, CoverageMode, RunTestsResult } from "../../core/types";
 import { enrichTestRun, mapTestRunSources, testRunNeedsSourceMapping } from "../../core/agent-results";
 import { AlProcedureDiscoveryCache, discoverAlProcedureIdentities } from "../../core/al-procedures";
 import { analyzeCoverageGaps } from "../../core/coverage-gaps";
+import { buildCoverageMap, writeCoverageMap, type TestMethodName } from "../../core/coverage-map";
 import { BcDevError } from "../../core/agent-errors";
 import { analyzeTestOrchestration } from "../../core/test-orchestration";
 import { redactAuthorization } from "../../core/redaction";
@@ -116,6 +117,22 @@ const testOrchestrationOutputSchema = z.object({
   warnings: z.array(z.string()).describe("Reasons the aggregate or individual observations are incomplete"),
 });
 
+/** Best-effort local name lookup for the test methods in a coverage payload; empty when source is unavailable. */
+async function testMethodNames(project: string, coverage: CoverageEntry[], deps: ToolDeps): Promise<TestMethodName[]> {
+  if (coverage.length === 0) return [];
+  try {
+    const index = await cachedObjectIndex(project, deps);
+    const files = [...new Set(coverage.flatMap((entry) => {
+      const file = index.byId(AL_OBJECT_TYPE.codeunit!, entry.testObjectId)?.file;
+      return file === undefined ? [] : [relativePath(resolvePath(project), file)];
+    }))];
+    if (files.length === 0) return [];
+    return (await discoverAlProcedureIdentities(project, files, procedureDiscoveryCache(deps))).procedures;
+  } catch {
+    return [];
+  }
+}
+
 async function mapOrchestrationSources(
   runs: RunTestsResult[],
   project: string,
@@ -195,6 +212,9 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
         coverageAgainst: z.string().min(1).optional().describe(
           "Git base ref for changed-procedure gap analysis (for example origin/main). Compares its merge-base with HEAD to the current working tree, includes untracked AL files, and requires/implies procedure coverage.",
         ),
+        coverageMapFile: z.string().min(1).optional().describe(
+          "Write a versioned per-test procedure-coverage map (format bc-dev-mcp.coverage-map v1: test codeunit/method name/methodId -> covered procedure identities, stamped with the coverageAgainst merge base) to this JSON file, relative to the project. Requires/implies procedure coverage; overwrites the file.",
+        ),
         changesDeployed: z.literal(true).optional().describe(
           "Explicit assertion that the current working-tree versions of changed AL objects are deployed to this server. Required for covered/uncovered classifications because procedure coverage does not carry an app or source hash.",
         ),
@@ -205,11 +225,13 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           const { config, authorization, project } = resolve(params, deps);
           const coverageAgainst = params["coverageAgainst"] as string | undefined;
           const changesDeployed = params["changesDeployed"] === true;
+          const coverageMapFile = params["coverageMapFile"] as string | undefined;
           const requestedCoverage = params["coverage"] as CoverageMode | undefined;
-          if (coverageAgainst !== undefined && requestedCoverage !== undefined && requestedCoverage !== "procedure") {
+          const forcesProcedure = coverageAgainst !== undefined || coverageMapFile !== undefined;
+          if (forcesProcedure && requestedCoverage !== undefined && requestedCoverage !== "procedure") {
             throw new BcDevError(
               "INVALID_ARGUMENT",
-              "coverageAgainst requires coverage: 'procedure' (or omit coverage to select procedure coverage automatically)",
+              `${coverageAgainst !== undefined ? "coverageAgainst" : "coverageMapFile"} requires coverage: 'procedure' (or omit coverage to select procedure coverage automatically)`,
               "validation",
             );
           }
@@ -220,7 +242,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
               "validation",
             );
           }
-          const coverageMode: CoverageMode | undefined = coverageAgainst === undefined ? requestedCoverage : "procedure";
+          const coverageMode: CoverageMode | undefined = forcesProcedure ? "procedure" : requestedCoverage;
           const gapPreparation = coverageAgainst === undefined
             ? null
             : await deps.gitChanges(project, coverageAgainst).then(async (changes) => ({
@@ -273,6 +295,35 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
               changesDeployed,
               result.coverageComplete === true,
             );
+          }
+          if (coverageMapFile !== undefined) {
+            const file = resolvePath(project, coverageMapFile);
+            const map = buildCoverageMap(
+              result.coverage ?? [],
+              {
+                baseRef: gapPreparation?.changes.baseRef ?? null,
+                mergeBase: gapPreparation?.changes.mergeBase ?? null,
+                complete: result.coverageComplete === true && result.runAborted !== true,
+              },
+              await testMethodNames(project, result.coverage ?? [], deps),
+            );
+            const warnings: string[] = [];
+            if (map.mergeBase === null) {
+              warnings.push("No coverageAgainst ref was given, so the map carries no merge-base stamp and later selection cannot judge its staleness.");
+            }
+            if (!map.complete) {
+              warnings.push("The run aborted or Business Central omitted a coverage payload; a test's absence from this map proves nothing.");
+            }
+            const unnamed = map.tests.filter((test) => test.method === null).length;
+            if (unnamed > 0) warnings.push(`${unnamed} test(s) have no locally resolved method name; they are identified by codeunitId/methodId only.`);
+            let written = true;
+            try {
+              await writeCoverageMap(file, map);
+            } catch (error) {
+              written = false;
+              warnings.push(error instanceof Error ? error.message : String(error));
+            }
+            result.coverageMap = { file, written, tests: map.tests.length, complete: map.complete, mergeBase: map.mergeBase, warnings };
           }
           return result;
         } finally {
