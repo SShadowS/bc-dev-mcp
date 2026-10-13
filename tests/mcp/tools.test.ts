@@ -9,6 +9,7 @@ import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 import type { GitChangeSet } from "../../src/core/git-changes";
 import { calculateProcedureMethodId } from "../../src/core/al-procedures";
+import { readCoverageMap } from "../../src/core/coverage-map";
 import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
 import { buildAppPackage } from "../fixtures/app-package";
 
@@ -280,6 +281,43 @@ describe("tools", () => {
       coverageGaps: { summary: { unattributedChanges: number } };
     };
     expect(parsed.coverageGaps.summary.unattributedChanges).toBe(0);
+  });
+
+  test("coverageMapFile writes a stamped, name-resolved coverage map and implies procedure coverage", async () => {
+    const methodId = calculateProcedureMethodId("A", { navTypeKind: 0, symbolKind: 2 }, [], 16).methodId!;
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => {
+        hub.emit("TestCompleted", 50100, "A", 0, "", 5);
+        hub.emit("TestRunCompleted", {
+          Tests: [{ ApplicationObjectId: 50100, MethodId: methodId, CoveredProcedures: [{ ObjectType: 5, ObjectId: 50000, MethodId: 4 }] }],
+        });
+      });
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverageAgainst: "origin/main",
+      coverageMapFile: "coverage-map.json",
+    }) as { coverageMap: { file: string; written: boolean; tests: number; complete: boolean; mergeBase: string; warnings: string[] } };
+    expect(hub.invoked("Initialize")[0]?.args[2]).toBe(2);
+    expect(result.coverageMap).toMatchObject({ written: true, tests: 1, complete: true, mergeBase: "a".repeat(40), warnings: [] });
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
+    const map = await readCoverageMap(result.coverageMap.file);
+    expect(map).toMatchObject({
+      baseRef: "origin/main",
+      mergeBase: "a".repeat(40),
+      tests: [{ codeunitId: 50100, methodId, method: "A", procedures: [{ objectType: 5, objectId: 50000, methodId: 4 }] }],
+    });
+  });
+
+  test("coverageMapFile rejects a non-procedure coverage mode", async () => {
+    const { tools } = setup(hub);
+    await expect(tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }],
+      coverage: "line",
+      coverageMapFile: "coverage-map.json",
+    })).rejects.toThrow(/coverageMapFile requires coverage: 'procedure'/);
   });
 
   test("coverageAgainst reports uncovered changed procedures and gives rerun guidance", async () => {

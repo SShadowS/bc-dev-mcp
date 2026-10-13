@@ -240,6 +240,14 @@ export const runTestsOutputSchema = z.looseObject({
     }).describe("Changed procedure coverage result")).describe("Changed executable procedures"),
     warnings: z.array(z.string()).describe("Nonfatal identity, trigger, coverage-payload, or completeness warnings"),
   }).optional().describe("Changed-procedure coverage analysis when coverageAgainst was requested"),
+  coverageMap: z.object({
+    file: z.string().describe("Absolute path of the bc-dev-mcp.coverage-map v1 JSON file"),
+    written: z.boolean().describe("false when the file could not be written; the reason is in warnings and test results are unaffected"),
+    tests: z.number().describe("Test methods recorded in the map"),
+    complete: z.boolean().describe("false when the run aborted or a coverage payload was missing; absence from the map then proves nothing"),
+    mergeBase: z.string().nullable().describe("Merge-base stamp from coverageAgainst, or null when none was given"),
+    warnings: z.array(z.string()).describe("Stamp, completeness, name-resolution or write warnings"),
+  }).optional().describe("Coverage-map artefact summary when coverageMapFile was requested"),
 });
 
 export const variableNodeSchema = z.looseObject({

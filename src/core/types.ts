@@ -101,6 +101,14 @@ export interface RunTestsResult {
   runAborted?: boolean;
   abortReason?: string;
   coverageGaps?: CoverageGapAnalysis;
+  coverageMap?: {
+    file: string;
+    written: boolean;
+    tests: number;
+    complete: boolean;
+    mergeBase: string | null;
+    warnings: string[];
+  };
 }
 
 export type CoverageGapStatus = "covered" | "uncovered" | "unknown";
