@@ -45,7 +45,7 @@ function setup(hub: FakeHub) {
     gitChanges: async (_project, baseRef): Promise<GitChangeSet> => ({
       baseRef,
       mergeBase: "a".repeat(40),
-      head: "workingTree",
+      head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
       files: [],
     }),
     nativeMcpGateway: new FakeNativeMcpGateway(),

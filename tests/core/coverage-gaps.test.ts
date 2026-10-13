@@ -7,7 +7,7 @@ import type { GitChangeSet } from "../../src/core/git-changes";
 const changes: GitChangeSet = {
   baseRef: "origin/main",
   mergeBase: "a".repeat(40),
-  head: "workingTree",
+  head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
   files: [
     { relativeFile: "src/Foo.al", ranges: [{ start: 5, end: 7 }, { start: 20, end: 20 }] },
     { relativeFile: "src/NoProcedures.al", ranges: [{ start: 1, end: 2 }] },
@@ -33,7 +33,7 @@ function procedure(overrides: Partial<AlProcedureIdentity>): AlProcedureIdentity
 const unattributedChanges: GitChangeSet = {
   baseRef: "origin/main",
   mergeBase: "b".repeat(40),
-  head: "workingTree",
+  head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
   files: [{ relativeFile: "src/Foo.al", ranges: [{ start: 3, end: 4 }] }],
 };
 
@@ -195,7 +195,7 @@ describe("coverage gap analysis", () => {
     const triggerChanges: GitChangeSet = {
       baseRef: "origin/main",
       mergeBase: "d".repeat(40),
-      head: "workingTree",
+      head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
       files: [{ relativeFile, ranges: [{ start: 30, end: 37 }] }],
     };
 
