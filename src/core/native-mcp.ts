@@ -111,17 +111,13 @@ function sdkConnectionFactory(
   headers: Headers,
   fetchFn: typeof fetch,
 ): NativeMcpConnection {
-  // 'auto' probes 2026-07-28 `server/discover` first and falls back to the 2025 `initialize`
-  // handshake on a legacy answer, so a BC build that adopts the new revision is used without a
-  // code change.
-  // WIRE: ASSUMED, not yet observed live — the BC cloud gateway answers the pre-initialize
-  // `server/discover` probe with a JSON-RPC error or a non-401/403/5xx HTTP status (both read as
-  // legacy by SDK 2.3.1), not with silence (an HTTP probe timeout rejects the connect) or a 5xx.
-  // Re-verify per scripts/e2e.md "MCP 2026-07-28".
-  const client = new Client(
-    { name: "bc-dev-mcp", version: "0.4.0" },
-    { versionNegotiation: { mode: "auto" } },
-  );
+  // Keep the SDK default (`legacy`: plain 2025 `initialize` handshake). `auto` would send a
+  // pre-initialize `server/discover` probe, and SDK 2.3.1 turns a probe timeout or 5xx into a
+  // connect error with no legacy fallback; the BC cloud gateway's answer to that probe has not been
+  // observed live, and `auto` adds one round trip per call (each call builds a new Client).
+  // WIRE: legacy handshake live-validated; flip to `{ versionNegotiation: { mode: "auto" } }` only
+  // after the open scripts/e2e.md "Native MCP passthrough" box is verified live.
+  const client = new Client({ name: "bc-dev-mcp", version: "0.4.0" });
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: { headers },
     fetch: fetchFn,
@@ -304,7 +300,7 @@ function normalizeNativeError(error: unknown): BcDevError {
         { cause: error },
       );
     }
-    // EraNegotiationFailed: the connect-time `server/discover` probe hit a network failure or a
+    // EraNegotiationFailed: the connect-time version probe (only under `auto`) hit a network failure or a
     // 5xx, which the SDK reports without an era verdict.
     if (error.code === SdkErrorCode.ConnectionClosed || error.code === SdkErrorCode.EraNegotiationFailed) {
       return new BcDevError(

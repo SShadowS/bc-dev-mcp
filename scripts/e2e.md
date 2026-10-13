@@ -191,11 +191,13 @@ is unit-tested in `tests/mcp/protocol-eras.test.ts`; the native-MCP client side 
 - [ ] Live: attach/profile/record-writes against Cronus28 return a handle and accept it on
   follow-ups end to end.
 - [ ] Live with a current (2025-era) Claude Code client: tools list and a call succeeds.
-- [ ] Native MCP passthrough (SaaS Sandbox): the client probes `server/discover` with the
-  routing headers before `initialize`. Record what the BC gateway answers (JSON-RPC error / HTTP
-  status / silence) and that the legacy fallback then works for all three contexts. Silence or a
-  5xx on the probe breaks every native call (`TIMEOUT` / `SERVER_REJECTED`); if seen, switch
-  `src/core/native-mcp.ts` to `versionNegotiation: { mode: "legacy" }`.
+- [ ] Native MCP passthrough (SaaS Sandbox): the client currently uses the SDK default
+  (`legacy`, plain `initialize`). Before flipping `src/core/native-mcp.ts` to
+  `versionNegotiation: { mode: "auto" }`, send a pre-initialize `server/discover` probe with the
+  routing headers and record what the BC gateway answers (JSON-RPC error / HTTP status / silence).
+  A JSON-RPC error or non-5xx status reads as legacy and is safe; silence (`TIMEOUT`) or a 5xx
+  breaks every native call with no fallback, so keep `legacy`. `auto` also costs one extra round
+  trip per native call.
 
 ## Targeted debugger attach (Sandbox)
 
