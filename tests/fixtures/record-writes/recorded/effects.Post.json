@@ -1,0 +1,52 @@
+{
+  "alsemVersion": "1.5.0",
+  "deterministic": true,
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "kind": "query.effects",
+  "payload": {
+    "effectCount": 1,
+    "effects": [
+      {
+        "isUnknownBucket": false,
+        "op": "Insert",
+        "operationId": "c1fff4db43898ea0/1bb6bb586161fa40cdefe6a6ba90fe9626057773e548cf1d3fb388e143410adf/op0",
+        "origin": {
+          "anchor": {
+            "column": 8,
+            "file": "ws:src/LedgerWriter.Codeunit.al",
+            "line": 7
+          },
+          "routine": {
+            "anchor": {
+              "column": 4,
+              "file": "ws:src/LedgerWriter.Codeunit.al",
+              "line": 2
+            },
+            "display": "Post",
+            "objectDisplay": "Codeunit RW Ledger Writer",
+            "stableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50171#d749ca99a8170bcc0b70cc39d07bed5b174de4cd86ee3a0413322cf5c55a4cc3"
+          }
+        },
+        "tableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43/table/50170",
+        "tableName": "RW Ledger",
+        "tempState": "known(false)",
+        "via": "direct"
+      }
+    ],
+    "routine": {
+      "resolution": "resolved",
+      "routine": {
+        "anchor": {
+          "column": 4,
+          "file": "ws:src/LedgerWriter.Codeunit.al",
+          "line": 2
+        },
+        "display": "Post",
+        "objectDisplay": "Codeunit RW Ledger Writer",
+        "stableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50171#d749ca99a8170bcc0b70cc39d07bed5b174de4cd86ee3a0413322cf5c55a4cc3"
+      },
+      "selector": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50171#d749ca99a8170bcc0b70cc39d07bed5b174de4cd86ee3a0413322cf5c55a4cc3"
+    }
+  },
+  "schemaVersion": "1.0.0"
+}
