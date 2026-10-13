@@ -297,7 +297,7 @@ export function reverseReachable(graph: CallGraph, targets: Iterable<string>): M
   return result;
 }
 
-function unavailable(binary: string, envVar: string, hint: string, cause: unknown): BcDevError {
+export function unavailable(binary: string, envVar: string, hint: string, cause: unknown): BcDevError {
   return new BcDevError(
     "CONFIGURATION_ERROR",
     `AL call-graph engine '${binary}' was not found. Set ${envVar} to its path ${hint}or put it on PATH.`,
@@ -314,7 +314,7 @@ export function toolOutput(error: unknown): string {
   return (read("stderr") || read("stdout")).slice(0, 2000);
 }
 
-function failed(binary: string, step: string, error: unknown, advice: string): BcDevError {
+export function failed(binary: string, step: string, error: unknown, advice: string): BcDevError {
   const output = toolOutput(error);
   return new BcDevError(
     "CONFIGURATION_ERROR",

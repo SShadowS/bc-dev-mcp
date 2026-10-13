@@ -7,6 +7,7 @@ import { ServerState } from "./state";
 import { collectGitChanges } from "../core/git-changes";
 import { createCallGraphProvider } from "../core/call-graph";
 import { createAlSemRiskProvider } from "../core/risk";
+import { createAlSemOrderPredictor } from "../core/test-order-static";
 import { SdkNativeMcpGateway } from "../core/native-mcp";
 import { createHttp10Get } from "../core/http10";
 
@@ -23,6 +24,7 @@ const deps = {
   gitChanges: collectGitChanges,
   callGraph: createCallGraphProvider(process.env),
   riskDigest: createAlSemRiskProvider(process.env),
+  orderPredictor: createAlSemOrderPredictor(process.env),
   nativeMcpGateway: new SdkNativeMcpGateway(fetch),
 };
 

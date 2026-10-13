@@ -89,6 +89,24 @@ Through the MCP tool (with `project` pointing at an AL project that contains cod
 
 `tests/mcp/test-order-tool.test.ts` runs that call against the FakeHub script.
 
+## Static pre-screen (al-sem)
+
+With al-sem installed (`BC_DEV_ALSEM`), order mode first runs one `alsem digest --file` over the
+test codeunit and one `alsem query touches --table` per written table, then applies the hub's
+isolation itself (same codeunit only, polluter declared above, AutoRollback writes never survive).
+On this app it predicts:
+
+| Polluter | Victim | Table | Bisect |
+|----------|--------|-------|--------|
+| 1 | 3 | unresolved (Customer) | confirmed, 1 probe |
+| 1 | 6 | unresolved (Customer) | refuted: 6 passes after 1 |
+| 5 | 7 | 50160 | confirmed, 1 probe |
+
+The bisect probes predicted polluters first, so both victims are found with one probe each instead
+of bisecting. Customer is unresolved because the app declares no dependencies, so 1 -> 6 is a false
+hint (different key); the dynamic result is the truth and `staticPrediction.pairs[].dynamic` says
+which hints held. Recorded al-sem output: `tests/fixtures/alsem-order/`.
+
 ## Building
 
 ```bash

@@ -4,6 +4,7 @@ import { redactAuthorization } from "./redaction";
 import { analyzeTestOrder, type OrderRun, type OrderRunResult, type TestOrderAnalysis } from "./test-order-analysis";
 import { bisectPolluters, type BisectResult, type OrderRunner } from "./test-order-bisect";
 import { planTestOrder } from "./test-order-plan";
+import type { PredictedPollution } from "./test-order-static";
 import { identityKey, type OrchestratedTestIdentity } from "./test-orchestration";
 import type { CodeunitTestGroup, RunTestsResult } from "./types";
 
@@ -70,6 +71,8 @@ export interface OrderModeOptions {
   selection: readonly OrchestratedTestIdentity[];
   seeds: readonly number[];
   maxProbes?: number;
+  /** Static polluter -> victim hints: each victim's predicted polluters are probed before bisecting. */
+  predictions?: readonly PredictedPollution[];
   /** Runs groups in one Initialize. May throw; a throw or runAborted halts every later Initialize. */
   execute: (groups: CodeunitTestGroup[]) => Promise<RunTestsResult>;
   cancelled?: () => boolean;
@@ -133,7 +136,11 @@ export async function runOrderMode(opts: OrderModeOptions): Promise<OrderModeRes
   for (const plan of plans) runs.push({ plan, results: await runner(plan) });
 
   const analysis = analyzeTestOrder({ isolation, runs });
-  const victims = analysis.tests.filter((t) => t.classification === "odVictim");
+  const victims = analysis.tests
+    .filter((t) => t.classification === "odVictim")
+    .map((t) => opts.predictions
+      ? { ...t, predictedPolluters: opts.predictions.filter((p) => identityKey(p.victim.codeunitId, p.victim.method) === identityKey(t.codeunitId, t.method)).map((p) => p.polluter) }
+      : t);
   const bisection = await bisectPolluters({ victims, runner, maxProbes: opts.maxProbes });
 
   if (halted) warnings.push(halted);

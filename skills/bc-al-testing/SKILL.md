@@ -25,7 +25,9 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
    It runs each method alone, then the selection recorded, reversed and once per seed, classifies
    `odVictim` (passes alone, fails after others), bisects each victim to its polluter, and (with
    `pollutionTableId`) attributes the polluter's writes to that table. Keep the selection narrow:
-   every run and every bisection probe is one Initialize (cap 50 methods).
+   every run and every bisection probe is one Initialize (cap 50 methods). With al-sem installed,
+   `order.staticPrediction.pairs[]` holds statically predicted polluter -> victim pairs (probed
+   first) with `dynamic` confirmed/refuted/unresolved; treat them as hints, the bisection decides.
 6. To check changed-code coverage, publish the current changed objects, then add
    `coverageAgainst: "origin/main"` and `changesDeployed: true`. The latter is your explicit
    confirmation that this working tree is deployed. This implies `coverage: "procedure"` and

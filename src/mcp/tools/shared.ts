@@ -11,6 +11,7 @@ import type { ConnectionConfig } from "../../core/types";
 import { DEFAULT_DEV_PORT } from "../../core/urls";
 import type { GitChangeSet } from "../../core/git-changes";
 import type { CallGraphProvider } from "../../core/call-graph";
+import type { OrderPollutionPredictor } from "../../core/test-order-static";
 import type { NativeMcpGateway } from "../../core/native-mcp";
 import type { RiskDigestProvider } from "../../core/risk";
 import { upperInvariantUtf16 } from "../../core/al-identifiers";
@@ -43,6 +44,8 @@ export interface ToolDeps {
   callGraph: CallGraphProvider;
   /** Optional al-sem risk digest of changed routines (alsem digest); absent in tests that do not need it. */
   riskDigest?: RiskDigestProvider;
+  /** Static order-pollution pre-screen (al-sem); absent = no prediction. */
+  orderPredictor?: OrderPollutionPredictor;
   nativeMcpGateway: NativeMcpGateway;
 }
 
