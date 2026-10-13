@@ -47,7 +47,7 @@ src/mcp/             # thin frontend
   server.ts              # buildServer: registerTool/registerResource wiring (testable over InMemoryTransport)
   tools/                 # the 29 bcdev_* tool definitions (zod schemas + metadata + handlers)
   skills.generated.ts    # GENERATED from skills/ by scripts/embed-skills.ts — do not edit
-  state.ts               # debug session singleton, event queue, run lock
+  state.ts               # single-slot debug/profile/record-write state + their opaque handles, event queue, run lock
   index.ts               # stdio entry: builds deps, calls buildServer, connects transport
 ```
 

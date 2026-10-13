@@ -408,7 +408,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
 | `src/mcp/tools/` | The 29 bcdev_* tool definitions (zod schemas + metadata + handlers) |
-| `src/mcp/state.ts` | Debug session singleton, event queue, run lock |
+| `src/mcp/state.ts` | Single-slot debug/profile/record-write state and their opaque handles (`debugSessionId`, `profileId`, `recordingId`), event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/test-orchestration.ts` | Pure repeat-run identity, stability classification, and adjacent pass/fail diff analysis |
 | `src/core/hubs/debugger-hub.ts` | DebuggerHub client (attach, breakpoints, stepping, inspection) |

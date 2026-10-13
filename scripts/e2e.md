@@ -180,6 +180,16 @@ is unit-tested in `tests/mcp/protocol-eras.test.ts`; the native-MCP client side 
   the bytes `resources/read` returns; results carry `resultType: "complete"`,
   `ttlMs: 86400000`, `cacheScope: "public"`; unknown URI → `-32602`; `skill://index.json` is gone
   (not in the spec). <!-- 2026-10-13 unit (in-memory + raw 2026-07-28 wire) -->
+- [x] Statelessness: cross-request state is referenced by explicit handles, not connection
+  identity. `bcdev_debug_attach` → `debugSessionId`, `bcdev_profile_start` → `profileId`,
+  `bcdev_record_writes_start` → `recordingId` (in `structuredContent` + `outputSchema`). Every
+  follow-up accepts the handle optionally: omitted = the single active slot (backward
+  compatible); given and not active → `NOT_FOUND` (category `state`) with
+  `details.{handle,given,active,startTool,endTool}` and next steps naming the active handle.
+  Slot-busy errors carry the active handle. Single-slot limits unchanged; the test-run lock is
+  not cross-request state. <!-- 2026-10-13 unit (tests/mcp/handles.test.ts) -->
+- [ ] Live: attach/profile/record-writes against Cronus28 return a handle and accept it on
+  follow-ups end to end.
 - [ ] Live with a current (2025-era) Claude Code client: tools list and a call succeeds.
 - [ ] Native MCP passthrough (SaaS Sandbox): the client probes `server/discover` with the
   routing headers before `initialize`. Record what the BC gateway answers (JSON-RPC error / HTTP
