@@ -1,0 +1,78 @@
+{
+  "alsemVersion": "1.5.0",
+  "deterministic": true,
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "kind": "query.effects",
+  "payload": {
+    "effectCount": 2,
+    "effects": [
+      {
+        "isUnknownBucket": false,
+        "op": "Insert",
+        "operationId": "64dd4cea638afcf3/ed9835448fe69d1750495ab2393cc0403f63d49d962af035a0e68832c815838e/op0",
+        "origin": {
+          "anchor": {
+            "column": 8,
+            "file": "ws:src/MixedWriter.Codeunit.al",
+            "line": 7
+          },
+          "routine": {
+            "anchor": {
+              "column": 4,
+              "file": "ws:src/MixedWriter.Codeunit.al",
+              "line": 2
+            },
+            "display": "Both",
+            "objectDisplay": "Codeunit RW Mixed Writer",
+            "stableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50173#90793654baff4a066d8534ea8d748f4433e9b0db0325a5ce79a89883d57a6097"
+          }
+        },
+        "tableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43/table/50170",
+        "tableName": "RW Ledger",
+        "tempState": "known(false)",
+        "via": "direct"
+      },
+      {
+        "isUnknownBucket": false,
+        "op": "Insert",
+        "operationId": "64dd4cea638afcf3/ed9835448fe69d1750495ab2393cc0403f63d49d962af035a0e68832c815838e/op1",
+        "origin": {
+          "anchor": {
+            "column": 8,
+            "file": "ws:src/MixedWriter.Codeunit.al",
+            "line": 8
+          },
+          "routine": {
+            "anchor": {
+              "column": 4,
+              "file": "ws:src/MixedWriter.Codeunit.al",
+              "line": 2
+            },
+            "display": "Both",
+            "objectDisplay": "Codeunit RW Mixed Writer",
+            "stableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50173#90793654baff4a066d8534ea8d748f4433e9b0db0325a5ce79a89883d57a6097"
+          }
+        },
+        "tableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43/table/50172",
+        "tableName": "RW Other",
+        "tempState": "known(false)",
+        "via": "direct"
+      }
+    ],
+    "routine": {
+      "resolution": "resolved",
+      "routine": {
+        "anchor": {
+          "column": 4,
+          "file": "ws:src/MixedWriter.Codeunit.al",
+          "line": 2
+        },
+        "display": "Both",
+        "objectDisplay": "Codeunit RW Mixed Writer",
+        "stableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50173#90793654baff4a066d8534ea8d748f4433e9b0db0325a5ce79a89883d57a6097"
+      },
+      "selector": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50173#90793654baff4a066d8534ea8d748f4433e9b0db0325a5ce79a89883d57a6097"
+    }
+  },
+  "schemaVersion": "1.0.0"
+}

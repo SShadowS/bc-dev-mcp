@@ -1,9 +1,10 @@
 # record-writes fixture
 
-A one-table AL workspace for the al-sem static writer cross-check (`src/core/alsem-writes.ts`,
+A two-table AL workspace for the al-sem static writer cross-check (`src/core/alsem-writes.ts`,
 `tests/core/alsem-writes.test.ts`). Table `RW Ledger` (50170) is written by codeunit `RW Ledger Writer`
 (50171): direct Insert/Modify/DeleteAll/Rename, a temporary-record Insert, a read-only routine, a
 routine that writes through a helper, and a `RecordRef.Insert` (al-sem's unknown bucket).
+A second table `RW Other` (50172) and codeunit `RW Mixed Writer` (50173) hold routines that write both tables (`Both`), only the other table (`OtherOnly`), or a `RecordRef` plus the other table (`DynPlusOther`); they guard against other-table writes leaking into the Ledger writer set.
 
 `recorded/` holds real `alsem` output, recorded with al-sem 1.5.0 (master `2c48e56f`):
 

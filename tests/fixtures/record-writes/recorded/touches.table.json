@@ -14,7 +14,7 @@
     },
     "up": {
       "note": "workspace-global: every routine whose transitive cone touches this table. Scope it with --from <routine> --direction up.",
-      "routineCount": 7,
+      "routineCount": 8,
       "routines": [
         {
           "anchor": {
@@ -85,6 +85,16 @@
           "display": "Adjust",
           "objectDisplay": "Codeunit RW Ledger Writer",
           "stableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50171#ec255368334fdcd7e01a332986425a27b27798c78186073cce18394aeb474000"
+        },
+        {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/MixedWriter.Codeunit.al",
+            "line": 2
+          },
+          "display": "Both",
+          "objectDisplay": "Codeunit RW Mixed Writer",
+          "stableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50173#90793654baff4a066d8534ea8d748f4433e9b0db0325a5ce79a89883d57a6097"
         }
       ],
       "scoped": false
