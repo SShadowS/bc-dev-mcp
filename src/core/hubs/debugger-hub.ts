@@ -240,6 +240,9 @@ export class DebuggerClient {
       NumberOfSqlStatements: (opts.sqlInsight ?? false) || opts.longRunningSqlThresholdMs !== undefined ? SQL_STATEMENT_CAP : 0,
     };
 
+    // WIRE: IsAlive must be answered with AcknowledgeIsAlive (esp-decomp HubBasedDebuggerService.IsAlive).
+    // BC28 never sent IsAlive during a 9-minute held break (live 2026-10-13); SignalR pings kept the
+    // session alive. Kept as a safety net for servers that do send it.
     hub.on("IsAlive", () => {
       void hub.invoke("AcknowledgeIsAlive").catch(() => {});
     });
