@@ -330,6 +330,19 @@ Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` 
   the map, no misses, identical changed-procedure coverage; D5 (`OnRun`) selects 1 test instead of
   falling back; D7 (`app.json` only) falls back to all 40. With BC28 symbols in `.alpackages`,
   `meta.apps` becomes `embedded`/`symbolOnly` and the selections do not change. <!-- 2026-10-13 Cronus28 (BC28), alsem engine 1.5.0 (al-sem master 4a2abdbb), alc 30.0.2863738; per-diff table in the fixture README; app uninstalled with deleteData and unpublished afterwards, app list (169 apps) identical before/after -->
+- [x] al-sem order pre-screen, offline (`bcdev_test_orchestrate` mode `order`, `src/core/test-order-static.ts`).
+  WIRE: `alsem digest` / `alsem query touches --format json` share the envelope
+  `{alsemVersion, kind, schemaVersion, payload, diagnostics}`; read kinds `digest` (schema 1.3.0) and
+  `query.touches` (1.0.0), majors pinned. Digest roots go by `--file`: a bare `--routine` name is
+  ambiguous across codeunits and one unmatched/ambiguous selector voids the whole digest (exit 2, no
+  entries). Routines join by `stableId` `<appId>:Codeunit:<id>#<hash>` + `display`. Digest write effects
+  carry the table as `detail.resourceId` (`<appId>/table/<n>`), absent = al-sem's `unknown` bucket
+  (queried as `--table unknown`); a `COMMIT` effect with `WRITE_COMMITTED_BEFORE_RETURN` marks an explicit
+  commit. Digest reports writes to temporary records as writes; Rename is not a write (al-sem #9).
+  On demos/order-pollution the pre-screen predicts 1->3 (unknown table), 1->6 (unknown table) and 5->7
+  (table 50160); seeded bisection confirms 1->3 and 5->7 in one probe each and refutes 1->6. Customer
+  stays `unknown` with or without BC28 symbols in `.alpackages` (the demo declares no dependencies).
+  <!-- 2026-10-13, al-sem 1.5.0 (al-call-hierarchy 2c48e56f); recorded output tests/fixtures/alsem-order; tests/core/test-order-static.test.ts. Not run live: the static side needs no server and the dynamic side is unchanged (#15). -->
 
 ## Known server behaviours
 
