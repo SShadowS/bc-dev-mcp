@@ -131,6 +131,36 @@ describe("Git AL changes", () => {
       untracked: true,
       ranges: [{ start: 1, end: 3 }],
     });
+    expect(changes.nonAlFiles).toEqual([]);
+    // --no-renames: the moved-away side of a rename has no current lines to map.
+    expect(changes.unresolvedAlFiles).toEqual(["Committed.al"]);
+  });
+
+  test("reports changed and untracked non-AL files and deleted AL files", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "bcmcp-git-nonal-"));
+    const project = join(repo, "app");
+    mkdirSync(project, { recursive: true });
+    const run = (...args: string[]) => execFileSync("git", args, { cwd: repo, stdio: "pipe" });
+    run("init", "-q");
+    run("config", "user.email", "test@example.com");
+    run("config", "user.name", "Test");
+    writeFileSync(join(project, "app.json"), "{}\n");
+    writeFileSync(join(project, "Gone.al"), "gone\n");
+    writeFileSync(join(project, "Kept.al"), "kept\n");
+    writeFileSync(join(repo, "outside.json"), "{}\n");
+    run("add", ".");
+    run("commit", "-qm", "base");
+    const base = run("rev-parse", "HEAD").toString().trim();
+
+    writeFileSync(join(project, "app.json"), "{\"version\":\"2\"}\n");
+    writeFileSync(join(project, "Notes.md"), "untracked\n");
+    run("rm", "-q", "app/Gone.al");
+    writeFileSync(join(repo, "outside.json"), "{\"x\":1}\n");
+
+    const changes = await collectGitChanges(project, base);
+    expect(changes.files).toEqual([]);
+    expect(changes.nonAlFiles).toEqual(["Notes.md", "app.json"]);
+    expect(changes.unresolvedAlFiles).toEqual(["Gone.al"]);
   });
 
   test("fails closed when Git returns a tracked path outside the scoped project prefix", async () => {
@@ -141,6 +171,7 @@ describe("Git AL changes", () => {
     const git = async (_cwd: string, args: string[]) => {
       if (args[0] === "rev-parse") return repo;
       if (args[0] === "merge-base") return mergeBase;
+      if (args.includes("--name-only")) return "apps/Other/Foo.al\0";
       if (args.includes("diff")) {
         return [
           "diff --git a/apps/Other/Foo.al b/apps/Other/Foo.al",

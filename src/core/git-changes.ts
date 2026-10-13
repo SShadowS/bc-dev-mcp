@@ -24,6 +24,10 @@ export interface GitChangeSet {
   mergeBase: string;
   head: "workingTree";
   files: ChangedAlFile[];
+  /** Project-relative changed non-AL paths (tracked diff vs merge base plus untracked), sorted. */
+  nonAlFiles: string[];
+  /** Project-relative changed AL paths with no current-side line ranges (deleted, binary, mode-only), sorted. */
+  unresolvedAlFiles: string[];
 }
 
 export type GitRunner = (cwd: string, args: string[]) => Promise<string>;
@@ -172,17 +176,24 @@ export async function collectGitChanges(
   }
 
   let rawDiff: string;
+  let rawChangedNames: string;
   let rawUntracked: string;
   try {
-    const alPathspec = prefix === "" ? ":(glob,icase)**/*.al" : `:(glob,icase)${prefix}/**/*.al`;
-    [rawDiff, rawUntracked] = await Promise.all([
+    const projectPathspec = prefix === "" ? ":(glob,icase)**" : `:(glob,icase)${prefix}/**`;
+    const alPathspec = `${projectPathspec}/*.al`;
+    [rawDiff, rawChangedNames, rawUntracked] = await Promise.all([
       git(repoRoot, [
         "-c", "core.quotePath=false",
         "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-renames",
         "--src-prefix=a/", "--dst-prefix=b/",
         mergeBase, "--", alPathspec,
       ]),
-      git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z", "--", alPathspec]),
+      git(repoRoot, [
+        "-c", "core.quotePath=false",
+        "diff", "--name-only", "-z", "--no-ext-diff", "--no-renames",
+        mergeBase, "--", projectPathspec,
+      ]),
+      git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z", "--", projectPathspec]),
     ]);
   } catch (error) {
     if (error instanceof BcDevError) throw error;
@@ -201,20 +212,27 @@ export async function collectGitChanges(
       return { ...entry, relativeFile };
     });
   const known = new Set(tracked.map((entry) => entry.relativeFile));
-  const untrackedPaths = rawUntracked
+  const projectPaths = (raw: string, kind: string): string[] => raw
     .split("\0")
-    .filter((path) => path !== "" && path.toLowerCase().endsWith(".al"))
+    .filter((path) => path !== "")
     .map((path) => {
       const relativeFile = stripProjectPrefix(path, prefix, caseInsensitivePaths);
       if (relativeFile === null) {
-        throw gitFailure("Git returned an untracked AL path outside the requested project", {
+        throw gitFailure(`Git returned ${kind} path outside the requested project`, {
           path,
           projectPrefix: prefix,
         });
       }
       return relativeFile;
-    })
-    .filter((path) => !known.has(path));
+    });
+  const isAl = (path: string) => path.toLowerCase().endsWith(".al");
+  const changedPaths = projectPaths(rawChangedNames, "a changed");
+  const allUntracked = projectPaths(rawUntracked, "an untracked");
+  const untrackedPaths = allUntracked.filter((path) => isAl(path) && !known.has(path));
+  const nonAlFiles = [...new Set([...changedPaths, ...allUntracked].filter((path) => !isAl(path)))].sort();
+  // An AL file Git reports as changed but whose diff yields no current-side line ranges
+  // (deleted, binary, mode-only) cannot be mapped to procedures; consumers must not ignore it.
+  const unresolvedAlFiles = [...new Set(changedPaths.filter((path) => isAl(path) && !known.has(path)))].sort();
   let untracked: ChangedAlFile[];
   try {
     untracked = await Promise.all(untrackedPaths.map((path) => untrackedFile(path, project)));
@@ -227,5 +245,7 @@ export async function collectGitChanges(
     mergeBase,
     head: "workingTree",
     files: [...tracked, ...untracked].sort((a, b) => a.relativeFile.localeCompare(b.relativeFile)),
+    nonAlFiles,
+    unresolvedAlFiles,
   };
 }

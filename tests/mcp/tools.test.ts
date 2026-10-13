@@ -44,7 +44,7 @@ function setup(
     gitChanges: async (_project, baseRef): Promise<GitChangeSet> => ({
       baseRef,
       mergeBase: "a".repeat(40),
-      head: "workingTree",
+      head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
       files: [],
     }),
     nativeMcpGateway: new FakeNativeMcpGateway(),
@@ -234,7 +234,7 @@ describe("tools", () => {
       gitChanges: async (_project, baseRef) => ({
         baseRef,
         mergeBase: "b".repeat(40),
-        head: "workingTree",
+        head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
         files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
       }),
     });
@@ -287,7 +287,7 @@ describe("tools", () => {
       gitChanges: async (_project, baseRef) => ({
         baseRef,
         mergeBase: "c".repeat(40),
-        head: "workingTree",
+        head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
         files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
       }),
     });
@@ -314,7 +314,7 @@ describe("tools", () => {
       gitChanges: async (_project, baseRef) => ({
         baseRef,
         mergeBase: "e".repeat(40),
-        head: "workingTree",
+        head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
         files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 3, end: 3 }] }],
       }),
     });
@@ -344,7 +344,7 @@ describe("tools", () => {
       gitChanges: async (_project, baseRef) => ({
         baseRef,
         mergeBase: "f".repeat(40),
-        head: "workingTree",
+        head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
         files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
       }),
     });
@@ -384,7 +384,7 @@ describe("tools", () => {
       gitChanges: async (_project, baseRef) => ({
         baseRef,
         mergeBase: "e".repeat(40),
-        head: "workingTree",
+        head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
         files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 8 }] }],
       }),
     });
@@ -419,7 +419,7 @@ describe("tools", () => {
     const { state, tools } = setup(hub, undefined, undefined, {
       gitChanges: async (_project, baseRef) => {
         gitCalls++;
-        return { baseRef, mergeBase: "d".repeat(40), head: "workingTree", files: [] };
+        return { baseRef, mergeBase: "d".repeat(40), head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [], files: [] };
       },
     });
     for (const coverage of ["none", "line"] as const) {
