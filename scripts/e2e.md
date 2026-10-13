@@ -49,7 +49,7 @@ Never record access tokens, Authorization headers, authenticated URLs, or unreda
 - [x] bcdev_test_run with two codeunits: results for both, sequential execution. <!-- 2026-07-03: confirmed against BC28, codeunits 132536 + 132606 -->
 - [x] bcdev_debug_attach + bcdev_debug_run_tests + bcdev_debug_wait → break → bcdev_debug_variables → bcdev_debug_continue → testRunFinished. <!-- 2026-07-03 round 3 (fix 56f32de): full tool-level flow validated end-to-end against BC28 — attach (no fatal queued), started:true, break-on-error event w/ 2-frame stack, variables + eval at frame 0, stepOver → step break, continue → testRunFinished with results attached; detach + immediate re-attach both clean. See "Round 3" in scripts/e2e-results-2026-07-03.md -->
 - [x] bcdev_debug_detach mid-break: BC session released (check server). <!-- 2026-07-03 round 2: raw StopDebugging+disconnect while held at a break released the session immediately; test completed as failed with "The debugger stopped the current activity."; Get-NAVServerSession shows no leftovers -->
-- [x] tools/list shows title/annotations/outputSchema for all 24 tools; resources/list shows the four skill:// resources. <!-- deterministic server tests plus built-server item 9 listing 2026-07-30 -->
+- [x] tools/list shows title/annotations/outputSchema for all 24 tools; resources/list shows the five skill:// resources. <!-- deterministic server tests plus built-server item 9 listing 2026-07-30 -->
 
 ## Test orchestration (SaaS Sandbox, BC28)
 
@@ -175,6 +175,11 @@ is unit-tested in `tests/mcp/protocol-eras.test.ts`; the native-MCP client side 
   `true`); the lists never change at runtime. <!-- 2026-10-13 unit + stdio smoke -->
 - [x] Unknown tool → JSON-RPC error `-32602` ("Tool X not found") on both eras, not an `isError`
   result. Input-schema failures are still `isError` results with the structured error body. <!-- 2026-10-13 unit + stdio smoke -->
+- [x] Skills extension (final SEP-2640): `skills/list` / `skills/get` answer on both eras with
+  `uri`, full `frontmatter` and a `resources` manifest whose `sha256:` digest and byte size equal
+  the bytes `resources/read` returns; results carry `resultType: "complete"`,
+  `ttlMs: 86400000`, `cacheScope: "public"`; unknown URI → `-32602`; `skill://index.json` is gone
+  (not in the spec). <!-- 2026-10-13 unit (in-memory + raw 2026-07-28 wire) -->
 - [ ] Live with a current (2025-era) Claude Code client: tools list and a call succeeds.
 - [ ] Native MCP passthrough (SaaS Sandbox): the client probes `server/discover` with the
   routing headers before `initialize`. Record what the BC gateway answers (JSON-RPC error / HTTP

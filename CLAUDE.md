@@ -101,11 +101,17 @@ local `docs/superpowers/` working docs (pointers in `CLAUDE.local.md`).
 
 ## Skills over MCP
 
-The server serves `skills/*/SKILL.md` as `skill://` resources with a `skill://index.json`
-discovery index and declares the `io.modelcontextprotocol/skills` extension capability
-(tracks draft SEP-2640). Skill sources are authored in `skills/`; `bun run embed-skills`
-regenerates the committed `src/mcp/skills.generated.ts` (build/dev/compile run it
-automatically; a drift test fails if the generated file is stale).
+The server implements the final SEP-2640 Skills extension (`io.modelcontextprotocol/skills`,
+declared with `resources`; `directoryRead` off since every skill is a single `SKILL.md`).
+`skills/list` and `skills/get` are custom request handlers in `src/mcp/server.ts`; each entry
+carries `uri`, the full `frontmatter` object and a `resources` manifest (`uri`, `sha256:` digest,
+byte size). Results carry `resultType: "complete"`, a static long `ttlMs` and `cacheScope: "public"`;
+an unknown skill URI is JSON-RPC `-32602`. The file itself is served by `resources/read`
+(`skill://<name>/SKILL.md`). The spec has no `skill://index.json`, so it is no longer served.
+Skill sources are authored in `skills/`; `bun run embed-skills` regenerates the committed
+`src/mcp/skills.generated.ts` including the precomputed frontmatter, digest and size
+(build/dev/compile run it automatically; a drift test fails if the generated file is stale).
+Frontmatter values must be single-line `key: value`.
 
 ## Capture-and-ship recipe
 
