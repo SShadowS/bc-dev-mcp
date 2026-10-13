@@ -176,6 +176,38 @@ describe("server wiring", () => {
     expect(content.text).toContain("bcdev_debug_attach");
   });
 
+  test("every backticked tool name in every skill resolves in tools/list", async () => {
+    // Backticked snake_case spans that are deliberately NOT bcdev tools.
+    const NON_TOOL_ALLOWLIST = new Set([
+      "bc_actions_*", // BC native MCP tool family, reached via bcdev_native_call
+    ]);
+    const client = await connect();
+    const toolNames = (await client.listTools()).tools.map((t) => t.name);
+    const resolves = (ref: string) =>
+      ref.endsWith("*") ? toolNames.some((n) => n.startsWith(ref.slice(0, -1))) : toolNames.includes(ref);
+
+    const skillUris = (await client.listResources()).resources
+      .map((r) => r.uri)
+      .filter((u) => u.startsWith("skill://") && u.endsWith("/SKILL.md"));
+    expect(skillUris.length).toBeGreaterThan(0);
+
+    const unresolved: string[] = [];
+    for (const uri of skillUris) {
+      const { text } = (await client.readResource({ uri })).contents[0] as { text: string };
+      for (const [, span] of text.matchAll(/`([^`\n]+)`/g)) {
+        // Any bcdev_* reference inside a span (e.g. `bcdev_debug_eval(...)`) must be a real tool.
+        for (const [ref] of span!.matchAll(/bcdev_[a-z0-9_]*\*?/g)) {
+          if (!resolves(ref)) unresolved.push(`${uri}: ${ref}`);
+        }
+        // A span that is a bare tool-shaped identifier must be a tool or explicitly allowlisted.
+        if (/^[a-z][a-z0-9]*_[a-z0-9_]*\*?$/.test(span!) && !span!.startsWith("bcdev_") && !NON_TOOL_ALLOWLIST.has(span!)) {
+          unresolved.push(`${uri}: ${span} (not a bcdev tool; add to NON_TOOL_ALLOWLIST if intentional)`);
+        }
+      }
+    }
+    expect(unresolved).toEqual([]);
+  });
+
   test("declares the skills extension capability", async () => {
     const client = await connect();
     const caps = client.getServerCapabilities() as { extensions?: Record<string, object> };
