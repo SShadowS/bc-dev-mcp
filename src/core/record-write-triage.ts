@@ -667,6 +667,9 @@ export class RecordWriteCollector {
   }
 
   private async handleEvent(event: DebuggerEvent): Promise<void> {
+    // While rearming no registration is live: anything queued now is the stray's late callback
+    // (e.g. its identity lookup resolving after the detach, live Cronus28 2026-10-13).
+    if (this.phaseValue === "rearming") return;
     if (event.kind === "sessionBound") {
       this.sessionObserved = true;
       this.phaseValue = "collecting";
@@ -755,7 +758,6 @@ export class RecordWriteCollector {
     this.sessionObserved = false;
     // The capture is detached until the re-attach lands; a workload in that window is missed.
     this.evidenceLost = true;
-    await this.options.client.stop().catch(() => {});
     const maxRearms = rearm.maxRearms ?? 3;
     if (this.strayBindCount > maxRearms) {
       this.accepting = false;
@@ -764,13 +766,17 @@ export class RecordWriteCollector {
       this.warnings.push(
         `Stray debugger bind ${this.strayBindCount} (${stray}) detached before any break; maxRearms=${maxRearms} exhausted, capture stopped.`,
       );
+      await this.options.client.stop().catch(() => {});
       return;
     }
     const delayMs = rearm.delayMs ?? 10_000;
+    // Phase first: StopDebugging on the dead registration can take seconds (live Cronus28 2026-10-13).
     this.phaseValue = "rearming";
     this.warnings.push(
       `Stray debugger bind ${this.strayBindCount} (${stray}) detached before any break; re-arming in ${delayMs} ms. A workload started before the re-attach is missed.`,
     );
+    await this.options.client.stop().catch(() => {});
+    if (this.finishing || this.terminal()) return;
     this.rearmTask = this.reattach(rearm, generation, delayMs);
   }
 
@@ -781,9 +787,12 @@ export class RecordWriteCollector {
       if (this.finishing || this.terminal() || generation !== this.armGeneration) return;
       try {
         this.breakInArm = false;
+        // Arming before the invocation: the new registration can bind before Attach resolves.
+        this.phaseValue = "arming";
         await rearm.attach();
       } catch (error) {
         if (this.finishing || this.terminal() || generation !== this.armGeneration) return;
+        this.phaseValue = "rearming";
         // WIRE: BC28 rejects a re-attach with "An unexpected error occurred invoking 'Attach'" until the
         // previous registration is released (~10 s; live Cronus28 2026-10-13, src/mcp/agent-errors.ts).
         if (isAttachBusyError(error) && attempt < attempts) {
@@ -795,7 +804,6 @@ export class RecordWriteCollector {
       }
       if (generation !== this.armGeneration) return;
       this.rearmCount++;
-      if (this.phaseValue === "rearming") this.phaseValue = "arming";
       return;
     }
   }

@@ -130,7 +130,7 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
         return ["Trigger the matching session and target operation, then call bcdev_record_writes_status again."];
       }
       if (result["phase"] === "rearming") {
-        return ["A stray session bound and detached before any break; wait about 10 seconds for the re-attach (phase arming) before triggering the workload, then call bcdev_record_writes_status again."];
+        return ["A stray session bound and detached before any break; wait about 10 seconds for the re-attach, then trigger the workload only after status has shown phase arming for about 2.5 s."];
       }
       if (result["phase"] === "collecting") {
         return ["Let the target operation finish, then call bcdev_record_writes_finish for the grouped writer report."];

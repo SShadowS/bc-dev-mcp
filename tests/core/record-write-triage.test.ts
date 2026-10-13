@@ -869,6 +869,37 @@ describe("stray-bind re-arm", () => {
     expect(report.warnings).toContain("No debugger session bound during the capture window.");
   });
 
+  test("the stray's late identity callback does not end rearming", async () => {
+    const { clock, collector } = setup();
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    collector.onEvent({ kind: "sessionBound", sessionId: 5, hostId: "h" });
+    await collector.waitForIdle();
+    expect(collector.status()).toMatchObject({ phase: "rearming", sessionId: null });
+    clock.fire();
+    await tick();
+    expect(collector.status()).toMatchObject({ phase: "arming", rearms: 1 });
+  });
+
+  test("a slow stop of the stray shows rearming at once and a finish meanwhile schedules nothing", async () => {
+    const { fake, clock, collector, attaches } = setup();
+    let releaseStop!: () => void;
+    fake.stop = () => new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await tick();
+    expect(collector.status().phase).toBe("rearming");
+    const finishing = collector.finish();
+    await tick();
+    releaseStop();
+    await tick();
+    releaseStop();
+    const report = await finishing;
+    expect(clock.live()).toEqual([]);
+    expect(attaches()).toBe(0);
+    expect(report).toMatchObject({ stopReason: "finished", strayBinds: 1, rearms: 0 });
+  });
+
   test("finish during an in-flight re-attach waits for it, then stops the new attachment", async () => {
     let releaseAttach!: () => void;
     const { fake, clock, collector, attaches } = setup(() => new Promise<void>((resolve) => {
