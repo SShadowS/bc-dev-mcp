@@ -54,6 +54,23 @@ describe("summarizeProfile", () => {
     expect(s.hotspots[0]!.line).toBe(-1);
   });
 
+  test("carries the declaring app id (dashless lowercase) when the frame has one", () => {
+    // WIRE: live Cronus29/Cronus28 2026-10-13: a frame url has no app segment; node.declaringApplication.appId is a dashless GUID.
+    const withApp = JSON.stringify({
+      nodes: [
+        { id: 1, callFrame: { functionName: "SlowLoop", url: "al-preview://allang/Codeunit/50140/Codeunit_50140.dal", lineNumber: 10 }, declaringApplication: { appId: "6B1C2F0E52A14F6E9A390D1F7C8E4A21" } },
+        { id: 2, callFrame: { functionName: "IdleTime", url: "al-preview://allang/Undefined" } },
+      ],
+      samples: [1, 2],
+      timeDeltas: [200, 100],
+      startTime: 0,
+      endTime: 300,
+    });
+    const [slow, idle] = summarizeProfile(withApp).hotspots;
+    expect(slow!.appId).toBe("6b1c2f0e52a14f6e9a390d1f7c8e4a21");
+    expect(idle).not.toHaveProperty("appId");
+  });
+
   test("empty profile yields a zeroed summary", () => {
     const empty = JSON.stringify({ nodes: [], samples: [], timeDeltas: [], startTime: 0, endTime: 0 });
     expect(summarizeProfile(empty)).toEqual({

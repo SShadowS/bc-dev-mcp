@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { AlObjectIndex } from "./al-objects";
@@ -15,7 +15,9 @@ import type { Hotspot } from "./snapshot/profile-summary";
  * `Codeunit_50100.dal` url, or a real `.al` path, against the finding's object / file) and the
  * finding's routine (`primaryLocation.routineName`) is the hotspot's function. Overloads share a
  * name, so they share findings. Profile line numbers are lines of the generated .dal, not of the
- * .al source, so lines never take part in the join.
+ * .al source, so lines never take part in the join. A frame url has no app segment, so when the
+ * frame names its declaring app (Hotspot.appId) and the workspace's app.json id differs, the
+ * frame is another app's and is neither attached to nor counted as a workspace hotspot.
  *
  * Limits of what al-sem reports today (so absence of a finding is not proof of absence):
  * SShadowS/al-sem#28 — two call sites on one line collapse to one site key, so the evidence chain
@@ -220,8 +222,15 @@ export async function explainHotspots(
 
   let workspaceKeys: Set<string>;
   let relFiles: string[];
+  let appId = "";
   try {
     await stat(join(project, "app.json"));
+    try {
+      const id = (JSON.parse((await readFile(join(project, "app.json"), "utf8")).replace(/^﻿/, "")) as { id?: unknown }).id;
+      if (typeof id === "string") appId = id.replace(/-/g, "").toLowerCase();
+    } catch {
+      // unreadable app.json: no id, so the app guard below stays off
+    }
     const refs = (await AlObjectIndex.build(project)).all();
     workspaceKeys = new Set(refs.map((r) => `${r.typeName}_${r.objectId}`));
     relFiles = refs.map((r) => relative(project, r.file).replace(/\\/g, "/").toLowerCase());
@@ -229,7 +238,11 @@ export async function explainHotspots(
     return skip(); // not an AL workspace: nothing to explain against
   }
   // Only hotspots inside the workspace app are worth a static run.
+  // WIRE: a frame url has no app segment (live Cronus28/29 2026-10-13), so a same-id object of another app would
+  // match by object key; the frame's declaringApplication.appId (Hotspot.appId) tells them apart when present.
+  const otherApp = (h: Hotspot): boolean => appId !== "" && h.appId !== undefined && h.appId !== appId;
   const inWorkspace = (h: Hotspot): boolean => {
+    if (otherApp(h)) return false;
     const key = objectKeyFromUrl(h.url);
     if (key) return workspaceKeys.has(key);
     const url = h.url.replace(/\\/g, "/").toLowerCase();
@@ -267,6 +280,7 @@ export async function explainHotspots(
 
   let matched = 0;
   const explained = hotspots.map((h): ExplainedHotspot => {
+    if (otherApp(h)) return h;
     const key = objectKeyFromUrl(h.url);
     const fn = h.function.replace(/^"|"$/g, "").toLowerCase();
     const url = h.url.replace(/\\/g, "/").toLowerCase();

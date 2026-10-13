@@ -43,6 +43,7 @@ const hotspotSchema = z.object({
   selfSamples: z.number(),
   selfMs: z.number(),
   selfPct: z.number(),
+  appId: z.string().optional().describe("App that declares this frame (lowercase GUID without dashes); absent on platform frames like IdleTime"),
   findings: z.array(findingSchema).optional().describe("al-sem static performance findings for this routine (only with a workspace project and alsem available)"),
   omittedFindings: z.number().optional(),
 });
