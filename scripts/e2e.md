@@ -300,6 +300,23 @@ recorded, not periodically sampled. `grep // WIRE:` in `src/core/snapshot/snapsh
 - [ ] SaaS Sandbox: `automationUrl` under `api.businesscentral.dynamics.com/v2.0/<env>/api/microsoft/automation/v2.0/` with no tenant query; list/uninstall/unpublish of a PTE; `dev/apps` publish. <!-- not run: no SaaS credentials on this machine -->
 - [ ] Global-scope replace refusal from #47 reproduced and recovered via list → uninstall → unpublish → publish. <!-- needs Publish-NAVApp -Scope Global on the host -->
 
+## Diff-scoped test selection (on-prem BC28)
+
+Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` (40 codeunits,
+40 `[Test]` methods). `tests/core/test-selection-acceptance.test.ts` replays the result offline.
+
+- [x] Forty-codeunit acceptance (#26): for five planted-bug diffs (direct, interface, event,
+  Codeunit.Run-only, multi-file with an untested procedure), `bcdev_test_select` included every test
+  the live full run failed (recall 100%, no misses), the selected run's changed-procedure coverage was
+  identical to the full run's, and the selection ran 30 of 200 test executions (15%; 1 to 10 of 40
+  per diff). <!-- 2026-10-13 Cronus28 (BC28, AL 30.0.2863738 alc/altool); per-diff numbers in the fixture README; app uninstalled with deleteData and unpublished afterwards, app list identical before/after -->
+- [x] A diff inside a codeunit `OnRun` trigger and an `app.json`-only diff both set `fallbackToAll`
+  and plan all 40 tests. Live, BC attributes the `OnRun` trigger identity to the test that reaches it
+  through `Codeunit.Run`; local discovery has no trigger identity, so this stays a fallback. <!-- 2026-10-13 Cronus28 -->
+- [x] altool (AL 30.0.2863738) emits no `Run` edge for `Codeunit.Run(Codeunit::"X")`: the call is a
+  `Direct` edge to the built-in `Codeunit # Run`, so the target's `OnRun` and its callees are reachable
+  only through coverage history. Without a coverage map, a change there is reported `uncoverable`. <!-- 2026-10-13, recorded graph tests/fixtures/test-selection-acceptance/call-graph.jsonl -->
+
 ## Known server behaviours
 
 - AddBreakpoint for an object not deployed on the server succeeds but poisons the debuggee session with "metadata object ... was not found" errors — only set breakpoints in deployed objects (live E2E 2026-07-03).
