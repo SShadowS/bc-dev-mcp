@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTools, type ToolDeps } from "../../src/mcp/tools";
 import { BcDevError } from "../../src/core/agent-errors";
+import { agentErrorBody, normalizeAgentError } from "../../src/mcp/agent-errors";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
@@ -160,6 +161,19 @@ describe("tools", () => {
     const { tools } = setup(hub);
     const status = (await tools.get("bcdev_status")!.handler({})) as Record<string, unknown>;
     expect(status["supportsTestRunning"]).toBe(true);
+  });
+
+  test("bcdev_status fails AUTHENTICATION_FAILED when metadata answers but the gated route 401s", async () => {
+    // Live BC28/BC29 shape: dev/metadata 200 regardless of password, dev/sourcecontent 401.
+    const fetchFn = (async (input: RequestInfo | URL) =>
+      String(input).includes("/dev/sourcecontent")
+        ? new Response(null, { status: 401 })
+        : new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch;
+    const { tools } = setup(hub, fetchFn);
+    const error = await tools.get("bcdev_status")!.handler({}).catch((e: unknown) => e);
+    const agent = normalizeAgentError(error);
+    expect(agent.code).toBe("AUTHENTICATION_FAILED");
+    expect(agentErrorBody("bcdev_status", agent).nextSteps.join(" ")).toContain("credentials");
   });
 
   test("bcdev_test_discover finds test codeunits", async () => {

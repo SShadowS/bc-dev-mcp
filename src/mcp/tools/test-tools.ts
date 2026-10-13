@@ -2,7 +2,7 @@ import { z } from "zod";
 import { relative as relativePath, resolve as resolvePath } from "node:path";
 import { AL_OBJECT_TYPE, AlObjectIndex, discoverTestRunners, discoverTests } from "../../core/al-objects";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
-import { fetchServerInfo } from "../../core/server-info";
+import { fetchServerInfo, verifyDevAuthentication } from "../../core/server-info";
 import type { CoverageEntry, CoverageMode, RunTestsResult } from "../../core/types";
 import { enrichTestRun, mapTestRunSources, testRunNeedsSourceMapping } from "../../core/agent-results";
 import { AlProcedureDiscoveryCache, discoverAlProcedureIdentities, discoverTestMethodIdentities } from "../../core/al-procedures";
@@ -184,7 +184,9 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
       }),
       handler: async (params) => {
         const { config, authorization } = resolve(params, deps);
-        return await fetchServerInfo(config, authorization, deps.fetchFn);
+        const info = await fetchServerInfo(config, authorization, deps.fetchFn);
+        await verifyDevAuthentication(config, authorization, deps.fetchFn);
+        return info;
       },
     },
     {
