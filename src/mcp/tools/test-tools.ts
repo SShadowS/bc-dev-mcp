@@ -8,6 +8,7 @@ import { enrichTestRun, mapTestRunSources, testRunNeedsSourceMapping } from "../
 import { AlProcedureDiscoveryCache, discoverAlProcedureIdentities, discoverTestMethodIdentities } from "../../core/al-procedures";
 import { analyzeCoverageGaps } from "../../core/coverage-gaps";
 import { buildCoverageMap, readCoverageMap, writeCoverageMap, type TestMethodName } from "../../core/coverage-map";
+import { annotateRisk, sortByRisk } from "../../core/risk";
 import { selectTests } from "../../core/test-selection";
 import type { CallGraph } from "../../core/call-graph";
 import { BcDevError } from "../../core/agent-errors";
@@ -15,7 +16,7 @@ import { analyzeTestOrchestration } from "../../core/test-orchestration";
 import { redactAuthorization } from "../../core/redaction";
 import type { ServerState } from "../state";
 import { orderOutputSchema, runOrderOrchestration } from "./test-order-tool";
-import { claimTestRun, codeunitsShape, connectionShape, requireTestRunningSupport, resolve, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
+import { claimTestRun, codeunitsShape, connectionShape, requireTestRunningSupport, resolve, riskSchema, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
 
 const indexByDeps = new WeakMap<ToolDeps, Map<string, Promise<AlObjectIndex>>>();
 const procedureDiscoveryByDeps = new WeakMap<ToolDeps, AlProcedureDiscoveryCache>();
@@ -242,8 +243,10 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           confidence: z.number().describe("0-1 rank score"),
           reaches: z.array(z.string()).describe("Changed procedures this test reaches, as Object.Procedure"),
         })).describe("Ranked, most confident first"),
-        uncoverable: z.array(z.looseObject({ objectName: z.string(), name: z.string(), relativeFile: z.string(), startLine: z.number() }))
-          .describe("Changed procedures no test reaches statically or by coverage history"),
+        uncoverable: z.array(z.looseObject({
+          objectName: z.string(), name: z.string(), relativeFile: z.string(), startLine: z.number(),
+          risk: riskSchema.optional().describe("al-sem effect summary (needs alsem; absent otherwise)"),
+        })).describe("Changed procedures no test reaches statically or by coverage history; with alsem sorted by risk (commits > writes > error-ui > none)"),
         changedProcedures: z.array(z.looseObject({ kind: z.enum(["procedure", "trigger"]), objectName: z.string(), name: z.string() })),
         engine: z.enum(["al-sem", "altool", "none"]).describe("Call-graph engine used; none = no changed code needed a graph"),
         engineVersion: z.string().optional().describe("al-sem engine version (meta.engine)"),
@@ -275,7 +278,9 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           coverageMap,
           maxCodeunitsPerShard: params["maxCodeunitsPerShard"] as number | undefined,
         });
-        const warnings = [...tests.warnings, ...discovered.warnings, ...result.warnings];
+        const risk = await annotateRisk(result.uncoverable, deps.riskDigest, project);
+        result.uncoverable = sortByRisk(risk.items);
+        const warnings = [...tests.warnings, ...discovered.warnings, ...result.warnings, ...risk.warnings];
         if (!tests.complete) {
           warnings.push(graph.engine === "al-sem"
             ? "Some [Test] methods have no compiler method identity; they cannot match coverage history by identity."
@@ -395,6 +400,11 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
               changesDeployed,
               result.coverageComplete === true,
             );
+            const uncovered = result.coverageGaps.procedures.filter((p) => p.status === "uncovered");
+            const risk = await annotateRisk(uncovered, deps.riskDigest, project);
+            const annotated = new Map(uncovered.map((p, i) => [p, risk.items[i]!]));
+            result.coverageGaps.procedures = result.coverageGaps.procedures.map((p) => annotated.get(p) ?? p);
+            result.coverageGaps.warnings.push(...risk.warnings);
           }
           if (coverageMapFile !== undefined) {
             const file = resolvePath(project, coverageMapFile);

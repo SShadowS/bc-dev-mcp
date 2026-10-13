@@ -1245,6 +1245,26 @@ describe("bcdev_test_select", () => {
     expect(result["warnings"].join(" ")).toContain("may be stale");
   });
 
+  test("annotates uncoverable procedures with the al-sem risk summary", async () => {
+    const { procedures } = await discoverAlProcedureIdentities(fixture, ["src/SelPricing.Codeunit.al"]);
+    const p = procedures.find((c) => c.name === "LegacyTaxAmount")!;
+    const risk = { level: "writes", summary: "writes Sales Header", commits: false, writes: ["Sales Header"], errors: false, ui: false, unresolved: 0 };
+    const { tools } = setup(new FakeHub(), undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef, mergeBase: "b".repeat(40), head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
+        files: [{ relativeFile: p.relativeFile, ranges: [{ start: p.startLine + 1, end: p.startLine + 1 }] }],
+      }),
+      callGraph: async () => graph,
+      riskDigest: async () => ({
+        entries: [{ display: "LegacyTaxAmount", objectType: "codeunit", objectId: p.objectId, file: p.relativeFile, line: p.startLine, risk: risk as any }],
+        warnings: ["Risk annotation unavailable: test warning."],
+      }),
+    });
+    const result = await tools.get("bcdev_test_select")!.handler({ project: fixture, baseRef: "origin/main" }) as Record<string, any>;
+    expect(result["uncoverable"][0]["risk"]["summary"]).toBe("writes Sales Header");
+    expect(result["warnings"]).toContain("Risk annotation unavailable: test warning.");
+  });
+
   test("a non-AL change falls back to every test without compiling a graph", async () => {
     const { result, graphCalls } = await selectOn({ nonAlFiles: ["app.json"] });
     expect(graphCalls).toBe(0);

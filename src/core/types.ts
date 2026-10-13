@@ -1,3 +1,5 @@
+import type { RoutineRisk } from "./risk";
+
 export interface OnPremConnectionConfig {
   environmentType: "OnPrem";
   authentication: "UserPassword";
@@ -127,6 +129,8 @@ export interface CoverageGapProcedure {
   changedRanges: Array<{ start: number; end: number }>;
   coveredBy: Array<{ testObjectId: number; testMethodId: number }>;
   warning?: string;
+  /** al-sem effect summary (uncovered procedures only; absent without alsem). */
+  risk?: RoutineRisk;
 }
 
 export interface CoverageGapAnalysis {

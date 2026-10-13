@@ -12,9 +12,20 @@ import { DEFAULT_DEV_PORT } from "../../core/urls";
 import type { GitChangeSet } from "../../core/git-changes";
 import type { CallGraphProvider } from "../../core/call-graph";
 import type { NativeMcpGateway } from "../../core/native-mcp";
+import type { RiskDigestProvider } from "../../core/risk";
 import { upperInvariantUtf16 } from "../../core/al-identifiers";
 import type { Http10Get } from "../../core/http10";
 import { DebugSession, ServerState } from "../state";
+
+export const riskSchema = z.object({
+  level: z.enum(["commits", "writes", "error-ui", "none"]).describe("Highest effect found: commits > writes > error-ui > none"),
+  summary: z.string().describe("Short text, e.g. 'commits; writes Sales Header'"),
+  commits: z.boolean(),
+  writes: z.array(z.string()).describe("Tables the routine inserts, modifies or deletes in (al-sem; Record.Rename is not modelled, al-sem#9)"),
+  errors: z.boolean(),
+  ui: z.boolean(),
+  unresolved: z.number().describe("Calls al-sem could not resolve; effects may be incomplete"),
+});
 
 export interface ToolDeps {
   hubFactory: HubFactory;
@@ -30,6 +41,8 @@ export interface ToolDeps {
   gitChanges: (project: string, baseRef: string) => Promise<GitChangeSet>;
   /** Whole-program AL call graph (altool graph in production, fake in tests). */
   callGraph: CallGraphProvider;
+  /** Optional al-sem risk digest of changed routines (alsem digest); absent in tests that do not need it. */
+  riskDigest?: RiskDigestProvider;
   nativeMcpGateway: NativeMcpGateway;
 }
 
@@ -240,6 +253,7 @@ export const runTestsOutputSchema = z.looseObject({
         testMethodId: z.number().describe("Test method ID reported by Business Central"),
       }).describe("Covering test identity")).describe("Selected tests that exercised this procedure"),
       warning: z.string().optional().describe("Reason this procedure is unknown"),
+      risk: riskSchema.optional().describe("al-sem effect summary of an uncovered procedure; absent when alsem is unavailable"),
     }).describe("Changed procedure coverage result")).describe("Changed executable procedures"),
     warnings: z.array(z.string()).describe("Nonfatal identity, trigger, coverage-payload, or completeness warnings"),
   }).optional().describe("Changed-procedure coverage analysis when coverageAgainst was requested"),
