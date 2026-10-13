@@ -20,7 +20,13 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
    `bcdev_test_orchestrate { codeunits: [...], runs: 3 }`. It executes the same selection
    sequentially, retains every enriched run, diffs adjacent passed/failed sets, and classifies
    each method.
-5. To check changed-code coverage, publish the current changed objects, then add
+5. When a test fails only in the full run, call
+   `bcdev_test_orchestrate { codeunits: [...], mode: "order", seeds: [1, 2, 3], pollutionTableId: 18 }`.
+   It runs each method alone, then the selection recorded, reversed and once per seed, classifies
+   `odVictim` (passes alone, fails after others), bisects each victim to its polluter, and (with
+   `pollutionTableId`) attributes the polluter's writes to that table. Keep the selection narrow:
+   every run and every bisection probe is one Initialize (cap 50 methods).
+6. To check changed-code coverage, publish the current changed objects, then add
    `coverageAgainst: "origin/main"` and `changesDeployed: true`. The latter is your explicit
    confirmation that this working tree is deployed. This implies `coverage: "procedure"` and
    adds `coverageGaps` to the same result.
@@ -94,6 +100,19 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
 - **`coverageAgainst` requires an `app.json` with an explicit `runtime`** in the AL project — the
   runtime selects the method-ID hash variant, so the analysis refuses to guess.
 - **Tests run in codeunit declaration order**, not the order of your `methods` array.
+- **Order mode reads the server's real rules.** Data is rolled back after every codeunit group
+  (even after `Commit()`), but not between methods of one codeunit, so committed-row pollution
+  only flows from a method declared *above* the victim in the same codeunit. Reversed and shuffled
+  orders only permute codeunit groups (they reach SingleInstance/session state); with one codeunit
+  selected they equal the recorded order and victims come from isolation versus the full group.
+  Each `order.tests[]` row carries its `transactionModel` (AutoCommit when absent; AutoCommit/None
+  methods can commit rows). `order.runners[]` lists the project's TestRunner codeunits and whether
+  they set TestIsolation; the hub does not run them, see `order.runnerNote`.
+- **Read order evidence conservatively.** `bisection.victims[].outcome` is `found` only when a
+  `[polluter, victim]` probe reproduced the failure; `compound`, `capped`, `notReproduced` and
+  `inconclusive` keep `remainingCandidates`. `writeAttribution[].suspects[].evidence` is
+  `writeObserved`, `noWriteObserved`, or `unknown` (capture truncated or failed). A write break
+  does not prove the row committed. Order mode needs the test codeunits in the local `project`.
 - **Synthetic results:** the run summary can contain an extra entry with an empty
   method name (a server-side quirk, e.g. after watch evaluations). `summary` excludes
   these from totals and reports their count as `syntheticResults`; raw rows remain available.

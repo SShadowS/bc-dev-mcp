@@ -3,7 +3,9 @@
 // Encodes the #33 WIRE facts (scripts/e2e.md): each RunTests group starts from clean data
 // (groups roll back even after Commit()), methods inside a group run in DECLARATION order
 // whatever testMethods[] says, and a second RunTests for the same codeunit on one
-// connection closes the hub mid-group with no TestRunCompleted.
+// connection closes the hub mid-group with no TestRunCompleted. Outcomes and failure texts
+// match the live BC28 run of 2026-10-13 (scripts/e2e.md #15); the live text carries an extra
+// "AL Callstack: ..." tail that the fake omits.
 import { FakeHub } from "./fake-hub";
 
 export const POLLUTION_CODEUNIT = 50161;
@@ -22,7 +24,7 @@ export const POLLUTION_METHODS: readonly DemoMethod[] = [
   { name: "IndependentArithmetic" },
   {
     name: "VictimInsertsSameCustomer",
-    victimOf: { table: "Customer", error: "The record in table Customer already exists. Identification fields and values: No.='ODPOLL-C1'" },
+    victimOf: { table: "Customer", error: "Customer ODPOLL-C1 already exists" },
   },
   { name: "IndependentCompanyName" },
   { name: "PolluterCommitsFlag", pollutes: "Order Pollution Flag" },
@@ -42,11 +44,9 @@ export function orderPollutionHub(): FakeHub {
     if (method !== "RunTests") return undefined;
     const [codeunitId, requested] = args as [number, string[]];
     queueMicrotask(() => {
-      if (ranCodeunits.has(codeunitId)) {
-        // WIRE: NST TestRunnerExecutionException "An item with the same key has already been added" (#33).
-        hub.close(new Error("Server closed the connection"));
-        return;
-      }
+      // WIRE: a repeat RunTests for a codeunit still runs its methods, then the hub closes with no
+      // TestRunCompleted (NST "An item with the same key has already been added", #33; live 2026-10-13).
+      const repeat = ranCodeunits.has(codeunitId);
       ranCodeunits.add(codeunitId);
       const selected = POLLUTION_METHODS.filter((m) => requested.length === 0 || requested.includes(m.name));
       const polluted = new Set<string>(); // fresh per group: groups roll back
@@ -56,7 +56,8 @@ export function orderPollutionHub(): FakeHub {
         hub.emit("TestCompleted", codeunitId, m.name, failure ? 1 : 0, failure ?? "", 5);
         if (m.pollutes) polluted.add(m.pollutes);
       }
-      hub.emit("TestRunCompleted", { Tests: [] });
+      if (repeat) hub.close(new Error("Server closed the connection"));
+      else hub.emit("TestRunCompleted", { Tests: [] });
     });
     return undefined;
   };

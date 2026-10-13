@@ -2,7 +2,7 @@ import type { OrderAnalyzedTest, OrderRunResult } from "./test-order-analysis";
 import { identityKey, type OrchestratedTestIdentity } from "./test-orchestration";
 import { planTestOrder, type TestOrderPlan } from "./test-order-plan";
 
-/** Injected executor: runs a plan (one Initialize per method, in order) and returns per-method results. */
+/** Injected executor: runs a plan (one Initialize, its groups in order) and returns per-method results. */
 export type OrderRunner = (plan: TestOrderPlan) => Promise<OrderRunResult[]>;
 
 export type BisectOutcome =
@@ -42,8 +42,9 @@ export interface BisectInput {
 
 /**
  * Pairwise bisection: confirm candidates+victim fails, then halve the candidate list, keeping the
- * half that still fails, until one polluter remains. Each probe is candidates then the victim, one
- * Initialize per method (planTestOrder "recorded"). Victims are processed sequentially.
+ * half that still fails, until one polluter remains. Each probe is one Initialize: other-codeunit
+ * candidates' groups first, then the victim's own group holding its same-codeunit candidates and
+ * the victim (declaration order, so they precede it). Victims are processed sequentially.
  */
 export async function bisectPolluters(input: BisectInput): Promise<BisectResult> {
   const maxProbes = input.maxProbes ?? 50;
@@ -60,7 +61,10 @@ export async function bisectPolluters(input: BisectInput): Promise<BisectResult>
     const probe = async (candidates: OrchestratedTestIdentity[]) => {
       probes++;
       used++;
-      const results = await input.runner(planTestOrder([...candidates, victim], { mode: "recorded" }));
+      // Victim's codeunit group last, so every other-codeunit candidate still runs before it.
+      const others = candidates.filter((c) => c.codeunitId !== victim.codeunitId);
+      const same = candidates.filter((c) => c.codeunitId === victim.codeunitId);
+      const results = await input.runner(planTestOrder([...others, ...same, victim], { mode: "recorded" }));
       const status = results.find((r) => identityKey(r.codeunitId, r.method) === key)?.status;
       return status === "failed" ? true : status === "passed" ? false : undefined;
     };
