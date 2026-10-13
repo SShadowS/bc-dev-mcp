@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import { createAlSemBreakEffects, runForStdout, type StdoutRunner } from "../../src/core/break-effects";
 
 const FIX = resolve(import.meta.dir, "../fixtures/alsem-prove");
@@ -76,9 +77,9 @@ describe("break effects", () => {
   });
 });
 
-// Live: runs the real alsem against the fixture; skipped unless BC_DEV_ALSEM points at an existing binary.
-const alsem = process.env["BC_DEV_ALSEM"];
-describe.skipIf(!alsem || !existsSync(alsem))("break effects (live alsem)", () => {
+// Live: runs the real alsem (BC_DEV_ALSEM, else alsem on PATH) against the fixture; skipped when none runs.
+const alsem = (() => { const b = process.env["BC_DEV_ALSEM"]?.trim() || "alsem"; return spawnSync(b, ["--version"], { windowsHide: true }).status === 0 ? b : undefined; })();
+describe.skipIf(!alsem)("break effects (live alsem)", () => {
   test("Post commits and writes, Overloaded is ambiguous", async () => {
     const provider = createAlSemBreakEffects({ BC_DEV_ALSEM: alsem }, runForStdout);
     const post = await provider(frame("Post"));

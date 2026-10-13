@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { ALSEM_ENV_VAR } from "../../src/core/call-graph";
 import { createAlSemRiskProvider, findRisk, parseAlSemDigest, sortByRisk, type RiskSubject, type RoutineRisk } from "../../src/core/risk";
 
@@ -77,9 +78,9 @@ describe("alsem digest risk", () => {
     expect(seen.filter((a) => a === "--file")).toHaveLength(2);
   });
 
-  const alsem = process.env[ALSEM_ENV_VAR];
-  test.skipIf(!alsem || !existsSync(alsem))("live alsem digest matches the recorded risk levels", async () => {
-    const digest = await createAlSemRiskProvider(process.env)(fixture, ["src/RiskOps.Codeunit.al"]);
+  const alsem = (() => { const b = process.env[ALSEM_ENV_VAR]?.trim() || "alsem"; return spawnSync(b, ["--version"], { windowsHide: true }).status === 0 ? b : undefined; })();
+  test.skipIf(!alsem)("live alsem digest matches the recorded risk levels", async () => {
+    const digest = await createAlSemRiskProvider({ [ALSEM_ENV_VAR]: alsem })(fixture, ["src/RiskOps.Codeunit.al"]);
     expect(digest.warnings).toEqual([]);
     expect(findRisk(digest.entries, subject("PostOrder", 3))?.level).toBe("commits");
     expect(findRisk(digest.entries, subject("ResetAmount", 13))?.level).toBe("writes");
