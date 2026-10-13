@@ -27,7 +27,13 @@ function fromKnownMessage(message: string): BcDevError {
   }
   // Specific transient/resource failures must win over broad words such as "invalid".
   if (lower.includes("timed out") || lower.includes("timeout")) return new BcDevError("TIMEOUT", message, "network", true);
-  if (lower.includes("not found") || lower.includes("no al object declaration")) return new BcDevError("NOT_FOUND", message, "server");
+  // Raw transport failures from fetch (undici) and the SignalR client when the server goes away.
+  if (/fetch failed|econnrefused|econnreset|socket hang up|websocket closed|websocket failed to connect/.test(lower)) {
+    return new BcDevError("ENDPOINT_UNREACHABLE", message, "network", true);
+  }
+  if (lower.includes("not found") || lower.includes("enoent") || lower.includes("no al object declaration")) {
+    return new BcDevError("NOT_FOUND", message, "server");
+  }
   if (lower.includes("must be") || lower.includes("mutually exclusive") || lower.includes("invalid") || lower.includes("requires")) {
     return new BcDevError("INVALID_ARGUMENT", message, "validation");
   }
