@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AlObjectIndex } from "../core/al-objects";
 import type { AuthorizationProvider } from "../core/authorization";
 import { BcDevError } from "../core/agent-errors";
@@ -8,6 +9,8 @@ import type { BreakpointSpec, ConnectionConfig, DebuggerEvent, RunTestsResult } 
 const QUEUE_CAP = 100;
 
 export interface ProfileHandle {
+  /** Opaque client-facing handle (MCP 2026-07-28 statelessness): returned by bcdev_profile_start. */
+  profileId: string;
   debuggingContext: string;
   affinityCookie: string | null;
   attachKind: string;
@@ -19,6 +22,8 @@ export interface ProfileHandle {
 }
 
 export class DebugSession {
+  /** Opaque client-facing handle (MCP 2026-07-28 statelessness): returned by bcdev_debug_attach. */
+  readonly id = randomUUID();
   breakpoints = new Map<number, BreakpointSpec>();
   lastTestRun: RunTestsResult | null = null;
   droppedEvents = 0; // events discarded at QUEUE_CAP, cumulative for the session
@@ -44,6 +49,8 @@ export class DebugSession {
         "DEBUG_SESSION_NOT_PAUSED",
         "The debug session is not paused — wait for a break before using native debugging tools",
         "state",
+        false,
+        { debugSessionId: this.id },
       );
     }
     if (!this.boundIdentity) {
@@ -51,6 +58,8 @@ export class DebugSession {
         "DEBUG_SESSION_IDENTITY_UNAVAILABLE",
         "The paused debug session has no confirmed NST session and host identity",
         "state",
+        false,
+        { debugSessionId: this.id },
       );
     }
     return this.boundIdentity;
@@ -121,6 +130,8 @@ export class ServerState {
   debug: DebugSession | null = null;
   recordWrites: RecordWriteCollector | null = null;
   recordWriteSlotToken: symbol | null = null;
+  /** Opaque client-facing handle for the active record-write capture, returned by bcdev_record_writes_start. */
+  recordingId: string | null = null;
   testRunActive = false;
   profile: ProfileHandle | null = null;
   private debugSlot: { owner: "manual" | "recordWrites"; token: symbol } | null = null;
@@ -135,6 +146,8 @@ export class ServerState {
         "RECORD_WRITE_TRIAGE_ACTIVE",
         "Record-write triage is active — call bcdev_record_writes_status or bcdev_record_writes_finish first",
         "state",
+        false,
+        { recordingId: this.recordingId },
       );
     }
     if (this.debugSlot || this.debug) {
@@ -142,6 +155,8 @@ export class ServerState {
         "DEBUG_SESSION_ACTIVE",
         "Debug session already active — call bcdev_debug_detach first",
         "state",
+        false,
+        { debugSessionId: this.debug?.id ?? null },
       );
     }
   }

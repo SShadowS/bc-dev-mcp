@@ -9,7 +9,17 @@ import { extractEntry, listEntryNames, MAX_TEXT_ENTRY_BYTES } from "../../core/s
 import { convertMdcZip, resolveConverter, type ConverterEnv, type SpawnRunner } from "../../core/snapshot/converter";
 import { DEFAULT_SNAPSHOT_PORT } from "../../core/urls";
 import type { ServerState } from "../state";
-import { connectionShape, resolve, type ToolDefinition, type ToolDeps } from "./shared";
+import {
+  assertHandle,
+  connectionShape,
+  handleShape,
+  PROFILE_HANDLE,
+  resolve,
+  type ToolDefinition,
+  type ToolDeps,
+} from "./shared";
+
+const profileId = handleShape(PROFILE_HANDLE);
 
 const hotspotSchema = z.object({
   function: z.string(),
@@ -20,7 +30,8 @@ const hotspotSchema = z.object({
   selfPct: z.number(),
 });
 
-function requireProfile(state: ServerState) {
+function requireProfile(state: ServerState, params: Record<string, unknown>) {
+  assertHandle(PROFILE_HANDLE, params, state.profile?.profileId ?? null);
   if (!state.profile) throw new BcDevError("PROFILE_NOT_ACTIVE", "No active profile — call bcdev_profile_start first", "state");
   return state.profile;
 }
@@ -74,7 +85,7 @@ export function createProfileTools(
     {
       name: "bcdev_profile_start",
       title: "Start CPU profile",
-      description: "Arm a CPU profiler on the BC server (kind: 'sampling' default, or 'instrumentation'). Binds the NEXT matching session. After this, TRIGGER the session to profile (open a page / run a report via a browser or a WebSocket client like business-central-mcp), then bcdev_profile_poll until Started, then bcdev_profile_finish. One capture at a time.",
+      description: "Arm a CPU profiler on the BC server (kind: 'sampling' default, or 'instrumentation'). Binds the NEXT matching session. After this, TRIGGER the session to profile (open a page / run a report via a browser or a WebSocket client like business-central-mcp), then bcdev_profile_poll until Started, then bcdev_profile_finish. One capture at a time. Returns profileId, an opaque handle to pass to bcdev_profile_poll/finish (optional there; it must match when given); it stays valid until bcdev_profile_finish or server restart.",
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       schema: {
         ...connectionShape,
@@ -90,15 +101,30 @@ export function createProfileTools(
             "Profile kind: 'sampling' (statistical, default, dependency-free) or 'instrumentation' (deterministic every-call; needs bc-mdc-converter to convert, else raw .mdc is saved)",
           ),
       },
-      outputSchema: z.object({ debuggingContext: z.string(), attachKind: z.string(), hint: z.string(), converterAvailable: z.boolean().optional() }),
+      outputSchema: z.object({
+        profileId: z.string().describe("Opaque handle for this capture; pass it to bcdev_profile_poll/finish. Valid until bcdev_profile_finish"),
+        debuggingContext: z.string(),
+        attachKind: z.string(),
+        hint: z.string(),
+        converterAvailable: z.boolean().optional(),
+      }),
       handler: async (params) => {
-        if (state.profile) throw new BcDevError("PROFILE_ACTIVE", "Profile capture already active — call bcdev_profile_finish first", "state");
+        if (state.profile) {
+          throw new BcDevError(
+            "PROFILE_ACTIVE",
+            "Profile capture already active — call bcdev_profile_finish first",
+            "state",
+            false,
+            { profileId: state.profile.profileId },
+          );
+        }
         const { config, authorization } = resolve(params, deps);
         const snapshotPort = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
         const kind = (params["kind"] as "sampling" | "instrumentation" | undefined) ?? "sampling";
         const debuggingContext = randomUUID();
         // claim the slot before awaiting — blocks concurrent start (mirrors debug-tools.ts)
-        state.profile = { debuggingContext, affinityCookie: null, attachKind: "", snapshotPort, config, authorization, startedAt: new Date().toISOString(), kind };
+        const id = randomUUID();
+        state.profile = { profileId: id, debuggingContext, affinityCookie: null, attachKind: "", snapshotPort, config, authorization, startedAt: new Date().toISOString(), kind };
         const client = new SnapshotClient(deps.fetchFn, config, snapshotPort, authorization);
         try {
           const clientType = (params["clientType"] as never) ?? "WebClient";
@@ -119,6 +145,7 @@ export function createProfileTools(
           if (kind === "instrumentation") {
             const converterAvailable = resolveEnv() !== null;
             return {
+              profileId: id,
               debuggingContext,
               attachKind: attach.attachKind,
               converterAvailable,
@@ -128,6 +155,7 @@ export function createProfileTools(
             };
           }
           return {
+            profileId: id,
             debuggingContext,
             attachKind: attach.attachKind,
             hint: "Sampler armed. Now trigger the session to profile (WebClient action via a browser or business-central-mcp), then call bcdev_profile_poll until Started, then bcdev_profile_finish.",
@@ -143,10 +171,10 @@ export function createProfileTools(
       title: "Poll profile status",
       description: "Poll the active profile capture. `ready` is true once status is Started (the session was recorded and can be finished). Still Initialized is a normal result — call again after triggering the session.",
       annotations: { readOnlyHint: true, openWorldHint: true },
-      schema: {},
+      schema: { profileId },
       outputSchema: z.object({ status: z.enum(["Failed", "Initialized", "Started", "Finished"]), ready: z.boolean() }),
-      handler: async () => {
-        const p = requireProfile(state);
+      handler: async (params) => {
+        const p = requireProfile(state, params);
         const status = await new SnapshotClient(deps.fetchFn, p.config, p.snapshotPort, p.authorization).status(p.debuggingContext, p.affinityCookie);
         return { status, ready: status === "Started" };
       },
@@ -157,6 +185,7 @@ export function createProfileTools(
       description: "Finish the active capture, extract the .alcpuprofile, write it to disk, and return a ranked AL self-time hotspot summary. If nothing was recorded, reports captured:false.",
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       schema: {
+        profileId,
         outPath: z.string().optional().describe("Where to write the .alcpuprofile (default: <cwd>/<ctx>.alcpuprofile)"),
       },
       outputSchema: z.looseObject({
@@ -173,7 +202,7 @@ export function createProfileTools(
         hint: z.string().optional(),
       }),
       handler: async (params) => {
-        const p = requireProfile(state);
+        const p = requireProfile(state, params);
         const client = new SnapshotClient(deps.fetchFn, p.config, p.snapshotPort, p.authorization);
         try {
           const fin = await client.finish(p.debuggingContext, p.affinityCookie);

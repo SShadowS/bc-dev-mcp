@@ -13,6 +13,8 @@ import {
   claimTestRun,
   codeunitsShape,
   connectionShape,
+  DEBUG_HANDLE,
+  handleShape,
   mapBreakpoints,
   normalizeDebugTarget,
   requireSession,
@@ -32,13 +34,15 @@ const sqlStatementSchema = z.object({
   approxRowsRead: z.number().nullable(),
 });
 
+const debugSessionId = handleShape(DEBUG_HANDLE);
+
 export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefinition[] {
   return [
     {
       name: "bcdev_debug_attach",
       title: "Attach AL debugger",
       description:
-        "Attach the AL debugger to the BC server. By default it binds the next client; sessionId selects an existing NST session and userId filters the next client. Attach returns before binding — use bcdev_debug_wait for sessionBound and later events. One debugger session at a time.",
+        "Attach the AL debugger to the BC server. By default it binds the next client; sessionId selects an existing NST session and userId filters the next client. Attach returns before binding — use bcdev_debug_wait for sessionBound and later events. One debugger session at a time. Returns debugSessionId, an opaque handle to pass to every bcdev_debug_* follow-up (optional there; it must match when given); it stays valid until bcdev_debug_detach or server restart.",
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       schema: {
         ...connectionShape,
@@ -83,6 +87,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       },
       outputSchema: z.object({
         attached: z.literal(true),
+        debugSessionId: z.string().describe("Opaque handle for this debug session; pass it to bcdev_debug_* follow-ups. Valid until bcdev_debug_detach"),
         connectionId: z.string().nullable(),
         breakpoints: z.array(addedBreakpointSchema),
       }),
@@ -112,7 +117,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
             project,
             (params["breakpoints"] as Array<{ file: string; line: number; condition?: string }> | undefined) ?? [],
           );
-          return { attached: true, connectionId: client.connectionId, breakpoints };
+          return { attached: true, debugSessionId: session.id, connectionId: client.connectionId, breakpoints };
         } catch (err) {
           if (state.debug === session) state.debug = null;
           state.releaseDebugSlot(slotToken);
@@ -128,12 +133,13 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       schema: {
         ...connectionShape,
+        debugSessionId,
         codeunits: codeunitsShape,
         company: z.string().optional().describe("BC company name (default: the server's default company)"),
       },
       outputSchema: z.object({ started: z.literal(true), hint: z.string() }),
       handler: async (params) => {
-        const session = requireSession(state);
+        const session = requireSession(state, params);
         claimTestRun(state);
         try {
           const { config, authorization } = resolve(params, deps);
@@ -170,7 +176,10 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       description:
         "Wait for the next debugger event (sessionBound, break, testRunFinished, detached, fatal). Timing out is a normal result — call again to keep waiting. Events queue up to 100 between calls; beyond that the oldest are discarded and droppedEvents reports how many.",
       annotations: { readOnlyHint: true, openWorldHint: true },
-      schema: { timeoutMs: z.number().min(1).max(300000).optional().describe("Max wait in milliseconds (default 30000, max 300000)") },
+      schema: {
+        debugSessionId,
+        timeoutMs: z.number().min(1).max(300000).optional().describe("Max wait in milliseconds (default 30000, max 300000)"),
+      },
       // single loose object, NOT a union (SDK 1.29 drops non-object outputSchema)
       outputSchema: z.looseObject({
         timedOut: z.boolean().optional().describe("true = no event within timeoutMs; normal — call again"),
@@ -190,7 +199,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         droppedEvents: z.number().optional().describe("Events discarded because the 100-event queue overflowed (cumulative for the session); absent when none were lost"),
       }),
       handler: async (params) => {
-        const session = requireSession(state);
+        const session = requireSession(state, params);
         const event = await session.wait((params["timeoutMs"] as number | undefined) ?? 30000);
         const result =
           "timedOut" in event
@@ -208,13 +217,14 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         "Resume from a break: continue, stepOver, stepInto, or stepOut — then bcdev_debug_wait for the next event. abort terminates the paused operation (a bound test run reports it as failed); release lets it run to completion undebugged. Both end debugging with a detached event.",
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       schema: {
+        debugSessionId,
         action: z
           .enum(["continue", "stepOver", "stepInto", "stepOut", "release", "abort"])
           .describe("continue resumes; step actions advance one statement (over/into/out of calls); abort kills the paused operation and detaches; release lets it finish undebugged and detaches — re-attach to debug again"),
       },
       outputSchema: z.object({ ok: z.literal(true) }),
       handler: async (params) => {
-        const session = requireSession(state);
+        const session = requireSession(state, params);
         const transition = session.beginResume();
         try {
           await session.client.step(params["action"] as StepAction);
@@ -231,6 +241,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       description: "Inspect variables at a break: frame locals by default, a child path via expand, or global variables via globals.",
       annotations: { readOnlyHint: true, openWorldHint: true },
       schema: {
+        debugSessionId,
         frameId: z.number().describe("Stack frame index from the break event: 0 = innermost frame"),
         // WIRE: ExpandNode path is dot-joined node names, parentPath + '.' + name; globals root is the literal <Globals>
         // (esp-decomp DebugAdapterVariablesRequestHandler.cs:186 and :16 GlobalsPath).
@@ -244,7 +255,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       },
       outputSchema: z.object({ variables: z.array(variableNodeSchema) }),
       handler: async (params) => {
-        const client = requireSession(state).client;
+        const client = requireSession(state, params).client;
         const frameId = params["frameId"] as number;
         if (params["expand"]) return { variables: await client.expandNode(frameId, params["expand"] as string) };
         if (params["globals"]) return { variables: await client.expandGlobals(frameId) };
@@ -257,12 +268,13 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       description: "Evaluate a watch expression at a break. Only simple identifier/member paths resolve; compound expressions with operators return <Out Of Scope>.",
       annotations: { readOnlyHint: true, openWorldHint: true },
       schema: {
+        debugSessionId,
         frameId: z.number().describe("Stack frame index from the break event: 0 = innermost frame"),
         expression: z.string().describe('AL identifier or member path, e.g. CustomerName or Customer."No." — operators are not evaluated'),
       },
       outputSchema: z.object({ result: variableNodeSchema.nullable().describe("null when the expression did not resolve") }),
       handler: async (params) => {
-        const node = await requireSession(state).client.evalWatch(params["frameId"] as number, params["expression"] as string);
+        const node = await requireSession(state, params).client.evalWatch(params["frameId"] as number, params["expression"] as string);
         return { result: node ?? null };
       },
     },
@@ -273,6 +285,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         "Read live SQL cost at a break: current latency, execute count, and the last (and long-running) SQL statements. Requires attaching with sqlInsight: true.",
       annotations: { readOnlyHint: true, openWorldHint: true },
       schema: {
+        debugSessionId,
         frameId: z.number().optional().describe("Stack frame index from the break event (default 0 = innermost frame)"),
       },
       outputSchema: z.object({
@@ -282,13 +295,21 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         lastLongRunning: z.array(sqlStatementSchema).describe("Statements slower than longRunningSqlThresholdMs, when that was set"),
       }),
       handler: async (params) => {
-        const client = requireSession(state).client;
+        const client = requireSession(state, params).client;
         const frameId = (params["frameId"] as number | undefined) ?? 0;
         const insight = await parseDatabaseStatistics(
           await client.getVariables(frameId),
           (path) => client.expandNode(frameId, path),
         );
-        if (!insight) throw new BcDevError("SQL_INSIGHT_NOT_ENABLED", "SQL insight is off — re-attach with sqlInsight: true (bcdev_debug_attach)", "state");
+        if (!insight) {
+          throw new BcDevError(
+            "SQL_INSIGHT_NOT_ENABLED",
+            "SQL insight is off — re-attach with sqlInsight: true (bcdev_debug_attach)",
+            "state",
+            false,
+            { debugSessionId: state.debug?.id ?? null },
+          );
+        }
         return insight;
       },
     },
@@ -298,12 +319,13 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       description: "Add or remove breakpoints in the active session. Adds only succeed after the session has paused at least once.",
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       schema: {
+        debugSessionId,
         add: z.array(breakpointShape).optional().describe("Breakpoints to add"),
         remove: z.array(z.number()).optional().describe("Breakpoint IDs to remove (returned by a previous add)"),
       },
       outputSchema: z.object({ added: z.array(addedBreakpointSchema), removed: z.array(z.number()) }),
       handler: async (params) => {
-        const session = requireSession(state);
+        const session = requireSession(state, params);
         const removed: number[] = [];
         for (const id of (params["remove"] as number[] | undefined) ?? []) {
           await session.client.removeBreakpoint(id);
@@ -322,12 +344,12 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
     {
       name: "bcdev_debug_detach",
       title: "Detach debugger",
-      description: "Stop debugging and close the session.",
+      description: "Stop debugging and close the session. Ends the debugSessionId; later calls with it fail NOT_FOUND.",
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-      schema: {},
+      schema: { debugSessionId },
       outputSchema: z.object({ detached: z.literal(true) }),
-      handler: async () => {
-        const session = requireSession(state);
+      handler: async (params) => {
+        const session = requireSession(state, params);
         state.debug = null;
         try {
           await session.client.stop();

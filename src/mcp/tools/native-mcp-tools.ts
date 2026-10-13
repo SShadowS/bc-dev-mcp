@@ -9,6 +9,8 @@ import type { ServerState } from "../state";
 import {
   claimTestRun,
   connectionShape,
+  DEBUG_HANDLE,
+  handleShape,
   requireSession,
   resolve,
   type ToolDefinition,
@@ -47,6 +49,11 @@ const configurationNameSchema = z
   .regex(/^[^\r\n]+$/, "configurationName must not contain newline characters")
   .optional()
   .describe("Named Business Central MCP configuration; valid only for context='business' (default: dynamic configuration)");
+
+const debugSessionIdSchema = handleShape(DEBUG_HANDLE).describe(
+  "debugSessionId returned by bcdev_debug_attach; valid only for context='debugging' and until bcdev_debug_detach. "
+    + "Optional: omitted uses the single active debug session; given, it must match or the call fails NOT_FOUND.",
+);
 
 const timeoutSchema = z
   .number()
@@ -105,6 +112,13 @@ function targetFrom(
       "validation",
     );
   }
+  if (params["debugSessionId"] !== undefined && context !== "debugging") {
+    throw new BcDevError(
+      "INVALID_ARGUMENT",
+      "debugSessionId is only valid for context='debugging'",
+      "validation",
+    );
+  }
   return {
     config: config as CloudConnectionConfig,
     authorization,
@@ -112,7 +126,7 @@ function targetFrom(
     context,
     ...(configurationName === undefined ? {} : { configurationName }),
     ...(context === "debugging"
-      ? { debugIdentity: requireSession(state).nativeDebugIdentity }
+      ? { debugIdentity: requireSession(state, params).nativeDebugIdentity }
       : {}),
     timeoutMs: params["timeoutMs"] as number | undefined,
   };
@@ -139,6 +153,7 @@ export function createNativeMcpTools(
         company: companySchema,
         context: contextSchema,
         configurationName: configurationNameSchema,
+        debugSessionId: debugSessionIdSchema,
         cursor: z
           .string()
           .min(1)
@@ -176,6 +191,7 @@ export function createNativeMcpTools(
         company: companySchema,
         context: contextSchema,
         configurationName: configurationNameSchema,
+        debugSessionId: debugSessionIdSchema,
         toolName: z
           .string()
           .trim()

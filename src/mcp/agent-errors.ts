@@ -96,7 +96,20 @@ function redactDetails(details: Record<string, string | number | boolean | null>
   }));
 }
 
-function toolRecoverySteps(tool: string, code: AgentErrorCode): string[] {
+function toolRecoverySteps(
+  tool: string,
+  code: AgentErrorCode,
+  details: Record<string, string | number | boolean | null>,
+): string[] {
+  if (code === "NOT_FOUND" && typeof details["handle"] === "string") {
+    const { handle, active, startTool, endTool } = details;
+    return active === null
+      ? [`Call ${String(startTool)} to start a new one and pass the ${handle} it returns (or omit ${handle}).`]
+      : [
+          `Retry with ${handle} "${String(active)}" (the active one), or omit ${handle} to use it.`,
+          `To discard the active one and start over, call ${String(endTool)}, then ${String(startTool)}.`,
+        ];
+  }
   if (tool === "bcdev_app_publish" && code === "SERVER_REJECTED") {
     return ["If Business Central refused to replace an existing copy published at Global scope, call bcdev_app_list, then bcdev_app_uninstall and bcdev_app_unpublish for that appId, and retry bcdev_app_publish."];
   }
@@ -120,6 +133,6 @@ export function agentErrorBody(tool: string, error: unknown): AgentErrorBody {
       tool,
       details: redactDetails(normalized.details),
     },
-    nextSteps: [...toolRecoverySteps(tool, normalized.code), ...recoverySteps(normalized.code, normalized.details)],
+    nextSteps: [...toolRecoverySteps(tool, normalized.code, normalized.details), ...recoverySteps(normalized.code, normalized.details)],
   };
 }

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { AlObjectIndex } from "../../core/al-objects";
@@ -10,8 +11,11 @@ import {
 } from "../../core/record-write-triage";
 import type { ServerState } from "../state";
 import {
+  assertHandle,
   connectionShape,
+  handleShape,
   normalizeDebugTarget,
+  RECORDING_HANDLE,
   resolve,
   stackFrameSchema,
   type ToolDefinition,
@@ -85,7 +89,10 @@ const reportSchema = z.object({
   warnings: z.array(z.string()).describe("Redacted lifecycle, source-trust, truncation, or classification warnings"),
 });
 
-function requireTriage(state: ServerState): RecordWriteCollector {
+const recordingId = handleShape(RECORDING_HANDLE);
+
+function requireTriage(state: ServerState, params: Record<string, unknown>): RecordWriteCollector {
+  assertHandle(RECORDING_HANDLE, params, state.recordWrites ? state.recordingId : null);
   if (!state.recordWrites) {
     throw new BcDevError(
       "RECORD_WRITE_TRIAGE_NOT_ACTIVE",
@@ -139,7 +146,7 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
       name: "bcdev_record_writes_start",
       title: "Start table write triage",
       description:
-        "Arm background record-write triage for one numeric table ID. Business Central breaks globally; the collector identifies each runtime receiver, groups exact target stacks, and auto-continues. Trigger the matching workload after start, then check status and finish.",
+        "Arm background record-write triage for one numeric table ID. Business Central breaks globally; the collector identifies each runtime receiver, groups exact target stacks, and auto-continues. Trigger the matching workload after start, then check status and finish. Returns recordingId, an opaque handle to pass to bcdev_record_writes_status/finish (optional there; it must match when given); it stays valid until bcdev_record_writes_finish or server restart.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       schema: {
         ...connectionShape,
@@ -178,6 +185,7 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
       },
       outputSchema: z.object({
         armed: z.literal(true).describe("Debugger attach succeeded and background collection is armed"),
+        recordingId: z.string().describe("Opaque handle for this capture; pass it to bcdev_record_writes_status/finish. Valid until bcdev_record_writes_finish"),
         connectionId: z.string().nullable().describe("Debugger hub connection ID"),
         target: targetSchema,
         includeTemporary: z.boolean().describe("Whether temporary writes are included"),
@@ -206,8 +214,10 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
             },
             localFile: (objectType, objectId) => index.byId(objectType, objectId)?.file,
           });
+          const id = randomUUID();
           state.recordWrites = collector;
           state.recordWriteSlotToken = slotToken;
+          state.recordingId = id;
           client.onEvent = (event) => collector?.onEvent(event);
           await client.connect(config, authorization, {
             breakOnNext: params["breakOnNext"] as "WebClient" | "WebServiceClient" | "Background" | undefined,
@@ -218,6 +228,7 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
           });
           return {
             armed: true,
+            recordingId: id,
             connectionId: client.connectionId,
             target: { tableId: options.tableId, tableName: null },
             includeTemporary: options.includeTemporary,
@@ -225,7 +236,10 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
             maxObservedWrites: options.maxObservedWrites,
           };
         } catch (error) {
-          if (state.recordWrites === collector) state.recordWrites = null;
+          if (state.recordWrites === collector) {
+            state.recordWrites = null;
+            state.recordingId = null;
+          }
           if (state.recordWriteSlotToken === slotToken) state.recordWriteSlotToken = null;
           state.releaseDebugSlot(slotToken);
           await client.stop().catch(() => {});
@@ -239,9 +253,9 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
       description:
         "Read background table-write triage progress. Collection and automatic continuation do not depend on polling.",
       annotations: { readOnlyHint: true, openWorldHint: true },
-      schema: {},
+      schema: { recordingId },
       outputSchema: statusSchema,
-      handler: async (): Promise<RecordWriteStatus> => requireTriage(state).status(),
+      handler: async (params): Promise<RecordWriteStatus> => requireTriage(state, params).status(),
     },
     {
       name: "bcdev_record_writes_finish",
@@ -249,11 +263,12 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
       description:
         "Finish the capture window, release a paused workload undebugged if necessary, close the debugger, and return grouped exact writers plus fail-closed unresolved evidence.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-      schema: {},
+      schema: { recordingId },
       outputSchema: reportSchema,
-      handler: async (): Promise<RecordWriteReport> => {
-        const collector = requireTriage(state);
+      handler: async (params): Promise<RecordWriteReport> => {
+        const collector = requireTriage(state, params);
         state.recordWrites = null;
+        state.recordingId = null;
         const slotToken = state.recordWriteSlotToken;
         state.recordWriteSlotToken = null;
         try {
