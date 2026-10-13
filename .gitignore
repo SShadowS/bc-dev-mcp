@@ -11,6 +11,7 @@ docs/superpowers/
 # AL compiler symbol cache and compiled packages — large, environment-specific, and
 # easy to re-fetch/rebuild (see demos/hello-bug, demos/type-zoo, and README for how).
 demos/*/.alpackages/
+tests/fixtures/*/.alpackages/
 *.app
 reference/
 CLAUDE.local.md
