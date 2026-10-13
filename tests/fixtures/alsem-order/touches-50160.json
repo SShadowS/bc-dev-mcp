@@ -1,0 +1,44 @@
+{
+  "alsemVersion": "1.5.0",
+  "deterministic": true,
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "kind": "query.touches",
+  "payload": {
+    "direction": "both",
+    "table": {
+      "id": "6f1c2b9e-4d3a-4e8b-9a71-0c5d2e8f4b16/table/50160",
+      "isUnknownBucket": false,
+      "name": "Order Pollution Flag",
+      "resolution": "resolved",
+      "selector": "6f1c2b9e-4d3a-4e8b-9a71-0c5d2e8f4b16/table/50160"
+    },
+    "up": {
+      "note": "workspace-global: every routine whose transitive cone touches this table. Scope it with --from <routine> --direction up.",
+      "routineCount": 2,
+      "routines": [
+        {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/OrderPollutionTests.Codeunit.al",
+            "line": 59
+          },
+          "display": "PolluterCommitsFlag",
+          "objectDisplay": "Codeunit Order Pollution Tests",
+          "stableId": "6f1c2b9e-4d3a-4e8b-9a71-0c5d2e8f4b16:Codeunit:50161#0b6b0c9ac0cedfdd283b58c3da96e579817c291fe9190ba40d6db55674fddbbf"
+        },
+        {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/OrderPollutionTests.Codeunit.al",
+            "line": 85
+          },
+          "display": "VictimExpectsNoFlag",
+          "objectDisplay": "Codeunit Order Pollution Tests",
+          "stableId": "6f1c2b9e-4d3a-4e8b-9a71-0c5d2e8f4b16:Codeunit:50161#ab361447e3ad44c2575226481718748b79d7b795bff73b8e7c85d0993aa22d06"
+        }
+      ],
+      "scoped": false
+    }
+  },
+  "schemaVersion": "1.0.0"
+}

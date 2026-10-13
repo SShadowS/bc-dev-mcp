@@ -1,0 +1,53 @@
+{
+  "alsemVersion": "1.5.0",
+  "deterministic": true,
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "kind": "query.touches",
+  "payload": {
+    "direction": "both",
+    "table": {
+      "id": "unknown",
+      "isUnknownBucket": true,
+      "resolution": "resolved",
+      "selector": "unknown"
+    },
+    "up": {
+      "note": "workspace-global: every routine whose transitive cone touches this table. Scope it with --from <routine> --direction up.",
+      "routineCount": 3,
+      "routines": [
+        {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/OrderPollutionTests.Codeunit.al",
+            "line": 15
+          },
+          "display": "PolluterCommitsCustomer",
+          "objectDisplay": "Codeunit Order Pollution Tests",
+          "stableId": "6f1c2b9e-4d3a-4e8b-9a71-0c5d2e8f4b16:Codeunit:50161#0cff26a1b46a69ec79e0a8abb055db5453a76a40cc1fed0fc2efb97540194bbc"
+        },
+        {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/OrderPollutionTests.Codeunit.al",
+            "line": 70
+          },
+          "display": "IndependentRolledBackWrite",
+          "objectDisplay": "Codeunit Order Pollution Tests",
+          "stableId": "6f1c2b9e-4d3a-4e8b-9a71-0c5d2e8f4b16:Codeunit:50161#2e1d3f58dd5b3aacb4359d197ca1130b8a6f2bb6b92af9edbd3f043c2c9c1647"
+        },
+        {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/OrderPollutionTests.Codeunit.al",
+            "line": 36
+          },
+          "display": "VictimInsertsSameCustomer",
+          "objectDisplay": "Codeunit Order Pollution Tests",
+          "stableId": "6f1c2b9e-4d3a-4e8b-9a71-0c5d2e8f4b16:Codeunit:50161#e28f2ce8d4e14e9ed9054d1d98500d21ab373c16ab1b43a91a14efcb2497c449"
+        }
+      ],
+      "scoped": false
+    }
+  },
+  "schemaVersion": "1.0.0"
+}

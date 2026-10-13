@@ -23,6 +23,8 @@ export interface BisectedVictim extends OrchestratedTestIdentity {
   /** Smallest candidate set known to reproduce the failure (unverified for notReproduced/inconclusive). */
   remainingCandidates: OrchestratedTestIdentity[];
   probes: number;
+  /** Present when static predictions seeded this victim: each predicted polluter probed alone first (null = inconclusive). */
+  predictionProbes?: { polluter: OrchestratedTestIdentity; reproduced: boolean | null }[];
 }
 
 export interface BisectResult {
@@ -34,7 +36,10 @@ export interface BisectResult {
 
 export interface BisectInput {
   /** odVictim rows from analyzeTestOrder (candidatePolluters in the order they preceded the victim). */
-  victims: Pick<OrderAnalyzedTest, "codeunitId" | "method" | "candidatePolluters">[];
+  victims: (Pick<OrderAnalyzedTest, "codeunitId" | "method" | "candidatePolluters"> & {
+    /** Statically predicted polluters, probed one by one as [polluter, victim] before bisecting. */
+    predictedPolluters?: OrchestratedTestIdentity[];
+  })[];
   runner: OrderRunner;
   /** Total probe budget across all victims. Default 50. */
   maxProbes?: number;
@@ -68,6 +73,11 @@ export async function bisectPolluters(input: BisectInput): Promise<BisectResult>
       const status = results.find((r) => identityKey(r.codeunitId, r.method) === key)?.status;
       return status === "failed" ? true : status === "passed" ? false : undefined;
     };
+    const isCandidate = (p: OrchestratedTestIdentity) =>
+      victim.candidatePolluters.some((c) => identityKey(c.codeunitId, c.method) === identityKey(p.codeunitId, p.method));
+    const hints = (victim.predictedPolluters ?? []).filter((p, i, all) =>
+      isCandidate(p) && all.findIndex((q) => identityKey(q.codeunitId, q.method) === identityKey(p.codeunitId, p.method)) === i);
+    const predictionProbes: NonNullable<BisectedVictim["predictionProbes"]> = [];
     const done = (outcome: BisectOutcome, remaining: OrchestratedTestIdentity[]): BisectedVictim => ({
       codeunitId: victim.codeunitId,
       method: victim.method,
@@ -75,10 +85,18 @@ export async function bisectPolluters(input: BisectInput): Promise<BisectResult>
       ...(outcome === "found" ? { polluter: remaining[0] } : {}),
       remainingCandidates: remaining,
       probes: used,
+      ...(victim.predictedPolluters ? { predictionProbes } : {}),
     });
 
     const bisect = async (): Promise<BisectedVictim> => {
       let remaining = [...victim.candidatePolluters];
+      // Predicted polluters first: one failing [polluter, victim] probe is the verified "found".
+      for (const hint of hints) {
+        if (probes >= maxProbes) return done("capped", remaining);
+        const failed = await probe([hint]);
+        predictionProbes.push({ polluter: hint, reproduced: failed ?? null });
+        if (failed) return done("found", [hint]);
+      }
       if (probes >= maxProbes) return done("capped", remaining);
       const confirmed = await probe(remaining);
       if (confirmed === undefined) return done("inconclusive", remaining);
