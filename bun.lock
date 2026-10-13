@@ -8,6 +8,7 @@
         "@microsoft/signalr": "^10.0.0",
         "@modelcontextprotocol/client": "^2.3.1",
         "@modelcontextprotocol/server": "^2.3.1",
+        "@sshadows/bc-toolbox-envelope": "^0.1.0",
         "zod": "^4.4.3",
       },
       "devDependencies": {
@@ -24,6 +25,8 @@
     "@modelcontextprotocol/core": ["@modelcontextprotocol/core@2.3.1", "", { "dependencies": { "zod": "^4.2.0" } }, "sha512-laVmIhPGpWi7rG9q+0UigblRN0Hws/Yjlb6qLFtVqryXVLkc4h+yN8z731POD2LnAGQlFe7/tXhUm7Bi0YB91g=="],
 
     "@modelcontextprotocol/server": ["@modelcontextprotocol/server@2.3.1", "", { "dependencies": { "@modelcontextprotocol/core": "2.3.1", "zod": "^4.2.0" } }, "sha512-e59MfWuSssj6DoQ96JCTqdW1AXT5/XtnTl0WWd6MU1Ka434fFUGGosCLJbGNySDhHGvxQWoRWK137FXYFkYNWw=="],
+
+    "@sshadows/bc-toolbox-envelope": ["@sshadows/bc-toolbox-envelope@0.1.0", "", { "peerDependencies": { "zod": "^4.2.0" } }, "sha512-yq0SN9mvbmLnxJlZ9tNxuovRDf3IGFjDQEF7rWiRA/Rnk/+QKTTUm9OsCz62MYv9dGXJ1NmR/p+gEq33/J10dw=="],
 
     "@types/node": ["@types/node@26.1.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-O0A1G3xPGy4w7AgQdAQYUlQ+BKk2Oovw8eRpofyp5KdBZULnbe+WqaOVNrm705SHphCiG4XHsACrSmPu1f+Kgw=="],
 
