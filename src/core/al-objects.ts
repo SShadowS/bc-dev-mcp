@@ -29,6 +29,22 @@ export interface TestCodeunitInfo {
   name: string;
   file: string;
   methods: string[];
+  methodDetails: TestMethodInfo[];
+}
+
+export interface TestMethodInfo {
+  name: string;
+  /** From [TransactionModel(...)]; "AutoCommit" when the attribute is absent. */
+  transactionModel: string;
+  /** Raw attribute texts preceding the procedure, e.g. "Test", "HandlerFunctions('X')". */
+  attributes: string[];
+}
+
+export interface TestRunnerInfo {
+  codeunitId: number;
+  name: string;
+  file: string;
+  testIsolation: string;
 }
 
 const OBJECT_DECL = /^\s*(table|report|codeunit|xmlport|page|query|pageextension|tableextension|enum|enumextension|reportextension)\s+(\d+)\s+(?:"([^"]+)"|(\w+))/im;
@@ -108,20 +124,37 @@ export async function discoverTests(projectDir: string): Promise<TestCodeunitInf
     const ref = parseDeclaration(file, source);
     if (!ref || ref.typeName !== "codeunit") continue;
     if (!/Subtype\s*=\s*Test\s*;/i.test(source)) continue;
-    const methods: string[] = [];
-    const lines = source.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      if (!/^\s*\[Test\]/i.test(lines[i]!)) continue;
-      for (let j = i + 1; j < lines.length; j++) {
-        const proc = /^\s*(?:local\s+)?procedure\s+(?:"([^"]+)"|(\w+))/i.exec(lines[j]!);
-        if (proc) {
-          methods.push((proc[1] ?? proc[2])!);
-          break;
-        }
-        if (!/^\s*(\[|\/\/|$)/.test(lines[j]!)) break; // attributes, comments, or blank lines between [Test] and procedure
+    const methodDetails: TestMethodInfo[] = [];
+    let attributes: string[] = []; // attribute block preceding the next procedure
+    for (const line of source.split(/\r?\n/)) {
+      if (/^\s*\[/.test(line)) {
+        for (const m of line.matchAll(/\[([^\]]*)\]/g)) attributes.push(m[1]!.trim());
+        continue;
       }
+      if (/^\s*(\/\/|$)/.test(line)) continue; // comments or blank lines inside the attribute block
+      const proc = /^\s*(?:local\s+)?procedure\s+(?:"([^"]+)"|(\w+))/i.exec(line);
+      if (proc && attributes.some((a) => /^Test$/i.test(a))) {
+        const tm = attributes.map((a) => /^TransactionModel\s*\(\s*(?:TransactionModel\s*::\s*)?(\w+)\s*\)$/i.exec(a)).find(Boolean);
+        // Documented default when no [TransactionModel] attribute is present: AutoCommit.
+        methodDetails.push({ name: (proc[1] ?? proc[2])!, transactionModel: tm?.[1] ?? "AutoCommit", attributes });
+      }
+      attributes = [];
     }
-    results.push({ codeunitId: ref.objectId, name: ref.name, file, methods });
+    results.push({ codeunitId: ref.objectId, name: ref.name, file, methods: methodDetails.map((m) => m.name), methodDetails });
+  }
+  return results;
+}
+
+/** TestRunner codeunits in the project and their TestIsolation (documented default: Disabled). */
+export async function discoverTestRunners(projectDir: string): Promise<TestRunnerInfo[]> {
+  const results: TestRunnerInfo[] = [];
+  for (const file of await walkAlFiles(resolve(projectDir))) {
+    const source = await readFile(file, "utf8");
+    const ref = parseDeclaration(file, source);
+    if (!ref || ref.typeName !== "codeunit") continue;
+    if (!/Subtype\s*=\s*TestRunner\s*;/i.test(source)) continue;
+    const iso = /TestIsolation\s*=\s*(\w+)\s*;/i.exec(source);
+    results.push({ codeunitId: ref.objectId, name: ref.name, file, testIsolation: iso?.[1] ?? "Disabled" });
   }
   return results;
 }
