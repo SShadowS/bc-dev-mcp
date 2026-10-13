@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ALSEM_ENV_VAR } from "./call-graph";
+import { WRITE_OPS } from "./alsem-writes";
 
 /*
  * What can the paused routine still do? Optional al-sem enrichment of a debugger break:
@@ -121,7 +122,7 @@ export function createAlSemBreakEffects(env: Record<string, string | undefined>,
         return { status: "ambiguous", message: `'${selector}' is overloaded; the break frame does not carry a signature, so effects were not computed. Candidates are listed.`, candidates: r.candidates ?? [] };
       }
       const routine = { display: String(r.routine?.display ?? ""), objectDisplay: String(r.routine?.objectDisplay ?? ""), stableId: String(r.routine?.stableId ?? "") };
-      const effects: any[] = eff.payload["effects"] ?? [];
+      const effects: any[] = (eff.payload["effects"] ?? []).filter((e: any) => WRITE_OPS.has(String(e?.op).toLowerCase()));
       const answers = await Promise.all(
         PROVE_QUESTIONS.map(async ([, question]) => {
           const out = await run(binary, ["prove", project, routine.stableId, question]);
@@ -131,7 +132,11 @@ export function createAlSemBreakEffects(env: Record<string, string | undefined>,
         }),
       );
       const proofs = { mayCommit: answers[0]!, throwsError: answers[1]!, reachesUi: answers[2]! };
-      const limits = ["Table writes list Insert/Modify/Delete-style operations; al-sem #9: Rename is not modelled as a write."];
+      const limits = [
+        "Table writes list Insert/Modify/Delete-style operations; al-sem #9: Rename is not modelled as a write.",
+        // Live 2026-10-13 (BC28, al-sem 1.6.0): a break on "Attempted to divide by zero." in SplitAmount got throwsError "no" with coverageComplete.
+        "throwsError covers errors the code raises explicitly; runtime errors (division by zero, overflow, failed conversions) are not modelled, so 'no' does not mean the routine cannot fail.",
+      ];
       if (answers.some((a) => !a.coverageComplete || a.unresolvedCallsites > 0)) {
         limits.push("coverageComplete=false or unresolvedCallsites>0: a 'no' is not a proof of absence. al-sem #28: two call sites on one line collapse to one site key, which can hide a call.");
       }
