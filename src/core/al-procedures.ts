@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { AL_OBJECT_TYPE } from "./al-objects";
+import { AL_OBJECT_TYPE, discoverTests } from "./al-objects";
 import { upperInvariantUtf16 } from "./al-identifiers";
 import { BcDevError } from "./agent-errors";
 import { extractEntry } from "./snapshot/zip";
@@ -1417,4 +1417,54 @@ export async function discoverAlProcedureIdentities(
     warnings: [...new Set(warnings)],
     complete,
   };
+}
+
+export interface TestMethodIdentity {
+  codeunitId: number;
+  codeunitName: string;
+  method: string;
+  file: string;
+  /** Matches coverage[].testMethodId; null when the identity could not be resolved. */
+  methodId: number | null;
+  warning?: string;
+}
+
+/**
+ * Maps every [Test] method of the project's test codeunits to the method ID BC reports as
+ * `testMethodId` in procedure coverage, so coverage entries can be joined back to method names.
+ */
+export async function discoverTestMethodIdentities(
+  projectDir: string,
+  cache?: AlProcedureDiscoveryCache,
+): Promise<{ methods: TestMethodIdentity[]; warnings: string[]; complete: boolean }> {
+  const project = resolve(projectDir);
+  const codeunits = await discoverTests(project);
+  const found = await discoverAlProcedureIdentities(
+    project,
+    codeunits.map((codeunit) => relative(project, codeunit.file)),
+    cache,
+  );
+  let complete = found.complete;
+  const methods: TestMethodIdentity[] = [];
+  for (const codeunit of codeunits) {
+    for (const method of codeunit.methods) {
+      // AL identifiers are case-insensitive.
+      const procedure = found.procedures.find((candidate) =>
+        candidate.objectType === AL_OBJECT_TYPE.codeunit &&
+        candidate.objectId === codeunit.codeunitId &&
+        candidate.name.toLowerCase() === method.toLowerCase());
+      const identity: TestMethodIdentity = {
+        codeunitId: codeunit.codeunitId,
+        codeunitName: codeunit.name,
+        method,
+        file: codeunit.file,
+        methodId: procedure?.methodId ?? null,
+      };
+      const warning = procedure ? procedure.identityWarning : "test method was not found by procedure discovery";
+      if (warning) identity.warning = warning;
+      if (identity.methodId === null) complete = false;
+      methods.push(identity);
+    }
+  }
+  return { methods, warnings: found.warnings, complete };
 }

@@ -1,0 +1,22 @@
+{
+  "provenance": {
+    "server": "Business Central 28 (Cronus28 docker container), runtime 17.0",
+    "captured": "2026-07-03",
+    "field": "TestRunCompleted Tests[].MethodId (surfaced as coverage[].testMethodId)",
+    "notes": "Captured live from a procedure-coverage run of the hello-bug demo app. Coverage entries arrived in execution (declaration) order, matching the TestCompleted rows. Test methods are parameterless with no return value, so the ID depends only on the method name."
+  },
+  "vectors": [
+    {
+      "source": "../../../demos/hello-bug/src/DemoPaymentTests.Codeunit.al",
+      "codeunitId": 50131,
+      "method": "FailsOnZeroPayments",
+      "testMethodId": -1776688693
+    },
+    {
+      "source": "../../../demos/hello-bug/src/DemoPaymentTests.Codeunit.al",
+      "codeunitId": 50131,
+      "method": "SplitsEvenly",
+      "testMethodId": -1475975827
+    }
+  ]
+}
