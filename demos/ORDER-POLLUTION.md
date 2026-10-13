@@ -81,6 +81,14 @@ Live order mode (isolation + recorded + reversed + 3 shuffle seeds, then bisect)
 reports 2 od-victims, polluters 1 and 5; on {2, 4, 6, 8} it reports none (30 `Initialize`s,
 about 3 s on Cronus28).
 
+Through the MCP tool (with `project` pointing at an AL project that contains codeunit 50161):
+
+```json
+{ "codeunits": [{ "id": 50161 }], "mode": "order", "seeds": [1, 2, 3], "pollutionTableId": 18 }
+```
+
+`tests/mcp/test-order-tool.test.ts` runs that call against the FakeHub script.
+
 ## Building
 
 ```bash

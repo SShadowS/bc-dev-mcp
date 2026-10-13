@@ -12,6 +12,7 @@ import { BcDevError } from "../../core/agent-errors";
 import { analyzeTestOrchestration } from "../../core/test-orchestration";
 import { redactAuthorization } from "../../core/redaction";
 import type { ServerState } from "../state";
+import { orderOutputSchema, runOrderOrchestration } from "./test-order-tool";
 import { claimTestRun, codeunitsShape, connectionShape, requireTestRunningSupport, resolve, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
 
 const indexByDeps = new WeakMap<ToolDeps, Map<string, Promise<AlObjectIndex>>>();
@@ -56,10 +57,10 @@ const observationStatusSchema = z
   .enum(["passed", "failed", "skipped", "missing", "ambiguous"])
   .describe("Observed status; missing/ambiguous means this run cannot establish one result");
 
-const testOrchestrationOutputSchema = z.object({
+const repeatOutputShape = {
   runsRequested: z.number().int().describe("Number of sequential runs requested"),
   runsAttempted: z.number().int().describe("Number of run-attempt envelopes retained, including an aborted final attempt"),
-  complete: z.boolean().describe("true only when all requested runs completed without abort and every identity has one concrete result in each run"),
+  complete: z.boolean().describe("true only when all requested runs completed without abort and every identity has one concrete result in each run (order mode: also every od-victim narrowed to one polluter and any write capture complete)"),
   outcome: z.enum(["passed", "failed", "unstable", "incomplete"]).describe(
     "Aggregate stability outcome: unstable means a flaky or otherwise inconsistent status sequence",
   ),
@@ -115,6 +116,15 @@ const testOrchestrationOutputSchema = z.object({
     "Per-method stability analysis; method spelling comes from the first requested or observed identity and may differ in case from raw server rows",
   ),
   warnings: z.array(z.string()).describe("Reasons the aggregate or individual observations are incomplete"),
+};
+
+/** One object schema for both modes: repeat-only fields are absent in mode 'order', `order` is absent in mode 'repeat'. */
+const testOrchestrationOutputSchema = z.object({
+  mode: z.enum(["repeat", "order"]).describe("Which mode produced this result"),
+  ...z.object(repeatOutputShape).partial().shape,
+  complete: repeatOutputShape.complete,
+  warnings: repeatOutputShape.warnings,
+  order: orderOutputSchema.optional(),
 });
 
 /** Best-effort local name lookup for the test methods in a coverage payload; empty when source is unavailable. */
@@ -340,9 +350,11 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
     },
     {
       name: "bcdev_test_orchestrate",
-      title: "Repeat and compare AL tests",
+      title: "Repeat or reorder AL tests",
       description:
-        "Run one AL test selection sequentially 2–20 times, retain every enriched attempt, diff adjacent passed/failed sets, and flag flaky or incomplete method outcomes. Non-rolled-back test side effects repeat on every attempt.",
+        "mode 'repeat' (default): run one AL test selection sequentially 2–20 times, retain every enriched attempt, diff adjacent passed/failed sets, and flag flaky or incomplete method outcomes. "
+        + "mode 'order': run each method alone, then the selection recorded, reversed and once per seed; classify od-victims (pass alone, fail after others), bisect each to its polluter, and optionally attribute the polluter's writes to pollutionTableId. "
+        + "Reports each method's TransactionModel and the project runners' TestIsolation. Needs local AL source. Non-rolled-back test side effects repeat on every attempt.",
       // destructiveHint:false assumes BC test isolation (TestIsolation=Codeunit) rolls back data
       // changes. Suites with disabled isolation or external side effects can repeat those effects.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -357,11 +369,45 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           .min(2)
           .max(20)
           .optional()
-          .describe("Number of sequential runs to compare (default 3; minimum 2; maximum 20)"),
+          .describe("mode 'repeat' only: number of sequential runs to compare (default 3; minimum 2; maximum 20)"),
+        mode: z.enum(["repeat", "order"]).optional().describe("'repeat' (default) repeats one order; 'order' detects order-dependent (polluter/victim) tests"),
+        seeds: z
+          .array(z.number().int().min(0).max(0xffffffff))
+          .min(1)
+          .max(10)
+          .optional()
+          .describe("mode 'order' only: shuffle seeds, one shuffled order each (default [1, 2, 3]); same seeds replay the same orders"),
+        maxProbes: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("mode 'order' only: bisection probe budget across all victims, one Initialize each (default 50)"),
+        pollutionTableId: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("mode 'order' only: table ID to capture writes to (one debugger-bound recorded run) and attribute to each victim's polluter, e.g. 18 for Customer"),
+        changesDeployed: z
+          .boolean()
+          .optional()
+          .describe("mode 'order' with pollutionTableId only: assert local AL source is exactly deployed, so writes can be identified from local source when server source is unavailable"),
       },
       handler: async (params, context) => {
+        const mode = (params["mode"] as "repeat" | "order" | undefined) ?? "repeat";
+        const misplaced = (mode === "order" ? ["runs"] : ["seeds", "maxProbes", "pollutionTableId", "changesDeployed"])
+          .filter((name) => params[name] !== undefined);
+        if (misplaced.length > 0) {
+          throw new BcDevError("INVALID_ARGUMENT", `${misplaced.join(", ")} cannot be used with mode '${mode}'`, "validation");
+        }
+        if (params["changesDeployed"] !== undefined && params["pollutionTableId"] === undefined) {
+          throw new BcDevError("INVALID_ARGUMENT", "changesDeployed is only valid together with pollutionTableId", "validation");
+        }
         claimTestRun(state);
         try {
+          if (mode === "order") return await runOrderOrchestration(params, state, deps, context?.signal);
           const { config, authorization, project } = resolve(params, deps);
           const plan = params["codeunits"] as Array<{ id: number; methods?: string[] }>;
           const runsRequested = (params["runs"] as number | undefined) ?? 3;
@@ -406,6 +452,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             );
           }
           return {
+            mode: "repeat" as const,
             ...analysis,
             runs: runs.map((run, index) => ({ ...run, run: index + 1 })),
           };

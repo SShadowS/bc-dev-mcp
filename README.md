@@ -144,7 +144,7 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_status` | Preflight: reachability, auth, dev API version, feature gates |
 | `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files |
 | `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, optional coverage, and Git-aware changed-procedure gaps |
-| `bcdev_test_orchestrate` | Repeat one selection 2–20 times, retain every run, diff adjacent pass/fail sets, and flag flaky/incomplete methods |
+| `bcdev_test_orchestrate` | Repeat one selection 2–20 times, retain every run, diff adjacent pass/fail sets, and flag flaky/incomplete methods; `mode: "order"` finds order-dependent victims, bisects each to its polluter, and attributes its table writes |
 | `bcdev_debug_attach` | Arm next-session/user-filtered attach or target an existing NST session; optionally set breakpoints |
 | `bcdev_debug_run_tests` | Run tests with breakpoints live |
 | `bcdev_debug_wait` | Long-poll for session-bound / break / run-finished lifecycle events |
@@ -322,6 +322,21 @@ Overlapping codeunit/method selections are rejected, while disjoint method group
 remain valid. Non-rolled-back test side effects repeat on every attempt.
 Orchestration intentionally does not aggregate coverage — use `bcdev_test_run` for coverage and
 changed-procedure analysis.
+
+`mode: "order"` answers "does this test fail only because of another test?". It runs every
+selected method alone, then the selection in recorded order, reversed, and once per shuffle `seeds`
+entry (default `[1, 2, 3]`; the same seeds replay the same orders). A method that passes alone but
+fails after others is an `odVictim`; pairwise bisection (`maxProbes`, default 50) narrows it to a
+single polluter, verified by a `[polluter, victim]` run. With `pollutionTableId`, one extra
+debugger-bound recorded run captures writes to that table and attributes them to each polluter as
+`writeObserved`, `noWriteObserved`, or `unknown` (an observed write break, not proof of commit).
+Every row carries the method's `transactionModel`, and `order.runners` lists the project's
+TestRunner codeunits with their TestIsolation. Business Central rolls data back after each codeunit
+group even after `Commit()`, but not between methods of one codeunit, so committed rows only leak
+from a method declared above the victim in the same codeunit; reversing and shuffling move whole
+codeunit groups. Order mode reads declaration order from local source, so the codeunits must be in
+`project`, and it caps the selection at 50 methods because each run and probe is one Initialize.
+See `demos/ORDER-POLLUTION.md`.
 
 Pass `coverageAgainst` to `bcdev_test_run` for roadmap item 5's coverage-gap analysis. The tool
 resolves the ref's merge base with `HEAD`, compares that commit with the current working tree
