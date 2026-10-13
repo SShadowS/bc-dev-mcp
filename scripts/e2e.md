@@ -417,10 +417,11 @@ Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` 
   entries). Routines join by `stableId` `<appId>:Codeunit:<id>#<hash>` + `display`. Digest write effects
   carry the table as `detail.resourceId` (`<appId>/table/<n>`), absent = al-sem's `unknown` bucket
   (queried as `--table unknown`); a `COMMIT` effect with `WRITE_COMMITTED_BEFORE_RETURN` marks an explicit
-  commit. Digest reports writes to temporary records as writes; Rename is not a write (al-sem #9).
+  commit. Digest reports writes to temporary records as writes (al-sem#65); Rename is not a write (al-sem #9).
   On demos/order-pollution the pre-screen predicts 1->3 (unknown table), 1->6 (unknown table) and 5->7
   (table 50160); seeded bisection confirms 1->3 and 5->7 in one probe each and refutes 1->6. Customer
-  stays `unknown` with or without BC28 symbols in `.alpackages` (the demo declares no dependencies).
+  stays `unknown` with or without BC28 symbols in `.alpackages`, and with or without an explicit Base
+  Application dependency: `digest`/`query` do not load dependencies at all (al-sem#66, al-sem 1.6.0, 2026-10-13).
   <!-- 2026-10-13, al-sem 1.5.0 (al-call-hierarchy 2c48e56f); recorded output tests/fixtures/alsem-order; tests/core/test-order-static.test.ts. Not run live: the static side needs no server and the dynamic side is unchanged (#15). -->
   <!-- LIVE 2026-10-13 BC28 (Cronus28), built dist/index.js over stdio, alsem 1.6.0: demos/order-pollution published, bcdev_test_orchestrate {codeunits:[50161], mode:"order", seeds:[1,2,3], pollutionTableId:18, project}. staticPrediction engine al-sem 1.6.0, exactly the three offline pairs: PolluterCommitsCustomer->VictimInsertsSameCustomer (table null, survives explicitCommit, dynamic confirmed), PolluterCommitsCustomer->IndependentRolledBackWrite (table null, dynamic refuted: passed in every order), PolluterCommitsFlag->VictimExpectsNoFlag (table 6f1c2b9e.../table/50160 "Order Pollution Flag", confirmed). Summary odVictim 2 / consistentPass 6. Bisect: both victims found with 1 probe each, predictionProbes [{polluter, reproduced:true}] = the predicted polluter was probed first; 2 probes, 16 Initializes, 13.4 s (al-sem ~10 s of it). Same build, same call with BC_DEV_ALSEM pointing at a missing file (dynamic-only): one "Static pollution prediction skipped" warning, no staticPrediction, same victims/polluters, 2 + 6 = 8 probes, 22 Initializes, 3.3 s - matching the earlier dynamic-only run (2 and 6 probes, #15 box). App uninstalled with deleteData + unpublished. -->
 

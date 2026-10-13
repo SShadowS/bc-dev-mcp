@@ -61,8 +61,8 @@ export const STATIC_PREDICTION_NOTE =
   + "AutoCommit/None methods' writes outlive the method. A victim is any later method whose call cone touches the table "
   + "(read or write). Not seen: Rename writes (al-sem #9), session state (SingleInstance globals, NumberSequence.Next, "
   + "files) and the codeunit's OnRun (it runs before every method, isolation included, so it is never order-dependent). "
-  + "Writes to temporary records count as writes (false positives). "
-  + "table null = al-sem could not resolve the table (e.g. a base-app table without symbols/dependencies): a weak hint.";
+  + "Writes to temporary records count as writes (false positives; al-sem#65). "
+  + "table null = al-sem could not resolve the table; digest does not load dependencies, so every base-app table (e.g. Customer) is null (al-sem#66): a weak hint.";
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Json) : {});
