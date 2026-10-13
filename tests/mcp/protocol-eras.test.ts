@@ -107,8 +107,16 @@ describe("modern era (2026-07-28 server/discover)", () => {
 
     const resources = (await request("resources/list"))["result"] as Record<string, unknown>;
     expect(resources).toMatchObject({ ttlMs: 86_400_000, cacheScope: "public" });
-    const skill = (await request("resources/read", { uri: "skill://index.json" }))["result"] as Record<string, unknown>;
+    const skill = (await request("resources/read", { uri: "skill://bc-al-testing/SKILL.md" }))["result"] as Record<string, unknown>;
     expect(skill).toMatchObject({ resultType: "complete", ttlMs: 86_400_000, cacheScope: "public" });
+
+    const skills = (await request("skills/list"))["result"] as Record<string, unknown>;
+    expect(skills).toMatchObject({ resultType: "complete", ttlMs: 86_400_000, cacheScope: "public" });
+    expect(skills["skills"]).toHaveLength(5);
+    const got = (await request("skills/get", { uri: "skill://bc-al-testing/SKILL.md" }))["result"] as Record<string, unknown>;
+    expect(got).toMatchObject({ resultType: "complete", ttlMs: 86_400_000, cacheScope: "public" });
+    expect(got["skill"]).toMatchObject({ uri: "skill://bc-al-testing/SKILL.md" });
+    expect((await request("skills/get", { uri: "skill://nope/SKILL.md" }))["error"]).toMatchObject({ code: -32602 });
 
     const call = (await request("tools/call", { name: "bcdev_debug_wait", arguments: {} }))["result"] as Record<string, unknown>;
     expect(call["resultType"]).toBe("complete");

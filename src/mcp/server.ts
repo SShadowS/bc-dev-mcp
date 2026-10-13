@@ -1,8 +1,8 @@
-import { McpServer, type CacheHint } from "@modelcontextprotocol/server";
+import { McpServer, ProtocolError, ProtocolErrorCode, type CacheHint } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { ServerState } from "./state";
 import { createTools, type ToolDeps } from "./tools";
-import { skills, skillsIndexJson } from "./skills.generated";
+import { skills, type EmbeddedSkill } from "./skills.generated";
 import { BcDevError } from "../core/agent-errors";
 import { agentErrorBody } from "./agent-errors";
 
@@ -79,6 +79,15 @@ export function toToolResponse(result: unknown): {
 // with a new version invalidates them.
 const STATIC_CACHE_HINT: CacheHint = { ttlMs: 86_400_000, cacheScope: "public" };
 
+// SEP-2640 skill entry: all frontmatter plus the complete file manifest (single-file skills).
+function skillEntry(skill: EmbeddedSkill) {
+  return {
+    uri: skill.uri,
+    frontmatter: skill.frontmatter,
+    resources: [{ uri: skill.uri, digest: skill.digest, size: skill.size }],
+  };
+}
+
 export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
   const server = new McpServer(
     { name: "bc-dev-mcp", version: "0.4.0" },
@@ -87,7 +96,8 @@ export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
         // Fixed lists: never send list_changed, so don't advertise it (the SDK defaults it to true).
         tools: { listChanged: false },
         resources: { listChanged: false },
-        // Skills served as resources under skill:// — tracks draft SEP-2640 (io.modelcontextprotocol/skills).
+        // Skills (final SEP-2640): skills/list + skills/get below, files via resources/read.
+        // Empty object = no directoryRead (single-file skills, resources/directory/read not served).
         extensions: { "io.modelcontextprotocol/skills": {} },
       },
       cacheHints: {
@@ -128,12 +138,16 @@ export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
       async () => ({ contents: [{ uri: skill.uri, mimeType: skill.mimeType, text: skill.text }] }),
     );
   }
-  server.registerResource(
-    "skills-index",
-    "skill://index.json",
-    { title: "Skills index", description: "Discovery index of the Agent Skills this server ships (draft SEP-2640)", mimeType: "application/json" },
-    async () => ({ contents: [{ uri: "skill://index.json", mimeType: "application/json", text: skillsIndexJson }] }),
-  );
+  server.server.setRequestHandler("skills/list", { params: z.object({ cursor: z.string().optional() }) }, () => ({
+    resultType: "complete",
+    skills: skills.map(skillEntry),
+    ...STATIC_CACHE_HINT,
+  }));
+  server.server.setRequestHandler("skills/get", { params: z.object({ uri: z.string() }) }, ({ uri }) => {
+    const skill = skills.find((s) => s.uri === uri);
+    if (!skill) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown skill: ${uri}`);
+    return { resultType: "complete", skill: skillEntry(skill), ...STATIC_CACHE_HINT };
+  });
 
   return server;
 }
