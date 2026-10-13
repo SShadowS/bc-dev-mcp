@@ -59,7 +59,7 @@ but `complete` is false because later writes cannot be ruled out.
 A bound session that detaches before any break is a stray bind (about half the attaches with
 `breakOnNext: "WebServiceClient"` on BC28): the capture re-attaches after ~10 s instead of stopping
 (`phase: "rearming"`, `strayBinds`/`rearms` counters, one warning per stray). A workload triggered
-while `phase` is `rearming` is missed, so trigger it once status is back to `arming`. More strays
+while `phase` is `rearming` is missed, so trigger it once status has shown `arming` for ~2.5 s (a stray detaches within milliseconds of an attach). More strays
 than `maxRearms` (default 3) stop with `stopReason: "strayBindsExhausted"`; use `Background`,
 `WebClient`, or a `sessionId` instead.
 If `alsem` is installed, start returns `staticWriters` (al-sem's possible write sites) and finish adds
