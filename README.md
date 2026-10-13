@@ -96,7 +96,9 @@ Debugger attach returns as soon as Business Central accepts the request; binding
 | `environmentName` | launch.json / tool param | — | SaaS environment name |
 | `server` | launch.json / tool param | — | BC server URL, e.g. `http://bcserver` |
 | `serverInstance` | launch.json / tool param | — | Server instance, e.g. `BC` |
-| `BC_DEV_ALTOOL` | env var | `altool` on PATH | Path to `altool.exe` (AL extension `bin` folder); `bcdev_test_select` uses its `graph` command |
+| `BC_DEV_CALLGRAPH_ENGINE` | env var | `auto` | Call-graph engine for `bcdev_test_select`: `auto` (al-sem, else altool), `al-sem` or `altool` |
+| `BC_DEV_ALSEM` | env var | `alsem` on PATH | Path to `alsem.exe` (al-sem); `bcdev_test_select` runs `alsem graph <project>`. al-sem needs no compile, shows `Codeunit.Run` and trigger paths, and states where its graph is incomplete |
+| `BC_DEV_ALTOOL` | env var | `altool` on PATH | Path to `altool.exe` (AL extension `bin` folder); the fallback engine, via its `graph` command |
 | `BC_DEV_API_PORT` | env var | `7048` | On-prem Automation API port used by the `bcdev_app_*` tools |
 | `port` | launch.json / tool param | `7049` | Developer service port |
 | `tenant` | launch.json / tool param | `default` | Tenant (hub negotiate requires one) |

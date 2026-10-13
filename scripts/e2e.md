@@ -318,6 +318,15 @@ Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` 
 - [x] altool (AL 30.0.2863738) emits no `Run` edge for `Codeunit.Run(Codeunit::"X")`: the call is a
   `Direct` edge to the built-in `Codeunit # Run`, so the target's `OnRun` and its callees are reachable
   only through coverage history. Without a coverage map, a change there is reported `uncoverable`. <!-- 2026-10-13, recorded graph tests/fixtures/test-selection-acceptance/call-graph.jsonl -->
+- [x] al-sem engine, offline (`BC_DEV_CALLGRAPH_ENGINE=al-sem`, `alsem graph` from al-sem branch
+  `issue-63`): on the acceptance fixture with **no** coverage map, D1-D6 select every test the live
+  full run failed, D4 (`ApplyDecay`, reached only through `Codeunit.Run`) selects
+  `NightlyRecalcDecays`, and the D5 `OnRun` change selects it without falling back. WIRE: the
+  `al-sem.callgraph` v1 meta line comes first; nodes join by `sourcePath` + `line` inside the
+  discovered span. <!-- 2026-10-13, recorded graph tests/fixtures/test-selection-acceptance/call-graph.al-sem.jsonl; tests/core/test-selection-acceptance.test.ts -->
+- [ ] al-sem engine, live: rerun D1-D7 on Cronus28 with `bcdev_test_select` (engine al-sem) without
+  and with the coverage map, publish each planted bug, and confirm no test the full run failed was
+  left out (al-sem spec 2026-10-13 §12 step 4). <!-- not yet run -->
 
 ## Known server behaviours
 
