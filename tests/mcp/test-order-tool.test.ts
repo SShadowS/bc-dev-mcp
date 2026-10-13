@@ -41,6 +41,7 @@ async function connect() {
       baseRef, mergeBase: "a".repeat(40), head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [], files: [],
     }),
     nativeMcpGateway: new FakeNativeMcpGateway(),
+    callGraph: async () => ({ nodes: [], edges: [] }),
   };
   const client = new Client({ name: "order-mode", version: "0.0.0" });
   const [c, s] = InMemoryTransport.createLinkedPair();
