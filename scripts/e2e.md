@@ -324,9 +324,12 @@ Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` 
   `NightlyRecalcDecays`, and the D5 `OnRun` change selects it without falling back. WIRE: the
   `al-sem.callgraph` v1 meta line comes first; nodes join by `sourcePath` + `line` inside the
   discovered span. <!-- 2026-10-13, recorded graph tests/fixtures/test-selection-acceptance/call-graph.al-sem.jsonl; tests/core/test-selection-acceptance.test.ts -->
-- [ ] al-sem engine, live: rerun D1-D7 on Cronus28 with `bcdev_test_select` (engine al-sem) without
+- [x] al-sem engine, live: rerun D1-D7 on Cronus28 with `bcdev_test_select` (engine al-sem) without
   and with the coverage map, publish each planted bug, and confirm no test the full run failed was
-  left out (al-sem spec 2026-10-13 §12 step 4). <!-- not yet run -->
+  left out (al-sem spec 2026-10-13 §12 step 4). D1-D6 selected 9/10/5/1/1/5 of 40 with and without
+  the map, no misses, identical changed-procedure coverage; D5 (`OnRun`) selects 1 test instead of
+  falling back; D7 (`app.json` only) falls back to all 40. With BC28 symbols in `.alpackages`,
+  `meta.apps` becomes `embedded`/`symbolOnly` and the selections do not change. <!-- 2026-10-13 Cronus28 (BC28), alsem engine 1.5.0 (al-sem master 4a2abdbb), alc 30.0.2863738; per-diff table in the fixture README; app uninstalled with deleteData and unpublished afterwards, app list (169 apps) identical before/after -->
 
 ## Known server behaviours
 
