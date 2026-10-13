@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BcDevError } from "../../src/core/agent-errors";
+import { AGENT_ERROR_CODES, AgentErrorBodySchema, BcDevError, agentErrorBodyJsonSchema } from "../../src/core/agent-errors";
 import { DevEndpointError } from "../../src/core/server-info";
 import { agentErrorBody, normalizeAgentError } from "../../src/mcp/agent-errors";
 
@@ -99,5 +99,42 @@ describe("agent errors", () => {
     expect(listMissing.nextSteps.join(" ")).not.toContain("Call bcdev_app_list");
     const unrelated = agentErrorBody("bcdev_source", new BcDevError("SERVER_REJECTED", "x", "server"));
     expect(unrelated.nextSteps.join(" ")).not.toContain("Global scope");
+  });
+
+  test("every code yields a body that validates against AgentErrorBodySchema with nextSteps", () => {
+    const tools = ["bcdev_status", "bcdev_app_publish", "bcdev_app_unpublish", "bcdev_app_list"];
+    const detailVariants: Record<string, string | number | boolean | null>[] = [{},{ upstreamRunCancelled: false }, { password: "secret", note: null }];
+    for (const code of AGENT_ERROR_CODES) {
+      for (const tool of tools) {
+        for (const details of detailVariants) {
+          const body = agentErrorBody(tool, new BcDevError(code, `${code} probe`, "internal", false, details));
+          const parsed = AgentErrorBodySchema.safeParse(JSON.parse(JSON.stringify(body)));
+          expect(parsed.success, `${tool}/${code}: ${parsed.error?.message}`).toBe(true);
+          expect(body.nextSteps.length).toBeGreaterThan(0);
+        }
+      }
+    }
+    // Plain errors go through message normalization; those bodies must validate too.
+    for (const raw of [new Error("boom"), "string failure", new DevEndpointError("denied", "auth"), new DevEndpointError("x", "unreachable")]) {
+      expect(AgentErrorBodySchema.safeParse(agentErrorBody("bcdev_status", raw)).success).toBe(true);
+    }
+  });
+
+  test("schema rejects bodies without nextSteps or with unknown codes", () => {
+    const body = agentErrorBody("bcdev_status", new Error("boom"));
+    expect(AgentErrorBodySchema.safeParse({ ...body, nextSteps: [] }).success).toBe(false);
+    expect(AgentErrorBodySchema.safeParse({ ...body, error: { ...body.error, code: "NOPE" } }).success).toBe(false);
+  });
+
+  test("exports the error body as JSON Schema", () => {
+    const schema = agentErrorBodyJsonSchema() as {
+      $schema: string;
+      required: string[];
+      properties: { error: { properties: { code: { enum: string[] } } }; nextSteps: { minItems: number } };
+    };
+    expect(schema.$schema).toContain("json-schema.org");
+    expect(schema.required).toEqual(["error", "nextSteps"]);
+    expect(schema.properties.error.properties.code.enum).toEqual([...AGENT_ERROR_CODES]);
+    expect(schema.properties.nextSteps.minItems).toBe(1);
   });
 });

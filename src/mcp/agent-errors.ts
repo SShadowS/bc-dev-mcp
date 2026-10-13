@@ -1,18 +1,8 @@
-import { BcDevError, type AgentErrorCategory, type AgentErrorCode } from "../core/agent-errors";
+import { BcDevError, type AgentErrorBody, type AgentErrorCode } from "../core/agent-errors";
 import { redactAuthorization } from "../core/redaction";
 import { DevEndpointError } from "../core/server-info";
 
-export interface AgentErrorBody {
-  error: {
-    code: AgentErrorCode;
-    category: AgentErrorCategory;
-    message: string;
-    retryable: boolean;
-    tool: string;
-    details: Record<string, string | number | boolean | null>;
-  };
-  nextSteps: string[];
-}
+export type { AgentErrorBody } from "../core/agent-errors";
 
 function fromKnownMessage(message: string): BcDevError {
   const lower = message.toLowerCase();
