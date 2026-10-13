@@ -20,8 +20,9 @@ machine-local); pointers in `CLAUDE.local.md`.
 
 ## Runtime & Build
 
-- **Bun** for dev/test/build; the built artifact targets **Node 18+**.
-- Runtime deps are exactly three: `@microsoft/signalr`, `@modelcontextprotocol/sdk`, `zod`. Don't add more without a design change.
+- **Bun** for dev/test/build; the built artifact targets **Node 22+**.
+- Runtime deps are exactly four: `@microsoft/signalr`, `@modelcontextprotocol/server`, `@modelcontextprotocol/client` (MCP SDK v2), `zod`. Don't add more without a design change.
+- MCP SDK v2 serves both protocol eras: `serveStdio` answers 2025-11-25 `initialize` and 2026-07-28 `server/discover` (see `scripts/e2e.md` "MCP 2026-07-28").
 
 ```bash
 bun run dev          # run the MCP server from source (stdio)
@@ -52,7 +53,7 @@ src/mcp/             # thin frontend
 
 **Core rule:** everything in `src/core/` takes I/O dependencies (hub factory,
 fetch, env) as parameters, returns typed data, and never calls `console.*` or
-`process.exit()`. `src/` must be Node-18-compatible — **no `Bun.*` APIs in
+`process.exit()`. `src/` must be Node-22-compatible — **no `Bun.*` APIs in
 `src/`** (Bun is only for dev/test/build; `Bun.*` in tests is fine).
 
 The `HubProxy`/`HubFactory` seam exists so hub clients are tested against an

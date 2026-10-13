@@ -159,6 +159,29 @@ payloads. Initial evidence belongs in
   `server:null` without discarding a successful result, and native debugger state relies on
   typed errors rather than loose identity/paused message matching. <!-- deterministic core, output-schema, and agent-error tests 2026-07-28 -->
 
+## MCP 2026-07-28 (protocol eras, SDK v2)
+
+bc-dev-mcp runs on MCP SDK v2 (`@modelcontextprotocol/server` / `client` 2.3.1). The server side
+is unit-tested in `tests/mcp/protocol-eras.test.ts`; the native-MCP client side needs a live run.
+
+- [x] `serveStdio` serves both eras from one factory over one shared `ServerState`: a 2025-11-25
+  `initialize` and a 2026-07-28 `server/discover` (body `_meta` envelope with
+  `io.modelcontextprotocol/protocolVersion`, `clientInfo`, `clientCapabilities`) are both answered
+  on stdio. <!-- 2026-10-13 unit (in-memory) + raw stdio smoke against `node dist/index.js` and `bc-dev-mcp.exe` -->
+- [x] Modern results carry `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`;
+  `tools/list`, `resources/list`, `resources/read` (skills) and `server/discover` carry
+  `ttlMs: 86400000, cacheScope: "public"` (static, embedded at build). <!-- 2026-10-13 unit -->
+- [x] `tools.listChanged` / `resources.listChanged` are advertised `false` (SDK v2 defaults them to
+  `true`); the lists never change at runtime. <!-- 2026-10-13 unit + stdio smoke -->
+- [x] Unknown tool → JSON-RPC error `-32602` ("Tool X not found") on both eras, not an `isError`
+  result. Input-schema failures are still `isError` results with the structured error body. <!-- 2026-10-13 unit + stdio smoke -->
+- [ ] Live with a current (2025-era) Claude Code client: tools list and a call succeeds.
+- [ ] Native MCP passthrough (SaaS Sandbox): the client probes `server/discover` with the
+  routing headers before `initialize`. Record what the BC gateway answers (JSON-RPC error / HTTP
+  status / silence) and that the legacy fallback then works for all three contexts. Silence or a
+  5xx on the probe breaks every native call (`TIMEOUT` / `SERVER_REJECTED`); if seen, switch
+  `src/core/native-mcp.ts` to `versionNegotiation: { mode: "legacy" }`.
+
 ## Targeted debugger attach (Sandbox)
 
 Run only against a Business Central Sandbox, using two WebClient sessions A and B for the available account. Production is out of scope. With only one Sandbox identity, negative cross-user isolation remains unit-tested rather than claimed live. Record redacted results in `scripts/e2e-targeted-debugger-attach-2026-07-12.md`.
