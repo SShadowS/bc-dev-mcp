@@ -28,7 +28,7 @@
   "bin": {
     "bc-dev-mcp": "dist/index.js"
   },
-  "files": ["dist", "LICENSE"],
+  "files": ["dist", "skills/**/SKILL.md", "LICENSE"],
   "scripts": {
     "embed-skills": "bun run scripts/embed-skills.ts",
     "dev": "bun run embed-skills && bun run src/mcp/index.ts",

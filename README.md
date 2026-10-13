@@ -291,6 +291,8 @@ resources (draft [SEP-2640](https://github.com/modelcontextprotocol/modelcontext
 `skill://index.json`. Clients that understand the `io.modelcontextprotocol/skills` extension pick
 these up automatically; everything else sees them as plain readable resources.
 Sources live in `skills/`; `bun run embed-skills` regenerates `src/mcp/skills.generated.ts`.
+The npm package also ships the plain `skills/*/SKILL.md` files, so clients that never call
+`resources/read` can install them straight from `node_modules/bc-dev-mcp/skills/`.
 
 ## Agent response contract
 
