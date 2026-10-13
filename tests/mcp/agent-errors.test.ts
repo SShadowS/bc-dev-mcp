@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AGENT_ERROR_CODES, AgentErrorBodySchema, BcDevError, agentErrorBodyJsonSchema } from "../../src/core/agent-errors";
+import { AGENT_ERROR_CODES, AgentErrorBodySchema, BC_DEV_MCP_ERROR_CODES, TOOLBOX_CORE_ERROR_CODES, BcDevError, agentErrorBodyJsonSchema } from "../../src/core/agent-errors";
 import { DevEndpointError } from "../../src/core/server-info";
 import { agentErrorBody, normalizeAgentError } from "../../src/mcp/agent-errors";
 
@@ -136,5 +136,14 @@ describe("agent errors", () => {
     expect(schema.required).toEqual(["error", "nextSteps"]);
     expect(schema.properties.error.properties.code.enum).toEqual([...AGENT_ERROR_CODES]);
     expect(schema.properties.nextSteps.minItems).toBe(1);
+  });
+
+  test("codes split into a disjoint toolbox core set and a bc-dev-mcp extension set", () => {
+    const core = new Set<string>(TOOLBOX_CORE_ERROR_CODES);
+    expect(BC_DEV_MCP_ERROR_CODES.filter((code) => core.has(code))).toEqual([]);
+    expect([...AGENT_ERROR_CODES].sort()).toEqual([...TOOLBOX_CORE_ERROR_CODES, ...BC_DEV_MCP_ERROR_CODES].sort());
+    expect(new Set(AGENT_ERROR_CODES).size).toBe(AGENT_ERROR_CODES.length);
+    expect(core.has("INTERNAL_ERROR")).toBe(true);
+    expect(core.has("NO_DEBUG_SESSION")).toBe(false);
   });
 });

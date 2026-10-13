@@ -364,6 +364,10 @@ scraping prose while existing MCP clients still receive a normal `isError: true`
 launch configuration, Azure CLI authentication, active-profile, SQL-insight, and unsupported-server
 failures are typed where they originate; message matching is only a defensive fallback. String
 detail values are redacted, and sensitive detail keys fail closed to `[REDACTED]`.
+`error.code` is either a toolbox core code shared across the BC toolbox (`TOOLBOX_CORE_ERROR_CODES`)
+or a bc-dev-mcp extension code for server-specific state (`BC_DEV_MCP_ERROR_CODES`, e.g.
+`NO_DEBUG_SESSION`); both live in `src/core/agent-errors.ts` with the extension rule. Clients that
+don't recognise an extension code should fall back to `category` and `retryable`.
 If an installed MCP SDK no longer exposes the private validation-error formatting seam, the server
 warns and continues with the SDK's default formatting instead of refusing to start.
 
