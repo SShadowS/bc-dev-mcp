@@ -80,6 +80,7 @@ function setup(options: SetupOptions = {}) {
       head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
       files: [],
     }),
+    callGraph: async () => ({ nodes: [], edges: [] }),
     nativeMcpGateway: gateway,
   };
   const tools = new Map(createTools(state, deps).map((tool) => [tool.name, tool]));

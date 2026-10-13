@@ -1,0 +1,1519 @@
+{
+  "format": "bc-dev-mcp.coverage-map",
+  "version": 1,
+  "baseRef": "HEAD",
+  "mergeBase": "4039bdfdf656bfc12de975a6ee019650de7b2ab6",
+  "complete": true,
+  "tests": [
+    {
+      "codeunitId": 50940,
+      "methodId": -2061945037,
+      "method": "RemainingCreditNeverNegative",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -2094732724
+        },
+        {
+          "objectType": 5,
+          "objectId": 50901,
+          "methodId": -1779869066
+        },
+        {
+          "objectType": 5,
+          "objectId": 50902,
+          "methodId": 116415708
+        }
+      ]
+    },
+    {
+      "codeunitId": 50940,
+      "methodId": -1945147903,
+      "method": "CreditLimitTopRating",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50901,
+          "methodId": -1779869066
+        }
+      ]
+    },
+    {
+      "codeunitId": 50940,
+      "methodId": 746440451,
+      "method": "BlockedRatingCannotOrder",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50901,
+          "methodId": 885627615
+        },
+        {
+          "objectType": 5,
+          "objectId": 50902,
+          "methodId": -1291747296
+        },
+        {
+          "objectType": 5,
+          "objectId": 50903,
+          "methodId": 2071139649
+        }
+      ]
+    },
+    {
+      "codeunitId": 50940,
+      "methodId": 782853638,
+      "method": "CanOrderWithinLimit",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50901,
+          "methodId": -1779869066
+        },
+        {
+          "objectType": 5,
+          "objectId": 50901,
+          "methodId": 885627615
+        },
+        {
+          "objectType": 5,
+          "objectId": 50902,
+          "methodId": -1291747296
+        },
+        {
+          "objectType": 5,
+          "objectId": 50903,
+          "methodId": 2071139649
+        }
+      ]
+    },
+    {
+      "codeunitId": 50940,
+      "methodId": 1873725531,
+      "method": "CannotOrderOverLimit",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50901,
+          "methodId": -1779869066
+        },
+        {
+          "objectType": 5,
+          "objectId": 50901,
+          "methodId": 885627615
+        },
+        {
+          "objectType": 5,
+          "objectId": 50902,
+          "methodId": -1291747296
+        },
+        {
+          "objectType": 5,
+          "objectId": 50903,
+          "methodId": 2071139649
+        }
+      ]
+    },
+    {
+      "codeunitId": 50941,
+      "methodId": -1684130527,
+      "method": "SalesPriceGear",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": -1286378817
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 1383105211
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 2105914486
+        },
+        {
+          "objectType": 5,
+          "objectId": 50906,
+          "methodId": 1296579129
+        }
+      ]
+    },
+    {
+      "codeunitId": 50941,
+      "methodId": -887841355,
+      "method": "GearWeight",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": 308373492
+        }
+      ]
+    },
+    {
+      "codeunitId": 50941,
+      "methodId": -573980440,
+      "method": "UnitCostBolt",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": -1286378817
+        }
+      ]
+    },
+    {
+      "codeunitId": 50941,
+      "methodId": -40429779,
+      "method": "BlankItemNoFails",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 2105914486
+        },
+        {
+          "objectType": 5,
+          "objectId": 50906,
+          "methodId": 1296579129
+        }
+      ]
+    },
+    {
+      "codeunitId": 50941,
+      "methodId": 878362595,
+      "method": "SalesPriceBolt",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": -1286378817
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 1383105211
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 2105914486
+        },
+        {
+          "objectType": 5,
+          "objectId": 50906,
+          "methodId": 1296579129
+        }
+      ]
+    },
+    {
+      "codeunitId": 50942,
+      "methodId": -1434737641,
+      "method": "TenPercentBreak",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50907,
+          "methodId": -1734818275
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -1504521055
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -413395937
+        },
+        {
+          "objectType": 5,
+          "objectId": 50909,
+          "methodId": 2069891840
+        }
+      ]
+    },
+    {
+      "codeunitId": 50942,
+      "methodId": -779789776,
+      "method": "NoBreakBelowTen",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50907,
+          "methodId": -1734818275
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -1504521055
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -413395937
+        },
+        {
+          "objectType": 5,
+          "objectId": 50909,
+          "methodId": 2069891840
+        }
+      ]
+    },
+    {
+      "codeunitId": 50942,
+      "methodId": 839888709,
+      "method": "ZeroQuantityFails",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -1504521055
+        },
+        {
+          "objectType": 5,
+          "objectId": 50909,
+          "methodId": 2069891840
+        }
+      ]
+    },
+    {
+      "codeunitId": 50942,
+      "methodId": 842532135,
+      "method": "LineAmountMultiplies",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50907,
+          "methodId": -1734818275
+        }
+      ]
+    },
+    {
+      "codeunitId": 50942,
+      "methodId": 1339019013,
+      "method": "FivePercentBreak",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50907,
+          "methodId": -1734818275
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -1504521055
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -413395937
+        },
+        {
+          "objectType": 5,
+          "objectId": 50909,
+          "methodId": 2069891840
+        }
+      ]
+    },
+    {
+      "codeunitId": 50943,
+      "methodId": -1313983021,
+      "method": "TopRatingDiscount",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50910,
+          "methodId": -469792551
+        }
+      ]
+    },
+    {
+      "codeunitId": 50943,
+      "methodId": 458821196,
+      "method": "DiscountOver100Fails",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50912,
+          "methodId": 92346811
+        }
+      ]
+    },
+    {
+      "codeunitId": 50943,
+      "methodId": 1256654777,
+      "method": "ApplyTenPercent",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50912,
+          "methodId": 92346811
+        }
+      ]
+    },
+    {
+      "codeunitId": 50943,
+      "methodId": 1790143293,
+      "method": "CustomerPriceRating5NoDiscount",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50910,
+          "methodId": -469792551
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1849684113
+        },
+        {
+          "objectType": 5,
+          "objectId": 50912,
+          "methodId": 92346811
+        }
+      ]
+    },
+    {
+      "codeunitId": 50943,
+      "methodId": 2020666722,
+      "method": "CustomerPriceRating2",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50910,
+          "methodId": -469792551
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1849684113
+        },
+        {
+          "objectType": 5,
+          "objectId": 50912,
+          "methodId": 92346811
+        }
+      ]
+    },
+    {
+      "codeunitId": 50944,
+      "methodId": -2013723811,
+      "method": "GermanTax",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50915,
+          "methodId": -1146428398
+        }
+      ]
+    },
+    {
+      "codeunitId": 50944,
+      "methodId": -583425772,
+      "method": "GermanGrossRounds",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": 360498238
+        },
+        {
+          "objectType": 5,
+          "objectId": 50915,
+          "methodId": -1146428398
+        }
+      ]
+    },
+    {
+      "codeunitId": 50944,
+      "methodId": 792025997,
+      "method": "DanishTax",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50914,
+          "methodId": -1146428398
+        }
+      ]
+    },
+    {
+      "codeunitId": 50944,
+      "methodId": 1437805827,
+      "method": "DanishGross",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": 360498238
+        },
+        {
+          "objectType": 5,
+          "objectId": 50914,
+          "methodId": -1146428398
+        }
+      ]
+    },
+    {
+      "codeunitId": 50944,
+      "methodId": 1628678877,
+      "method": "ExemptTax",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50916,
+          "methodId": -1146428398
+        }
+      ]
+    },
+    {
+      "codeunitId": 50945,
+      "methodId": -1514418673,
+      "method": "FreeAboveThreshold",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": -220743594
+        },
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": 1331032987
+        },
+        {
+          "objectType": 5,
+          "objectId": 50919,
+          "methodId": 1712659777
+        }
+      ]
+    },
+    {
+      "codeunitId": 50945,
+      "methodId": -872278831,
+      "method": "ExpressFreight",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50917,
+          "methodId": -557791718
+        }
+      ]
+    },
+    {
+      "codeunitId": 50945,
+      "methodId": -254224164,
+      "method": "ExpressNeverFree",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50917,
+          "methodId": -557791718
+        },
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": -220743594
+        },
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": 1331032987
+        },
+        {
+          "objectType": 5,
+          "objectId": 50919,
+          "methodId": 1712659777
+        }
+      ]
+    },
+    {
+      "codeunitId": 50945,
+      "methodId": 1613943810,
+      "method": "ChargedBelowThreshold",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50917,
+          "methodId": -557791718
+        },
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": -220743594
+        },
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": 1331032987
+        },
+        {
+          "objectType": 5,
+          "objectId": 50919,
+          "methodId": 1712659777
+        }
+      ]
+    },
+    {
+      "codeunitId": 50945,
+      "methodId": 2031527205,
+      "method": "StandardFreight",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50917,
+          "methodId": -557791718
+        }
+      ]
+    },
+    {
+      "codeunitId": 50946,
+      "methodId": -946098805,
+      "method": "InvoiceWithStandardShipping",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": -1286378817
+        },
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": 308373492
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 1383105211
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 2105914486
+        },
+        {
+          "objectType": 5,
+          "objectId": 50906,
+          "methodId": 1296579129
+        },
+        {
+          "objectType": 5,
+          "objectId": 50907,
+          "methodId": -1734818275
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -1504521055
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -413395937
+        },
+        {
+          "objectType": 5,
+          "objectId": 50909,
+          "methodId": 2069891840
+        },
+        {
+          "objectType": 5,
+          "objectId": 50910,
+          "methodId": -469792551
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1849684113
+        },
+        {
+          "objectType": 5,
+          "objectId": 50912,
+          "methodId": 92346811
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": 360498238
+        },
+        {
+          "objectType": 5,
+          "objectId": 50916,
+          "methodId": -1146428398
+        },
+        {
+          "objectType": 5,
+          "objectId": 50917,
+          "methodId": -557791718
+        },
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": -220743594
+        },
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": 1331032987
+        },
+        {
+          "objectType": 5,
+          "objectId": 50919,
+          "methodId": 1712659777
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": -995914801
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": 1900020482
+        },
+        {
+          "objectType": 5,
+          "objectId": 50921,
+          "methodId": 991915496
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 626034940
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 787741073
+        }
+      ]
+    },
+    {
+      "codeunitId": 50946,
+      "methodId": -128299560,
+      "method": "InvoiceInEuro",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": -1286378817
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 1383105211
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 2105914486
+        },
+        {
+          "objectType": 5,
+          "objectId": 50906,
+          "methodId": 1296579129
+        },
+        {
+          "objectType": 5,
+          "objectId": 50907,
+          "methodId": -1734818275
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -1504521055
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -413395937
+        },
+        {
+          "objectType": 5,
+          "objectId": 50909,
+          "methodId": 2069891840
+        },
+        {
+          "objectType": 5,
+          "objectId": 50910,
+          "methodId": -469792551
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1849684113
+        },
+        {
+          "objectType": 5,
+          "objectId": 50912,
+          "methodId": 92346811
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": 360498238
+        },
+        {
+          "objectType": 5,
+          "objectId": 50916,
+          "methodId": -1146428398
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": -995914801
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": 1900020482
+        },
+        {
+          "objectType": 5,
+          "objectId": 50921,
+          "methodId": 1212326864
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 626034940
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 787741073
+        },
+        {
+          "objectType": 5,
+          "objectId": 50929,
+          "methodId": 166932434
+        },
+        {
+          "objectType": 5,
+          "objectId": 50930,
+          "methodId": 7922061
+        }
+      ]
+    },
+    {
+      "codeunitId": 50946,
+      "methodId": 251700219,
+      "method": "InvoiceFreeShipping",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": -1286378817
+        },
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": 308373492
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 1383105211
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 2105914486
+        },
+        {
+          "objectType": 5,
+          "objectId": 50906,
+          "methodId": 1296579129
+        },
+        {
+          "objectType": 5,
+          "objectId": 50907,
+          "methodId": -1734818275
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -1504521055
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -413395937
+        },
+        {
+          "objectType": 5,
+          "objectId": 50909,
+          "methodId": 2069891840
+        },
+        {
+          "objectType": 5,
+          "objectId": 50910,
+          "methodId": -469792551
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1849684113
+        },
+        {
+          "objectType": 5,
+          "objectId": 50912,
+          "methodId": 92346811
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": 360498238
+        },
+        {
+          "objectType": 5,
+          "objectId": 50916,
+          "methodId": -1146428398
+        },
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": -220743594
+        },
+        {
+          "objectType": 5,
+          "objectId": 50918,
+          "methodId": 1331032987
+        },
+        {
+          "objectType": 5,
+          "objectId": 50919,
+          "methodId": 1712659777
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": -995914801
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": 1900020482
+        },
+        {
+          "objectType": 5,
+          "objectId": 50921,
+          "methodId": 991915496
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 626034940
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 787741073
+        }
+      ]
+    },
+    {
+      "codeunitId": 50946,
+      "methodId": 915037850,
+      "method": "InvoiceBoltRating2Danish",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": -1286378817
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 1383105211
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 2105914486
+        },
+        {
+          "objectType": 5,
+          "objectId": 50906,
+          "methodId": 1296579129
+        },
+        {
+          "objectType": 5,
+          "objectId": 50907,
+          "methodId": -1734818275
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -1504521055
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -413395937
+        },
+        {
+          "objectType": 5,
+          "objectId": 50909,
+          "methodId": 2069891840
+        },
+        {
+          "objectType": 5,
+          "objectId": 50910,
+          "methodId": -469792551
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1849684113
+        },
+        {
+          "objectType": 5,
+          "objectId": 50912,
+          "methodId": 92346811
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": 360498238
+        },
+        {
+          "objectType": 5,
+          "objectId": 50914,
+          "methodId": -1146428398
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": -995914801
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": 1900020482
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 626034940
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 787741073
+        }
+      ]
+    },
+    {
+      "codeunitId": 50946,
+      "methodId": 1943812995,
+      "method": "InvoiceGearExempt",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": -1514994404
+        },
+        {
+          "objectType": 5,
+          "objectId": 50900,
+          "methodId": 1557558660
+        },
+        {
+          "objectType": 5,
+          "objectId": 50904,
+          "methodId": -1286378817
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 1383105211
+        },
+        {
+          "objectType": 5,
+          "objectId": 50905,
+          "methodId": 2105914486
+        },
+        {
+          "objectType": 5,
+          "objectId": 50906,
+          "methodId": 1296579129
+        },
+        {
+          "objectType": 5,
+          "objectId": 50907,
+          "methodId": -1734818275
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -1504521055
+        },
+        {
+          "objectType": 5,
+          "objectId": 50908,
+          "methodId": -413395937
+        },
+        {
+          "objectType": 5,
+          "objectId": 50909,
+          "methodId": 2069891840
+        },
+        {
+          "objectType": 5,
+          "objectId": 50910,
+          "methodId": -469792551
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1673903542
+        },
+        {
+          "objectType": 5,
+          "objectId": 50911,
+          "methodId": 1849684113
+        },
+        {
+          "objectType": 5,
+          "objectId": 50912,
+          "methodId": 92346811
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": -1306971786
+        },
+        {
+          "objectType": 5,
+          "objectId": 50913,
+          "methodId": 360498238
+        },
+        {
+          "objectType": 5,
+          "objectId": 50916,
+          "methodId": -1146428398
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": -995914801
+        },
+        {
+          "objectType": 5,
+          "objectId": 50920,
+          "methodId": 1900020482
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 626034940
+        },
+        {
+          "objectType": 5,
+          "objectId": 50922,
+          "methodId": 787741073
+        }
+      ]
+    },
+    {
+      "codeunitId": 50947,
+      "methodId": -2129438095,
+      "method": "PointsPerTenSpent",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50923,
+          "methodId": 146704069
+        },
+        {
+          "objectType": 5,
+          "objectId": 50923,
+          "methodId": 1740096968
+        },
+        {
+          "objectType": 5,
+          "objectId": 50924,
+          "methodId": -1003871750
+        }
+      ]
+    },
+    {
+      "codeunitId": 50947,
+      "methodId": -1665824083,
+      "method": "NightlyRecalcDecays",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50923,
+          "methodId": 146704069
+        },
+        {
+          "objectType": 5,
+          "objectId": 50923,
+          "methodId": 1740096968
+        },
+        {
+          "objectType": 5,
+          "objectId": 50924,
+          "methodId": -1003871750
+        },
+        {
+          "objectType": 5,
+          "objectId": 50924,
+          "methodId": 1002685770
+        },
+        {
+          "objectType": 5,
+          "objectId": 50925,
+          "methodId": -1013633543
+        },
+        {
+          "objectType": 5,
+          "objectId": 50926,
+          "methodId": -612249473
+        },
+        {
+          "objectType": 5,
+          "objectId": 50926,
+          "methodId": -401248892
+        },
+        {
+          "objectType": 5,
+          "objectId": 50927,
+          "methodId": -1106127421
+        },
+        {
+          "objectType": 5,
+          "objectId": 50927,
+          "methodId": -643328674
+        }
+      ]
+    },
+    {
+      "codeunitId": 50947,
+      "methodId": -1015161871,
+      "method": "SilverTier",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50925,
+          "methodId": 740178658
+        }
+      ]
+    },
+    {
+      "codeunitId": 50947,
+      "methodId": 780469667,
+      "method": "BonusAboveThousand",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50923,
+          "methodId": 146704069
+        },
+        {
+          "objectType": 5,
+          "objectId": 50923,
+          "methodId": 1740096968
+        },
+        {
+          "objectType": 5,
+          "objectId": 50924,
+          "methodId": -1003871750
+        },
+        {
+          "objectType": 5,
+          "objectId": 50924,
+          "methodId": 1002685770
+        }
+      ]
+    },
+    {
+      "codeunitId": 50947,
+      "methodId": 1110821139,
+      "method": "GoldTier",
+      "procedures": [
+        {
+          "objectType": 5,
+          "objectId": 50925,
+          "methodId": 740178658
+        }
+      ]
+    }
+  ]
+}

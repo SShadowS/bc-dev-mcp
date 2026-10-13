@@ -14,6 +14,21 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       return Array.isArray(result["tests"]) && result["tests"].length > 0
         ? ["Call bcdev_test_run with the returned codeunit IDs, or bcdev_test_orchestrate when repeatability is the question."]
         : [];
+    case "bcdev_test_select": {
+      const steps: string[] = [];
+      if (result["fallbackToAll"] === true) {
+        steps.push("Selection cannot see part of this diff (fallbackReasons); run the whole suite by passing each shards[].codeunits to bcdev_test_run.");
+      } else if (Array.isArray(result["shards"]) && result["shards"].length > 0) {
+        steps.push(`Publish the changes, then pass each shards[].codeunits to bcdev_test_run, with coverageAgainst: "${String(params["baseRef"])}" and changesDeployed: true to confirm changed-procedure coverage.`);
+      }
+      if (Array.isArray(result["uncoverable"]) && result["uncoverable"].length > 0) {
+        steps.push("No test reaches the procedures in uncoverable; add tests for them before relying on this selection.");
+      }
+      if (params["coverageMapFile"] === undefined) {
+        steps.push("Record coverage history with bcdev_test_run coverageMapFile on a full run, then pass it here as coverageMapFile.");
+      }
+      return steps;
+    }
     case "bcdev_test_run": {
       const summary = result["summary"] as Record<string, unknown> | undefined;
       const steps: string[] = [];

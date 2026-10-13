@@ -48,6 +48,7 @@ function setup(hub: FakeHub) {
       head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
       files: [],
     }),
+    callGraph: async () => ({ nodes: [], edges: [] }),
     nativeMcpGateway: new FakeNativeMcpGateway(),
   };
   return {
