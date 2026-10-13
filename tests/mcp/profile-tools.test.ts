@@ -106,6 +106,35 @@ describe("profile tools", () => {
     expect(f["nextSteps"]).toBeUndefined(); // added only by the MCP response decorator
   });
 
+  test("finish attaches al-sem findings to hotspots in the workspace project, and only warns when alsem is missing", async () => {
+    const wsProfile = JSON.stringify({
+      nodes: [{ id: 1, callFrame: { functionName: "SumLines", url: "al-preview://allang/Codeunit/50100/Codeunit_50100.dal", lineNumber: 5 } }],
+      samples: [1], timeDeltas: [100], startTime: 0, endTime: 100,
+    });
+    const project = join(import.meta.dir, "..", "fixtures", "alsem-hotspots", "ws");
+    const recorded = readFileSync(join(project, "..", "analyze.json"), "utf8");
+    const run = async (alsemAnalyze: ToolDeps["alsemAnalyze"]) => {
+      const st = new ServerState();
+      let ctx = "";
+      const fetchFn = (async (u: RequestInfo | URL) => {
+        const url = u.toString();
+        if (url.includes("attach")) { ctx = new URL(url).searchParams.get("debuggingcontext")!; return new Response('"NextSessionOnTenant"'); }
+        if (url.includes("finish")) { return new Response(makeZip(`${ctx}.alcpuprofile`, Buffer.from(wsProfile)), { headers: { ETag: '"Sampling"' } }); }
+        return new Response("{}");
+      }) as unknown as typeof fetch;
+      const tools = new Map(createProfileTools(st, { ...deps(fetchFn), alsemAnalyze }).map((t) => [t.name, t]));
+      await tools.get("bcdev_profile_start")!.handler({ ...conn });
+      return (await tools.get("bcdev_profile_finish")!.handler({ project })) as { summary: { hotspots: Array<{ findings?: Array<{ detector: string }> }> }; warnings?: string[]; hotspotAnalysis?: { findingsMatched: number } };
+    };
+    const ok = await run(async () => recorded);
+    expect(ok.summary.hotspots[0]!.findings![0]!.detector).toBe("d1-db-op-in-loop");
+    expect(ok.hotspotAnalysis!.findingsMatched).toBe(1);
+    expect(ok.warnings).toBeUndefined();
+    const missing = await run(async () => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); });
+    expect(missing.summary.hotspots[0]!.findings).toBeUndefined();
+    expect(missing.warnings).toHaveLength(1);
+  });
+
   test("finish bounds sampling profile extraction to the runtime-safe text limit", async () => {
     let ctx = "";
     const fetchFn = (async (u: RequestInfo | URL) => {

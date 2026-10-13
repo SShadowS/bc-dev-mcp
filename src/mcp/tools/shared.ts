@@ -13,6 +13,7 @@ import type { GitChangeSet } from "../../core/git-changes";
 import type { CallGraphProvider } from "../../core/call-graph";
 import type { OrderPollutionPredictor } from "../../core/test-order-static";
 import type { StaticWritersProvider } from "../../core/alsem-writes";
+import type { AlSemAnalyze } from "../../core/hotspot-explain";
 import type { NativeMcpGateway } from "../../core/native-mcp";
 import type { RiskDigestProvider } from "../../core/risk";
 import { upperInvariantUtf16 } from "../../core/al-identifiers";
@@ -50,6 +51,8 @@ export interface ToolDeps {
   /** Optional al-sem static writer sets for record-write triage; absent = no static cross-check. */
   staticWriters?: StaticWritersProvider;
   nativeMcpGateway: NativeMcpGateway;
+  /** `alsem analyze` runner for bcdev_profile_finish hotspot explanations; defaults to spawning alsem (BC_DEV_ALSEM / PATH), tests inject a fake. */
+  alsemAnalyze?: AlSemAnalyze;
 }
 
 export interface ToolDefinition {

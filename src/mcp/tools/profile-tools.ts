@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import { BcDevError } from "../../core/agent-errors";
 import { SnapshotClient } from "../../core/snapshot/snapshot-client";
 import { summarizeProfile } from "../../core/snapshot/profile-summary";
+import { createAlSemAnalyze, explainHotspots } from "../../core/hotspot-explain";
 import { extractEntry, listEntryNames, MAX_TEXT_ENTRY_BYTES } from "../../core/snapshot/zip";
 import { convertMdcZip, resolveConverter, type ConverterEnv, type SpawnRunner } from "../../core/snapshot/converter";
 import { DEFAULT_SNAPSHOT_PORT } from "../../core/urls";
@@ -21,6 +22,20 @@ import {
 
 const profileId = handleShape(PROFILE_HANDLE);
 
+const findingSchema = z.object({
+  detector: z.string(),
+  title: z.string(),
+  confidence: z.string(),
+  severity: z.string().optional(),
+  file: z.string(),
+  line: z.number(),
+  rootCause: z.string().optional(),
+  evidence: z.array(z.object({ note: z.string(), file: z.string().optional(), line: z.number().optional() })),
+  fix: z.string().optional(),
+  fixSafety: z.string().optional(),
+  enclosingMember: z.string().optional(),
+});
+
 const hotspotSchema = z.object({
   function: z.string(),
   url: z.string(),
@@ -28,6 +43,17 @@ const hotspotSchema = z.object({
   selfSamples: z.number(),
   selfMs: z.number(),
   selfPct: z.number(),
+  findings: z.array(findingSchema).optional().describe("al-sem static performance findings for this routine (only with a workspace project and alsem available)"),
+  omittedFindings: z.number().optional(),
+});
+
+const hotspotAnalysisSchema = z.object({
+  source: z.literal("al-sem"),
+  alsemVersion: z.string(),
+  detectors: z.array(z.string()),
+  findingsTotal: z.number(),
+  findingsMatched: z.number(),
+  notes: z.array(z.string()),
 });
 
 function requireProfile(state: ServerState, params: Record<string, unknown>) {
@@ -53,6 +79,13 @@ export function createProfileTools(
 ): ToolDefinition[] {
   const resolveEnv = converterOverride?.resolveEnv ?? (() => resolveConverter({ env: deps.env }));
   const runConvert = converterOverride?.run;
+
+  // al-sem is optional: any failure inside explainHotspots is a warning, never a tool error.
+  const explain = async <T extends { hotspots: Parameters<typeof explainHotspots>[0] }>(summary: T, params: Record<string, unknown>) => {
+    const project = resolvePath(deps.cwd, (params["project"] as string | undefined) ?? ".");
+    const { hotspots, analysis, warnings } = await explainHotspots(summary.hotspots, project, deps.alsemAnalyze ?? createAlSemAnalyze(deps.env));
+    return { summary: { ...summary, hotspots }, ...(analysis ? { hotspotAnalysis: analysis } : {}), ...(warnings.length > 0 ? { warnings } : {}) };
+  };
 
   return [
     {
@@ -182,11 +215,12 @@ export function createProfileTools(
     {
       name: "bcdev_profile_finish",
       title: "Finish CPU profile",
-      description: "Finish the active capture, extract the .alcpuprofile, write it to disk, and return a ranked AL self-time hotspot summary. If nothing was recorded, reports captured:false.",
+      description: "Finish the active capture, extract the .alcpuprofile, write it to disk, and return a ranked AL self-time hotspot summary. If nothing was recorded, reports captured:false. When the hotspots are in the AL workspace app (project, default server cwd) and al-sem (alsem) is available, each matching hotspot also carries al-sem's static performance findings (title, confidence, evidence call chain, suggested fix); without alsem the hotspots come back unchanged with one warning.",
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       schema: {
         profileId,
         outPath: z.string().optional().describe("Where to write the .alcpuprofile (default: <cwd>/<ctx>.alcpuprofile)"),
+        project: z.string().optional().describe("AL workspace folder (with app.json) whose code was profiled; enables al-sem hotspot explanations (default: server cwd, used only if it holds an app.json)"),
       },
       outputSchema: z.looseObject({
         captured: z.boolean(),
@@ -199,6 +233,8 @@ export function createProfileTools(
           nodeCount: z.number(),
           hotspots: z.array(hotspotSchema),
         }).optional(),
+        hotspotAnalysis: hotspotAnalysisSchema.optional(),
+        warnings: z.array(z.string()).optional(),
         hint: z.string().optional(),
       }),
       handler: async (params) => {
@@ -230,7 +266,7 @@ export function createProfileTools(
             const outPath = (params["outPath"] as string | undefined) ?? join(deps.cwd, member);
             writeFileSync(outPath, profileBytes);
             const summary = summarizeProfile(profileBytes.toString("utf8"));
-            return { captured: true, profilePath: outPath, kind: "sampling", summary };
+            return { captured: true, profilePath: outPath, kind: "sampling", ...(await explain(summary, params)) };
           }
           // instrumentation: body is a .zip of .mdc
           const names = readArchive(
@@ -268,7 +304,7 @@ export function createProfileTools(
             kind: "instrumentation",
             profilePath: outPath,
             zipPath,
-            summary,
+            ...(await explain(summary, params)),
           };
         } finally {
           state.profile = null;
