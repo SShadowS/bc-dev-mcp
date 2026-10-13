@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { BcDevError } from "./agent-errors";
 
@@ -430,5 +430,49 @@ export function createCallGraphProvider(
       if (notFound) return graph;
       return { ...graph, warnings: [...(graph.warnings ?? []), `al-sem call graph unavailable (${reason}); used altool instead.`] };
     }
+  };
+}
+
+/** What a graph depends on: every .al file, app.json and .alpackages/*.app (path, size, mtime). */
+export async function alProjectFingerprint(project: string): Promise<string> {
+  const root = resolve(project);
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  const parts: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const path = join(entry.parentPath, entry.name);
+    const rel = relative(root, path).split(sep).join("/");
+    if (rel.startsWith(".git/") || rel.includes("node_modules/")) continue;
+    const lower = rel.toLowerCase();
+    if (!(lower.endsWith(".al") || lower === "app.json" || (lower.startsWith(".alpackages/") && lower.endsWith(".app")))) continue;
+    const info = await stat(path);
+    parts.push(`${rel}|${info.size}|${info.mtimeMs}`);
+  }
+  return `${root}\n${parts.sort().join("\n")}`;
+}
+
+/**
+ * Reuses a built graph while the project's AL inputs are unchanged (fingerprint), so repeated
+ * bcdev_test_select calls on one commit skip the multi-second engine run. Concurrent calls share
+ * one build; failures are not cached.
+ */
+export function cachedCallGraphProvider(
+  inner: CallGraphProvider,
+  fingerprint: (project: string) => Promise<string> = alProjectFingerprint,
+  maxEntries = 4,
+): CallGraphProvider {
+  const cache = new Map<string, Promise<CallGraph>>();
+  return async (project) => {
+    const key = await fingerprint(project);
+    let graph = cache.get(key);
+    if (graph) {
+      cache.delete(key); // re-insert: Map order doubles as LRU order
+    } else {
+      graph = inner(project);
+      graph.catch(() => cache.delete(key));
+    }
+    cache.set(key, graph);
+    while (cache.size > maxEntries) cache.delete(cache.keys().next().value!);
+    return graph;
   };
 }

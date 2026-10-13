@@ -5,7 +5,7 @@ import { createAuthorizationProviderFactory } from "../core/authorization";
 import { buildServer } from "./server";
 import { ServerState } from "./state";
 import { collectGitChanges } from "../core/git-changes";
-import { createCallGraphProvider } from "../core/call-graph";
+import { cachedCallGraphProvider, createCallGraphProvider } from "../core/call-graph";
 import { createAlSemRiskProvider } from "../core/risk";
 import { createAlSemOrderPredictor } from "../core/test-order-static";
 import { createAlSemStaticWritersProvider } from "../core/alsem-writes";
@@ -23,7 +23,7 @@ const deps = {
   env: process.env,
   cwd: process.cwd(),
   gitChanges: collectGitChanges,
-  callGraph: createCallGraphProvider(process.env),
+  callGraph: cachedCallGraphProvider(createCallGraphProvider(process.env)),
   riskDigest: createAlSemRiskProvider(process.env),
   orderPredictor: createAlSemOrderPredictor(process.env),
   staticWriters: createAlSemStaticWritersProvider(process.env),
