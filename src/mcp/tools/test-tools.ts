@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { relative as relativePath, resolve as resolvePath } from "node:path";
-import { AL_OBJECT_TYPE, AlObjectIndex, discoverTests } from "../../core/al-objects";
+import { AL_OBJECT_TYPE, AlObjectIndex, discoverTestRunners, discoverTests } from "../../core/al-objects";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { fetchServerInfo } from "../../core/server-info";
 import type { CoverageEntry, CoverageMode, RunTestsResult } from "../../core/types";
@@ -177,7 +177,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
     {
       name: "bcdev_test_discover",
       title: "Discover AL tests",
-      description: "Scan the AL project for test codeunits ([Test] methods). Filesystem only — no server needed.",
+      description: "Scan the AL project for test codeunits ([Test] methods, with each method's attributes and TransactionModel) and TestRunner codeunits (with TestIsolation). Filesystem only — no server needed.",
       annotations: { readOnlyHint: true, openWorldHint: false },
       schema: { project: connectionShape.project },
       outputSchema: z.object({
@@ -187,11 +187,18 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             name: z.string(),
             file: z.string(),
             methods: z.array(z.string()),
+            methodDetails: z.array(
+              z.looseObject({ name: z.string(), transactionModel: z.string(), attributes: z.array(z.string()) }),
+            ),
           }),
+        ),
+        runners: z.array(
+          z.looseObject({ codeunitId: z.number(), name: z.string(), file: z.string(), testIsolation: z.string() }),
         ),
       }),
       handler: async (params) => {
-        return { tests: await discoverTests((params["project"] as string | undefined) ?? deps.cwd) };
+        const project = (params["project"] as string | undefined) ?? deps.cwd;
+        return { tests: await discoverTests(project), runners: await discoverTestRunners(project) };
       },
     },
     {

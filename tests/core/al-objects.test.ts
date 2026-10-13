@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { AlObjectIndex, discoverTests } from "../../src/core/al-objects";
+import { AlObjectIndex, discoverTestRunners, discoverTests } from "../../src/core/al-objects";
 
 function makeProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "bcmcp-al-"));
@@ -118,5 +118,58 @@ describe("discoverTests", () => {
     const tests = await discoverTests(dir);
     const more = tests.find((t) => t.codeunitId === 50103);
     expect(more?.methods).toEqual(["WithComment"]);
+  });
+
+  test("captures per-method attributes and TransactionModel (default AutoCommit)", async () => {
+    const dir = makeProject();
+    writeFileSync(
+      join(dir, "Tx.Codeunit.al"),
+      [
+        'codeunit 50105 "Tx Tests"',
+        "{",
+        "    Subtype = Test;",
+        "",
+        "    [Test]",
+        "    [TransactionModel(TransactionModel::AutoRollback)]",
+        "    procedure Rolled()",
+        "    begin",
+        "    end;",
+        "",
+        "    [HandlerFunctions('ConfirmYes')]",
+        "    [Test]",
+        "    procedure Plain()",
+        "    begin",
+        "    end;",
+        "",
+        "    [ConfirmHandler]",
+        "    procedure ConfirmYes(Q: Text; var Reply: Boolean)",
+        "    begin",
+        "    end;",
+        "}",
+      ].join("\n"),
+    );
+    const tests = await discoverTests(dir);
+    const tx = tests.find((t) => t.codeunitId === 50105);
+    expect(tx?.methods).toEqual(["Rolled", "Plain"]);
+    expect(tx?.methodDetails).toEqual([
+      { name: "Rolled", transactionModel: "AutoRollback", attributes: ["Test", "TransactionModel(TransactionModel::AutoRollback)"] },
+      { name: "Plain", transactionModel: "AutoCommit", attributes: ["HandlerFunctions('ConfirmYes')", "Test"] },
+    ]);
+  });
+
+  test("reports TestRunner codeunits with their TestIsolation", async () => {
+    const dir = makeProject();
+    writeFileSync(
+      join(dir, "Runner.Codeunit.al"),
+      ['codeunit 50106 "My Runner"', "{", "    Subtype = TestRunner;", "    TestIsolation = Codeunit;", "}"].join("\n"),
+    );
+    writeFileSync(join(dir, "Runner2.Codeunit.al"), ['codeunit 50107 "Bare Runner"', "{", "    Subtype = TestRunner;", "}"].join("\n"));
+    const runners = await discoverTestRunners(dir);
+    expect(runners).toEqual([
+      expect.objectContaining({ codeunitId: 50106, name: "My Runner", testIsolation: "Codeunit" }),
+      expect.objectContaining({ codeunitId: 50107, name: "Bare Runner", testIsolation: "Disabled" }),
+    ]);
+    // runners are not test codeunits
+    expect((await discoverTests(dir)).map((t) => t.codeunitId)).toEqual([50100]);
   });
 });
