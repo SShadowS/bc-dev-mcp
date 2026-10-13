@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import { AlObjectIndex } from "../../core/al-objects";
+import { AL_OBJECT_TYPE, AlObjectIndex } from "../../core/al-objects";
 import { BcDevError } from "../../core/agent-errors";
 import { DebuggerClient } from "../../core/hubs/debugger-hub";
+import { diffStaticVsObserved, type StaticWritersResult } from "../../core/alsem-writes";
 import {
   RecordWriteCollector,
   type RecordWriteReport,
@@ -84,6 +85,63 @@ const reportSchema = z.object({
   unresolved: z.array(unresolvedSchema).describe("Fail-closed groups that could not be attributed to a runtime table"),
   warnings: z.array(z.string()).describe("Redacted lifecycle, source-trust, truncation, or classification warnings"),
 });
+
+const staticSiteSchema = z.object({
+  operation: z.string().describe("al-sem db operation: Insert | Modify | ModifyAll | Delete | DeleteAll | Rename"),
+  objectType: z.string().describe("AL object type of the writing routine, e.g. Codeunit"),
+  objectId: z.number(),
+  objectDisplay: z.string(),
+  routine: z.string(),
+  file: z.string().describe("Workspace-relative path"),
+  line: z.number().describe("1-based"),
+  tempState: z.string().describe("al-sem temp-record state: known(false) | known(true) | unknown"),
+  via: z.string().describe("direct = the routine writes itself; inherited = reached through a callee"),
+}).describe("One statically known write site");
+
+const staticWritersSchema = z.object({
+  available: z.boolean().describe("false = al-sem is missing or could not answer; the cross-check is absent, not failed"),
+  warnings: z.array(z.string()),
+  alsemVersion: z.string().optional(),
+  table: z.object({ selector: z.string(), name: z.string().nullable() }).optional()
+    .describe("The alsem table selector that resolved (<appId>/table/<tableId> first, then the table name)"),
+  routinesScanned: z.number().optional(),
+  sites: z.array(staticSiteSchema).describe("Writes al-sem proves target the table"),
+  unknownBucketSites: z.array(staticSiteSchema).describe("Writes whose target al-sem could not resolve (RecordRef/Variant); any might hit the table"),
+  caveats: z.array(z.string()),
+}).describe("al-sem static writer sites for the watched table");
+
+const staticCrossCheckSchema = z.object({
+  available: z.boolean(),
+  warnings: z.array(z.string()),
+  matched: z.number().optional().describe("Static sites that were also observed"),
+  staticNotObserved: z.array(staticSiteSchema).optional().describe("Statically possible, never observed in this capture"),
+  observedNotStatic: z.array(z.object({
+    operation: z.string(),
+    receiver: z.string(),
+    count: z.number(),
+    frame: z.object({
+      objectType: z.number(), objectId: z.number(), objectName: z.string(), methodName: z.string(),
+      line: z.number().describe("1-based"), file: z.string().optional(),
+    }),
+    inUnknownBucket: z.boolean().describe("true = al-sem has a write at this site but could not resolve its table"),
+  })).optional().describe("Observed, but not in al-sem's proven static set for the table"),
+  observationComplete: z.boolean().optional().describe("false = the capture was incomplete, so 'never observed' proves little"),
+  caveats: z.array(z.string()).optional(),
+}).describe("Static (al-sem) versus observed writer diff");
+
+function staticWritersView(result: StaticWritersResult): z.infer<typeof staticWritersSchema> {
+  const w = result.writers;
+  return {
+    available: w !== null,
+    warnings: result.warnings,
+    ...(w
+      ? { alsemVersion: w.alsemVersion, table: w.table, routinesScanned: w.routinesScanned }
+      : {}),
+    sites: w?.sites ?? [],
+    unknownBucketSites: w?.unknownBucketSites ?? [],
+    caveats: w?.caveats ?? [],
+  };
+}
 
 function requireTriage(state: ServerState): RecordWriteCollector {
   if (!state.recordWrites) {
@@ -183,6 +241,8 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
         includeTemporary: z.boolean().describe("Whether temporary writes are included"),
         changesDeployed: z.boolean().describe("Caller-provided local source deployment assertion"),
         maxObservedWrites: z.number().describe("Effective observed-write safety cap"),
+        staticWriters: staticWritersSchema.optional()
+          .describe("al-sem static writer sites for the table; omitted when no static provider is configured"),
       }),
       handler: async (params) => {
         state.assertDebugSlotAvailable();
@@ -216,6 +276,14 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
             breakOnRecordWrite: options.includeTemporary ? "all" : "nonTemporary",
             skipSystemTriggers: false,
           });
+          // Optional al-sem enrichment (never throws): seeds the finish-time static-vs-observed diff.
+          let staticWriters: z.infer<typeof staticWritersSchema> | undefined;
+          if (deps.staticWriters) {
+            const tableName = index.byId(AL_OBJECT_TYPE["table"]!, options.tableId)?.name ?? null;
+            const result = await deps.staticWriters({ project, tableId: options.tableId, tableName, includeTemporary: options.includeTemporary });
+            state.recordWriteStatic = { project, tableId: options.tableId, includeTemporary: options.includeTemporary, tableName, result };
+            staticWriters = staticWritersView(result);
+          }
           return {
             armed: true,
             connectionId: client.connectionId,
@@ -223,10 +291,12 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
             includeTemporary: options.includeTemporary,
             changesDeployed: options.changesDeployed,
             maxObservedWrites: options.maxObservedWrites,
+            ...(staticWriters ? { staticWriters } : {}),
           };
         } catch (error) {
           if (state.recordWrites === collector) state.recordWrites = null;
           if (state.recordWriteSlotToken === slotToken) state.recordWriteSlotToken = null;
+          state.recordWriteStatic = null;
           state.releaseDebugSlot(slotToken);
           await client.stop().catch(() => {});
           throw error;
@@ -250,14 +320,33 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
         "Finish the capture window, release a paused workload undebugged if necessary, close the debugger, and return grouped exact writers plus fail-closed unresolved evidence.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       schema: {},
-      outputSchema: reportSchema,
-      handler: async (): Promise<RecordWriteReport> => {
+      outputSchema: reportSchema.extend({
+        staticCrossCheck: staticCrossCheckSchema.optional()
+          .describe("al-sem static writer sites diffed against the observed stacks; omitted when no static provider was configured at start"),
+      }),
+      handler: async () => {
         const collector = requireTriage(state);
         state.recordWrites = null;
         const slotToken = state.recordWriteSlotToken;
         state.recordWriteSlotToken = null;
+        const seed = state.recordWriteStatic;
+        state.recordWriteStatic = null;
         try {
-          return await collector.finish();
+          const report = await collector.finish();
+          if (!seed || !deps.staticWriters) return report;
+          let result = seed.result;
+          // The table was not resolvable at start (e.g. a base-app table): retry with the runtime name the debugger reported.
+          const observedName = report.target.tableName;
+          if (!result.writers && observedName && observedName !== seed.tableName) {
+            const retry = await deps.staticWriters({ project: seed.project, tableId: seed.tableId, tableName: observedName, includeTemporary: seed.includeTemporary });
+            if (retry.writers) result = retry;
+          }
+          // Unavailable: start already carried the single warning, so finish stays silent.
+          if (!result.writers) return report;
+          return {
+            ...report,
+            staticCrossCheck: { available: true, warnings: result.warnings, ...diffStaticVsObserved(result.writers, report.writers, report.complete) },
+          };
         } finally {
           if (slotToken) state.releaseDebugSlot(slotToken);
         }

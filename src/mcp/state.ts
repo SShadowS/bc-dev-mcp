@@ -2,6 +2,7 @@ import type { AlObjectIndex } from "../core/al-objects";
 import type { AuthorizationProvider } from "../core/authorization";
 import { BcDevError } from "../core/agent-errors";
 import type { DebuggerClient } from "../core/hubs/debugger-hub";
+import type { StaticWritersResult } from "../core/alsem-writes";
 import type { RecordWriteCollector } from "../core/record-write-triage";
 import type { BreakpointSpec, ConnectionConfig, DebuggerEvent, RunTestsResult } from "../core/types";
 
@@ -121,6 +122,14 @@ export class ServerState {
   debug: DebugSession | null = null;
   recordWrites: RecordWriteCollector | null = null;
   recordWriteSlotToken: symbol | null = null;
+  /** al-sem static writer set taken at start (null writers = unavailable); finish diffs it against the observed stacks. */
+  recordWriteStatic: {
+    project: string;
+    tableId: number;
+    includeTemporary: boolean;
+    tableName: string | null;
+    result: StaticWritersResult;
+  } | null = null;
   testRunActive = false;
   profile: ProfileHandle | null = null;
   private debugSlot: { owner: "manual" | "recordWrites"; token: symbol } | null = null;
