@@ -126,6 +126,7 @@ export class SnapshotClient {
     if (!res.ok) throw await this.responseError("snapshot finish", res);
     const buf = new Uint8Array(await res.arrayBuffer());
     const etag = res.headers.get("etag")?.trim().replace(/^"|"$/g, "") ?? null;
+    // WIRE: a capture that never bound a session finishes 200 with a 0-byte body and no ETag (scripts/e2e.md, live BC28 2026-10-13).
     return { empty: buf.length === 0, etag, body: buf };
   }
 }
