@@ -81,6 +81,8 @@ export function analyzeTestOrder(input: OrderAnalysisInput): TestOrderAnalysis {
     if (iso) observations.push({ run: "isolation", status: iso });
     // Predecessor-set key -> statuses seen with exactly those predecessors.
     const byPrefix = new Map<string, Set<TestObservationStatus>>();
+    // Isolation is the empty-predecessor observation: same conditions as running first.
+    if (iso) byPrefix.set("", new Set([iso]));
     const failingPrefixes: OrchestratedTestIdentity[][] = [];
     const failingRuns: number[] = [];
     orders.forEach((order, run) => {

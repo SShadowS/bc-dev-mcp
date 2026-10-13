@@ -73,6 +73,16 @@ describe("analyzeTestOrder", () => {
     expect(byMethod(analysis, "C").classification).toBe("odBrittle");
   });
 
+  test("passes in isolation, fails when run first: flakyInSameOrder (isolation = empty prefix)", () => {
+    const analysis = analyzeTestOrder({
+      isolation: isolationAllPass,
+      runs: [run(recorded, results({ A: "failed", B: "passed", C: "passed" }))],
+    });
+    const a = byMethod(analysis, "A");
+    expect(a.classification).toBe("flakyInSameOrder");
+    expect(a.candidatePolluters).toEqual([]);
+  });
+
   test("different outcomes for the same predecessors: flakyInSameOrder beats od classes", () => {
     const analysis = analyzeTestOrder({
       isolation: isolationAllPass,
