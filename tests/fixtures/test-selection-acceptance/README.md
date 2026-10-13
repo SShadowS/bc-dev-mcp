@@ -41,6 +41,62 @@ the same way as the test-selection fixture's. It has 2 `Event` edges and 6 `Inte
 **no `Run` edge**. altool records `Codeunit.Run(Codeunit::"Acc Nightly Recalc")` as a `Direct` edge
 to the built-in `Codeunit # Run`, so `Acc Nightly Recalc` is reachable only through coverage history.
 
+`call-graph.al-sem.jsonl` is `alsem graph` output (schema `al-sem.callgraph` v1; al-sem branch
+`issue-63` at `40613433`, release build, 2026-10-13), recorded with
+`ALCH_DRIVER_VERSION_OVERRIDE="al-sem issue-63 (40613433)"` so a re-record does not churn the engine
+field. 92 nodes and 94 edges: 3 `Interface` edges from `TaxAmount`, 2 `Event` edges, and the D4 chain
+`RecalcNightly -Run-> Acc Nightly Recalc (object) -Trigger(lifecycle)-> OnRun -Direct-> ApplyDecay`.
+No `.alpackages` here, so `meta.apps` lists the Microsoft apps as `missing`; nothing in the fixture
+calls them.
+
+## al-sem engine results (offline, 2026-10-13)
+
+Selection only (`tests/core/test-selection-acceptance.test.ts` replays it), with the al-sem graph:
+
+| Diff | No map: selected | reasons | uncoverable | fallback | With map | reasons |
+| --- | --- | --- | --- | --- | --- | --- |
+| D1 discount | 9 / 40 | direct | - | no | 9 / 40 | direct + coverage-history |
+| D2 interface | 10 / 40 | event | - | no | 10 / 40 | coverage-history + event, event |
+| D3 event | 5 / 40 | event | - | no | 5 / 40 | coverage-history + event |
+| D4 Codeunit.Run | 1 / 40 (`NightlyRecalcDecays`) | event | - | no | 1 / 40 | coverage-history + event |
+| D5 OnRun trigger | 1 / 40 (`NightlyRecalcDecays`) | event | - | **no** | 1 / 40 | event |
+| D6 multi-file | 5 / 40 | direct | `ExportLine` | no | 5 / 40 | direct + coverage-history |
+| D7 app.json only | all 40 | - | - | yes (non-AL file) | all 40 | - |
+
+Compared with altool: D4 no longer needs the coverage map, D5 no longer falls back, and
+`ExportLine` being `uncoverable` is now a statement about the graph (no test can reach it under
+al-sem's stated assumptions), not only an absence of evidence. The live rerun is below.
+
+## Live al-sem acceptance (2026-10-13, Cronus28)
+
+Same procedure as the altool run below, through the MCP tools with `BC_DEV_CALLGRAPH_ENGINE=al-sem`
+(`alsem graph` engine 1.5.0, al-sem master `4a2abdbb`; alc 30.0.2863738). For each planted bug the
+working tree was edited (uncommitted), `bcdev_test_select baseRef=HEAD` ran without and with
+`coverageMapFile=coverage-map.json`, the buggy app was compiled and published, and both the full suite
+and the selected shards ran with `coverageAgainst=HEAD changesDeployed=true`. "Coverage identical"
+compares the changed objects' procedures (by BC method identity, `OnRun` included) covered by each run.
+
+| Diff | Planted bug | No map: selected | reasons | With map: selected | reasons | uncoverable | Failed (full) | Failed (selected) | Missed | Coverage identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| D1 discount | `ApplyDiscount` result `+ 1` | 9 / 40 | direct | 9 / 40 | direct + coverage-history | - | 8 | 8 | 0 | yes |
+| D2 interface | `Acc Tax DE.RatePct` 19 -> 16 | 10 / 40 | event | 10 / 40 | coverage-history + event, event | - | 2 | 2 | 0 | yes |
+| D3 event | `RoundToNickel` precision 0.05 -> 0.1 | 5 / 40 | event | 5 / 40 | coverage-history + event | - | 1 | 1 | 0 | yes |
+| D4 Codeunit.Run | `ApplyDecay` 90 -> 80 | 1 / 40 | event | 1 / 40 | coverage-history + event | - | 1 | 1 | 0 | yes |
+| D5 OnRun trigger | `OnRun` `PointsFor(2500)` -> 2400 | 1 / 40 | event | 1 / 40 | event | - | 1 | 1 | 0 | yes (`OnRun` covered in both) |
+| D6 multi-file | threshold 500 -> 580, `ExportLine` `;` -> `\|` | 5 / 40 | direct | 5 / 40 | direct + coverage-history | `ExportLine` | 1 | 1 | 0 | yes (`ExportLine` uncovered in both) |
+| D7 app.json only | version 1.0.0.0 -> 1.0.0.1 | fallbackToAll, 40 / 40 (engine `none`) | - | fallbackToAll, 40 / 40 | - | - | 0 | 0 | n/a | yes |
+
+The failing tests per diff are exactly `liveDiffs` in `tests/core/test-selection-acceptance.test.ts`.
+No fallback except D7, and the map never changed a selection (it only added `coverage-history` to the
+reasons). D1-D6 ran 31 of 240 test executions (13%) and missed nothing; D5, which fell back to all 40
+with altool, now runs 1. A first D6 attempt with threshold 400 failed no test at all (the invoice
+order is 570, above both thresholds), so the bug was replanted at 580.
+
+With BC28 symbols in `.alpackages` (removed afterwards), `alsem graph` reports `meta.apps` source
+`embedded` for Base Application, Business Foundation, System and System Application and `symbolOnly`
+for Application (versions 28.0.46665.50383 / System 28.0.50283.0) instead of `missing`; nodes go from
+92 to 180, edges stay 94, and the D1-D6 selections (with and without the map) are identical.
+
 ## Live acceptance results (2026-10-13, Cronus28)
 
 For each planted bug: edit the working tree, run `bcdev_test_select baseRef=HEAD
