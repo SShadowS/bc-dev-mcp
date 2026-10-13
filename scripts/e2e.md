@@ -353,6 +353,8 @@ Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` 
 - `finish` returns a ZIP (magic `50 4b 03 04`) when `ETag=="Sampling"`, NOT the raw `.alcpuprofile` — the profile is the single `<ctx>.alcpuprofile` member inside; unzip, don't rename the body (live E2E 2026-07-04).
 - On a lightly-loaded session the top self-time hotspot is `IdleTime` (`al-preview://allang/Undefined:-1`); real AL frames rank below it — expected, not a capture defect (live E2E 2026-07-04).
 
+- al-sem (offline, no BC server): `alsem prove` selects by bare display name or StableRoutineId only (`Object.Routine` gives answer `unknown`, exit 2), while `alsem query effects --routine Object.Routine` resolves overloads (`resolution: ambiguous` + candidates) and returns the stable id. Exit 2 with a JSON body is a normal answer. bc-dev-mcp resolves via effects, then proves by stable id (recorded against al-sem 1.5.0, 2026-10-13: `tests/fixtures/alsem-prove`).
+
 ## capture-and-ship recipe (manual, live — not CI)
 
 Full-cycle validation against a live BC container + a local al-perf server.
