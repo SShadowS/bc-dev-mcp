@@ -20,9 +20,7 @@ import type { Hotspot } from "./snapshot/profile-summary";
  * frame is another app's and is neither attached to nor counted as a workspace hotspot.
  *
  * Limits of what al-sem reports today (so absence of a finding is not proof of absence):
- * SShadowS/al-sem#28 — two call sites on one line collapse to one site key, so the evidence chain
- * can show fewer sites than the code has; #9 — Rename is not modelled as a write, so a rename in
- * a loop is not flagged.
+ * SShadowS/al-sem#9 — Rename is not modelled as a write, so a rename in a loop is not flagged.
  */
 
 /** Detector ids that explain slow code. Unstable on al-sem's side: an id alsem rejects is dropped, an unlisted id in the output is passed through. */
@@ -202,7 +200,7 @@ export interface ExplainOptions {
 
 const NOTES = [
   "Static findings joined to profile frames by object + routine name (overloads share findings); a hotspot with no finding is not proof the code is fine.",
-  "al-sem#28: two call sites on one line collapse into one, so evidence may show fewer sites than the code has. al-sem#9: Rename is not modelled as a write, so a rename in a loop is not flagged.",
+  "al-sem#9: Rename is not modelled as a write, so a rename in a loop is not flagged.",
 ];
 
 /**

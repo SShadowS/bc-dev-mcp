@@ -30,7 +30,7 @@ export const WRITE_OPS = new Set(["insert", "modify", "modifyall", "delete", "de
 
 /** Listed once, verbatim, wherever a static set is shown. */
 export const STATIC_WRITER_CAVEATS = [
-  "al-sem #28: two call sites on one source line collapse to one site, so one static site can stand for several writes and 'never observed' can hide the second one.",
+  "The debugger reports a line, not a column: two writes on one source line join as one observed site, so 'never observed' can hide the second.",
   "al-sem #9: Rename is not modelled as a write, so rename writers may be missing from the static set and an observed Rename may wrongly show as not statically known.",
   "Only code al-sem can see is covered: routines in dependencies without shipped source cannot appear in the static set.",
 ];

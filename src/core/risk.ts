@@ -15,8 +15,7 @@ import { AL_OBJECT_TYPE } from "./al-objects";
  * `--diff` is NOT used: al-sem 1.5.0 resolves a hunk to a routine only when the line carries a
  * call/effect site (a changed `x := 0;` or `exit(...)` line resolves nothing), so whole changed
  * files are digested and joined to the changed procedures here by object + name + location.
- * Known al-sem limits: #28 (two call sites on one line collapse to one site, so effects on such a
- * line can be under-reported), #9 (Record.Rename is not modelled as a write).
+ * Known al-sem limit: #9 (Record.Rename is not modelled as a write).
  */
 
 export const ALSEM_DIGEST_MAJOR = 1;

@@ -54,7 +54,7 @@ describe("explainHotspots", () => {
     expect(unblock!.findings!.map((f) => f.detector).sort()).toEqual(["d1-db-op-in-loop", "d5-set-based-opportunity"]);
     expect(unblock!.findings![0]).not.toHaveProperty("objectKey");
     expect(result.analysis).toMatchObject({ source: "al-sem", alsemVersion: "1.5.0", findingsTotal: 3, findingsMatched: 3 });
-    expect(result.analysis!.notes.join(" ")).toContain("al-sem#28");
+    expect(result.analysis!.notes.join(" ")).toContain("al-sem#9");
   });
 
   test("matches a real .al path url and is case-insensitive on the routine", async () => {

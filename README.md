@@ -212,8 +212,8 @@ project's own source object, and at finish the runtime name the debugger reporte
 need their symbols in `.alpackages`). Finish adds `staticCrossCheck`: statically possible writers
 that were never observed, and observed writers that are not in al-sem's set (flagged when they sit
 in its unknown bucket). Without `alsem`, or with an unknown al-sem schema major, start carries one
-warning and nothing else changes. Limits to keep in mind: al-sem #28 (two call sites on one line
-collapse to one site) and #9 (`Rename` is not modelled as a write), and dependencies without shipped
+warning and nothing else changes. Limits to keep in mind: the debugger reports lines, not columns, so two
+writes on one line join as one observed site; al-sem #9 (`Rename` is not modelled as a write), and dependencies without shipped
 source never appear in the static set. "Never observed" only means not exercised by this workload.
 
 ## BC native MCP passthrough

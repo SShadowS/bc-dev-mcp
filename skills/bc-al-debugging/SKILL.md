@@ -64,8 +64,8 @@ than `maxRearms` (default 3) stop with `stopReason: "strayBindsExhausted"`; use 
 `WebClient`, or a `sessionId` instead.
 If `alsem` is installed, start returns `staticWriters` (al-sem's possible write sites) and finish adds
 `staticCrossCheck`: `staticNotObserved` (possible but never ran) and `observedNotStatic` (ran, but
-al-sem does not list it; `inUnknownBucket` marks RecordRef-style writes). Mind its caveats (al-sem
-#28 same-line call sites, #9 Rename) and that "never observed" only reflects this workload.
+al-sem does not list it; `inUnknownBucket` marks RecordRef-style writes). Mind its caveats (two writes on one
+source line join as one observed site, al-sem #9 Rename) and that "never observed" only reflects this workload.
 Finish always clears the shared debugger slot; manual debugging and record-write triage cannot run
 at the same time.
 

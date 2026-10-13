@@ -10,8 +10,7 @@ import { WRITE_OPS } from "./alsem-writes";
  * al-sem is OPTIONAL: when it is missing or unreadable the result carries a status and a
  * warning, never an error.
  *
- * Known al-sem limits (surfaced in `limits`): #28 two call sites on one line collapse to one
- * site key (a cone can under-count); #9 Rename is not modelled as a write.
+ * Known al-sem limit (surfaced in `limits`): #9 Rename is not modelled as a write.
  */
 
 // WIRE: both commands print the envelope {alsemVersion, kind, schemaVersion, payload, diagnostics};
@@ -138,7 +137,7 @@ export function createAlSemBreakEffects(env: Record<string, string | undefined>,
         "throwsError covers errors the code raises explicitly; runtime errors (division by zero, overflow, failed conversions) are not modelled, so 'no' does not mean the routine cannot fail.",
       ];
       if (answers.some((a) => !a.coverageComplete || a.unresolvedCallsites > 0)) {
-        limits.push("coverageComplete=false or unresolvedCallsites>0: a 'no' is not a proof of absence. al-sem #28: two call sites on one line collapse to one site key, which can hide a call.");
+        limits.push("coverageComplete=false or unresolvedCallsites>0: a 'no' is not a proof of absence.");
       }
       return {
         status: "ok",

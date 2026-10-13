@@ -56,7 +56,7 @@ describe("static writer set from recorded al-sem output", () => {
       "Codeunit RW Ledger Writer.DynamicWrite Insert@58",
       "Codeunit RW Mixed Writer.DynPlusOther Insert@23",
     ]);
-    expect(writers!.caveats.join(" ")).toContain("#28");
+    expect(writers!.caveats.join(" ")).toContain("not a column");
     expect(writers!.caveats.join(" ")).toContain("#9");
   });
 

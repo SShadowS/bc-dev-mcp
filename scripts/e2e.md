@@ -431,8 +431,7 @@ Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` 
   envelope `kind: "digest"`, `payload.entries[].routine` (`stableId` `<appId>:<Type>:<id>#hash`, 0-based
   `anchor.line`), `effects[].type` (COMMIT, DB_INSERT/MODIFY/DELETE with `detail.resourceDisplay`, ERROR_THROW,
   UI_*). Only routines with effects get an entry. `--diff` is not used: a hunk resolves to a routine only
-  when the changed line carries a call/effect site. Known al-sem limits: #28 (two call sites on one line
-  collapse), #9 (Rename not modelled as a write). <!-- 2026-10-13, tests/fixtures/alsem-risk; tests/core/risk.test.ts -->
+  when the changed line carries a call/effect site. Known al-sem limit: #9 (Rename not modelled as a write). <!-- 2026-10-13, tests/fixtures/alsem-risk; tests/core/risk.test.ts -->
 - [x] Live: `bcdev_test_select` / `bcdev_test_run coverageAgainst` against a real app show `risk` on uncovered procedures.
   <!-- 2026-10-13 BC28 (Cronus28), built dist/index.js over stdio (raw JSON-RPC), alsem 1.6.0 (digest + graph engine), alc 30.0.2863738, tests/fixtures/test-selection-acceptance with BC28 symbols copied into .alpackages (removed after). Planted uncommitted: ExportLine (untested) now inserts into a new table 50948 "Acc Export Log"; new untested ConfirmExport (Confirm) and Acc Report Formatter.FlushReport (Commit); a comment on the tested ApplyDiscount. All reverted afterwards.
   bcdev_test_select baseRef=HEAD, without and with coverageMapFile: selection 9/40 (direct; +coverage-history with the map), changedProcedures in discovery order ExportLine, ConfirmExport, FlushReport (+ ApplyDiscount); uncoverable re-ranked FlushReport {level commits, "commits"}, ExportLine {writes, "writes Acc Export Log"}, ConfirmExport {error-ui, "shows UI"}, unresolved 0 each. The new table file forced fallbackToAll ("lines 1, 3, 5, 7, 9 ... belong to no procedure"), expected; risk ranking is unaffected by the fallback.
