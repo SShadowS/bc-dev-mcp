@@ -80,6 +80,10 @@ export class TestRunnerClient {
         // once per Initialize: a second RunTests for it closes the hub mid-group (NST
         // "An item with the same key has already been added"), so ordered single-method
         // groups of one codeunit need one Initialize each. (live BC28 2026-10-13, scripts/e2e.md #33)
+        // WIRE: the rollback covers DB rows, IsolatedStorage and NumberSequence creation, but not
+        // non-transactional state: all groups of one Initialize run in ONE session (SingleInstance
+        // globals carry to later groups; a new Initialize is a new session), and NumberSequence.Next
+        // increments and server files persist across groups and Initializes. (scripts/e2e.md #15)
         await hub.invoke("RunTests", group.id, group.methods ?? []).catch((err) => finish(String(err)));
       };
 

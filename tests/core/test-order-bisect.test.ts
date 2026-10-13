@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { bisectPolluters, type OrderRunner } from "../../src/core/test-order-bisect";
 import type { OrderRunResult } from "../../src/core/test-order-analysis";
-import type { TestOrderPlan } from "../../src/core/test-order-plan";
+import { planExecutionOrder, type TestOrderPlan } from "../../src/core/test-order-plan";
 import type { OrchestratedTestIdentity } from "../../src/core/test-orchestration";
 
 const id = (method: string, codeunitId = 50100): OrchestratedTestIdentity => ({ codeunitId, method });
@@ -11,15 +11,12 @@ const A = id("A"), B = id("B"), C = id("C"), D = id("D"), E = id("E"), F = id("F
 function fakeRunner(victim: string, pollutingSets: string[][]) {
   const probes: string[][] = [];
   const runner: OrderRunner = async (plan: TestOrderPlan) => {
-    const order = plan.initializes.map(({ groups: [g] }) => g.methods[0]);
+    const executed = planExecutionOrder(plan);
+    const order = executed.map((m) => m.method);
     probes.push(order);
     const ran = new Set(order.slice(0, order.indexOf(victim)));
     const polluted = pollutingSets.some((set) => set.every((m) => ran.has(m)));
-    return plan.initializes.map(({ groups: [g] }): OrderRunResult => ({
-      codeunitId: g.id,
-      method: g.methods[0],
-      status: g.methods[0] === victim && polluted ? "failed" : "passed",
-    }));
+    return executed.map((m): OrderRunResult => ({ ...m, status: m.method === victim && polluted ? "failed" : "passed" }));
   };
   return { runner, probes };
 }
@@ -34,6 +31,17 @@ describe("bisectPolluters", () => {
     expect(result.capped).toBe(false);
     expect(result.probes).toBe(probes.length);
     expect(result.victims[0]!.probes).toBe(probes.length);
+  });
+
+  test("probe is one Initialize: other-codeunit candidates first, then the victim's group with its own candidates", async () => {
+    const X = id("X", 50101);
+    const plans: TestOrderPlan[] = [];
+    const { runner: inner } = fakeRunner("V", [["X"]]);
+    const runner: OrderRunner = (plan) => (plans.push(plan), inner(plan));
+    const result = await bisectPolluters({ victims: [{ ...V, candidatePolluters: [A, X] }], runner });
+    expect(plans[0]!.groups).toEqual([{ id: 50101, methods: ["X"] }, { id: 50100, methods: ["A", "V"] }]);
+    expect(result.victims[0]).toMatchObject({ outcome: "found", polluter: X });
+    expect(plans.at(-1)!.groups).toEqual([{ id: 50101, methods: ["X"] }, { id: 50100, methods: ["V"] }]);
   });
 
   test("not reproduced when the victim passes after all candidates", async () => {

@@ -39,9 +39,12 @@ codeunit 50161 "Order Pollution Tests"
         Customer: Record Customer;
     begin
         // Passes in isolation; fails with "already exists" when PolluterCommitsCustomer ran earlier in the group.
+        // The return value must be used: a bare Insert() is buffered (bulk insert), the AutoRollback
+        // discards the buffer before it is flushed, and the duplicate key never raises (live BC28).
         Customer.Init();
         Customer."No." := 'ODPOLL-C1';
-        Customer.Insert();
+        if not Customer.Insert() then
+            Error('Customer ODPOLL-C1 already exists');
     end;
 
     [Test]

@@ -16,7 +16,7 @@ const isolationAllPass = allPass();
 
 const run = (plan: ReturnType<typeof planTestOrder>, r: OrderRunResult[]): OrderRun => ({ plan, results: r });
 const recorded = planTestOrder(selection, { mode: "recorded" }); // A B C
-const reversed = planTestOrder(selection, { mode: "reversed" }); // C B A
+const reversed = planTestOrder(selection, { mode: "reversed" }); // C A B (groups reversed, A B keep declaration order)
 
 const byMethod = (analysis: ReturnType<typeof analyzeTestOrder>, method: string) =>
   analysis.tests.find((t) => t.method === method)!;
@@ -26,7 +26,7 @@ describe("analyzeTestOrder", () => {
     const analysis = analyzeTestOrder({ isolation: isolationAllPass, runs: [run(recorded, allPass()), run(reversed, allPass())] });
     expect(analysis.tests.map((t) => t.classification)).toEqual(["consistentPass", "consistentPass", "consistentPass"]);
     expect(analysis.summary.odVictim).toBe(0);
-    expect(analysis.runs).toEqual([{ mode: "recorded", order: ["50100:A", "50100:B", "50101:C"] }, { mode: "reversed", order: ["50101:C", "50100:B", "50100:A"] }]);
+    expect(analysis.runs).toEqual([{ mode: "recorded", order: ["50100:A", "50100:B", "50101:C"] }, { mode: "reversed", order: ["50101:C", "50100:A", "50100:B"] }]);
   });
 
   test("passes in isolation, fails only after others: od-victim with candidate polluters", () => {
@@ -43,16 +43,13 @@ describe("analyzeTestOrder", () => {
     expect(analysis.summary.odVictim).toBe(1);
   });
 
-  test("candidate polluters narrow to the intersection of failing-run predecessors", () => {
-    const shuffleBA = run({ mode: "shuffle", seed: 7, initializes: [B, A, C].map(({ codeunitId, method }) => ({ groups: [{ id: codeunitId, methods: [method] as [string] }] })) }, results({ A: "failed", B: "passed", C: "passed" }));
-    const analysis = analyzeTestOrder({
-      isolation: isolationAllPass,
-      runs: [run(reversed, results({ A: "failed", B: "passed", C: "passed" })), shuffleBA],
-    });
-    const a = byMethod(analysis, "A");
-    expect(a.classification).toBe("odVictim");
-    expect(a.candidatePolluters).toEqual([B]); // reversed: {C,B}; shuffle: {B}
-    expect(analysis.runs[1]).toEqual({ mode: "shuffle", seed: 7, order: ["50100:B", "50100:A", "50101:C"] });
+  test("same-codeunit victim: fails in its group in every order, candidates narrow to the intersection", () => {
+    const bFails = results({ A: "passed", B: "failed", C: "passed" });
+    const analysis = analyzeTestOrder({ isolation: isolationAllPass, runs: [run(recorded, bFails), run(reversed, bFails)] });
+    const b = byMethod(analysis, "B");
+    expect(b.classification).toBe("odVictim");
+    expect(b.candidatePolluters).toEqual([A]); // recorded: {A}; reversed: {C, A}
+    expect(b.failingRuns).toEqual([0, 1]);
   });
 
   test("fails in isolation and in every order: consistentFail", () => {

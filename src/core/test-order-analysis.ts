@@ -1,5 +1,5 @@
 import { identityKey, type OrchestratedTestIdentity, type TestObservationStatus } from "./test-orchestration";
-import type { TestOrderMode, TestOrderPlan } from "./test-order-plan";
+import { planExecutionOrder, type TestOrderMode, type TestOrderPlan } from "./test-order-plan";
 
 export interface OrderRunResult extends OrchestratedTestIdentity {
   status: TestObservationStatus;
@@ -56,13 +56,14 @@ const CLASSES: OrderClassification[] = [
 ];
 
 /**
- * Pure: classify each method's outcomes across orders. Data is rolled back per RunTests group
- * (scripts/e2e.md #33), so an od-victim here implies state that survives rollback.
+ * Pure: classify each method's outcomes across orders. Predecessors are every method executed
+ * earlier in the same plan (one Initialize). Committed rows only reach later methods of the same
+ * codeunit group; session state (SingleInstance) reaches later groups too (see TestOrderPlan).
+ * `isolation` must be each method run alone (planTestOrder([method])): it is the only way to see
+ * a same-codeunit victim, since its in-group predecessors are identical in every mode.
  */
 export function analyzeTestOrder(input: OrderAnalysisInput): TestOrderAnalysis {
-  const orders = input.runs.map(({ plan }) =>
-    plan.initializes.map(({ groups: [g] }) => ({ codeunitId: g.id, method: g.methods[0] })),
-  );
+  const orders = input.runs.map(({ plan }) => planExecutionOrder(plan));
   const lookup = (rows: OrderRunResult[] | undefined) =>
     new Map((rows ?? []).map((r) => [identityKey(r.codeunitId, r.method), r.status]));
   const isolation = lookup(input.isolation);
