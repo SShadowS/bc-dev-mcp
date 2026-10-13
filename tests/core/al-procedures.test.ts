@@ -612,6 +612,10 @@ describe("test method identities", () => {
       codeunitName: "My Tests",
       method: "splitsevenly",
       file: resolve(project, "Tests.Codeunit.al"),
+      // The location the call-graph join reads: the [Test] attribute line through `end;`.
+      relativeFile: "Tests.Codeunit.al",
+      startLine: 5,
+      endLine: 9,
       methodId: calculateProcedureMethodId("SplitsEvenly", { navTypeKind: 0, symbolKind: 2 }, [], 17).methodId,
     }]);
   });

@@ -9,6 +9,7 @@ import { AlProcedureDiscoveryCache, discoverAlProcedureIdentities, discoverTestM
 import { analyzeCoverageGaps } from "../../core/coverage-gaps";
 import { buildCoverageMap, readCoverageMap, writeCoverageMap, type TestMethodName } from "../../core/coverage-map";
 import { selectTests } from "../../core/test-selection";
+import type { CallGraph } from "../../core/call-graph";
 import { BcDevError } from "../../core/agent-errors";
 import { analyzeTestOrchestration } from "../../core/test-orchestration";
 import { redactAuthorization } from "../../core/redaction";
@@ -216,7 +217,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
       name: "bcdev_test_select",
       title: "Select AL tests for a Git diff",
       description:
-        "Pick the AL test methods a Git diff can affect, before running anything: changed procedures are expanded through the altool call graph (Direct, Event, Interface, Run, Trigger edges) to reaching [Test] methods and unioned with an optional coverage map from an earlier bcdev_test_run. Returns a ranked selection, uncoverable changed procedures, shards whose codeunits feed bcdev_test_run unchanged, and fallbackToAll when the diff is outside what selection can see. Local only (git + altool); no server needed.",
+        "Pick the AL test methods a Git diff can affect, before running anything: changed procedures and triggers are expanded through the whole-program call graph (al-sem `alsem graph`, else altool; BC_DEV_CALLGRAPH_ENGINE) to the [Test] methods that may execute them, and unioned with an optional coverage map from an earlier bcdev_test_run. Returns a ranked selection (direct > event > dynamic), uncoverable changed procedures (with al-sem: no test can reach them, under the graph's stated assumptions), shards whose codeunits feed bcdev_test_run unchanged, and fallbackToAll when the diff is outside what selection can see. Limit: the tests must be in the same app as the code (or a test folder nested in it); with a separate test app selection falls back to the whole suite. Local only (git + alsem/altool); no server needed.",
       annotations: { readOnlyHint: true, openWorldHint: false },
       schema: {
         project: connectionShape.project,
@@ -234,14 +235,18 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
         selection: z.array(z.looseObject({
           codeunitId: z.number().int(),
           method: z.string(),
-          reason: z.enum(["direct", "event", "coverage-history", "new-test"]).describe("Strongest evidence; event = any indirect Event/Interface/Run/Trigger path"),
+          reason: z.enum(["direct", "event", "coverage-history", "new-test", "dynamic"]).describe(
+            "Strongest evidence; event = any indirect Event/Interface/Run/Trigger path; dynamic = only through an al-sem hub (a call the engine cannot pin to one target)",
+          ),
           reasons: z.array(z.string()),
           confidence: z.number().describe("0-1 rank score"),
           reaches: z.array(z.string()).describe("Changed procedures this test reaches, as Object.Procedure"),
         })).describe("Ranked, most confident first"),
         uncoverable: z.array(z.looseObject({ objectName: z.string(), name: z.string(), relativeFile: z.string(), startLine: z.number() }))
           .describe("Changed procedures no test reaches statically or by coverage history"),
-        changedProcedures: z.array(z.looseObject({ objectName: z.string(), name: z.string() })),
+        changedProcedures: z.array(z.looseObject({ kind: z.enum(["procedure", "trigger"]), objectName: z.string(), name: z.string() })),
+        engine: z.enum(["al-sem", "altool", "none"]).describe("Call-graph engine used; none = no changed code needed a graph"),
+        engineVersion: z.string().optional().describe("al-sem engine version (meta.engine)"),
         shards: z.array(z.object({
           codeunits: z.array(z.object({ id: z.number().int(), methods: z.array(z.string()) })).describe("Pass as bcdev_test_run codeunits"),
         })).describe("Run plan; covers every test when fallbackToAll"),
@@ -259,8 +264,9 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           ? { procedures: [], warnings: [], complete: true }
           : await discoverAlProcedureIdentities(project, changes.files.map((file) => file.relativeFile), cache);
         const coverageMap = coverageMapFile === undefined ? null : await readCoverageMap(resolvePath(project, coverageMapFile));
-        // No changed procedures means no graph lookups; skip the altool compile.
-        const graph = discovered.procedures.length === 0 ? { nodes: [], edges: [] } : await deps.callGraph(project);
+        // No changed procedure or trigger means no graph lookups; skip building the graph.
+        const needsGraph = discovered.procedures.length > 0 || ("unsupportedExecutables" in discovered && discovered.unsupportedExecutables.length > 0);
+        const graph: CallGraph = needsGraph ? await deps.callGraph(project) : { nodes: [], edges: [] };
         const result = selectTests({
           changes,
           discovered,
@@ -270,11 +276,22 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           maxCodeunitsPerShard: params["maxCodeunitsPerShard"] as number | undefined,
         });
         const warnings = [...tests.warnings, ...discovered.warnings, ...result.warnings];
-        if (!tests.complete) warnings.push("Some [Test] methods have no compiler method identity; they cannot match the call graph or coverage history by identity.");
+        if (!tests.complete) {
+          warnings.push(graph.engine === "al-sem"
+            ? "Some [Test] methods have no compiler method identity; they cannot match coverage history by identity."
+            : "Some [Test] methods have no compiler method identity; they cannot match the call graph or coverage history by identity.");
+        }
         if (coverageMap?.mergeBase && coverageMap.mergeBase !== changes.mergeBase) {
           warnings.push(`The coverage map was recorded against ${coverageMap.mergeBase}, not this diff's merge base ${changes.mergeBase}; its history may be stale.`);
         }
-        return { baseRef: changes.baseRef, mergeBase: changes.mergeBase, ...result, warnings };
+        return {
+          baseRef: changes.baseRef,
+          mergeBase: changes.mergeBase,
+          ...result,
+          warnings,
+          engine: needsGraph ? graph.engine ?? "altool" : "none",
+          ...(graph.meta ? { engineVersion: graph.meta.engine } : {}),
+        };
       },
     },
     {

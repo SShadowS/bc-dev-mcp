@@ -1424,6 +1424,10 @@ export interface TestMethodIdentity {
   codeunitName: string;
   method: string;
   file: string;
+  /** Where discovery found the method (the call-graph join by location); absent when it did not. */
+  relativeFile?: string;
+  startLine?: number;
+  endLine?: number;
   /** Matches coverage[].testMethodId; null when the identity could not be resolved. */
   methodId: number | null;
   warning?: string;
@@ -1458,6 +1462,7 @@ export async function discoverTestMethodIdentities(
         codeunitName: codeunit.name,
         method,
         file: codeunit.file,
+        ...(procedure ? { relativeFile: procedure.relativeFile, startLine: procedure.startLine, endLine: procedure.endLine } : {}),
         methodId: procedure?.methodId ?? null,
       };
       const warning = procedure ? procedure.identityWarning : "test method was not found by procedure discovery";
