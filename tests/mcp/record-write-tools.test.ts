@@ -424,6 +424,18 @@ describe("record-write MCP tools", () => {
     expect(state.debugOwner).toBeNull();
   });
 
+  test("maxRearms 0 counts the first stray bind and stops without re-attaching", async () => {
+    const hub = new FakeHub();
+    const { tools } = setup(hub);
+    await tools.get("bcdev_record_writes_start")!.handler({ tableId: 18, breakOnNext: "WebServiceClient", maxRearms: 0 });
+    hub.emit("OnDetachedFromConnection", false);
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+    const report = await tools.get("bcdev_record_writes_finish")!.handler({}) as { stopReason: string; strayBinds: number; rearms: number };
+    expect(report).toMatchObject({ stopReason: "strayBindsExhausted", strayBinds: 1, rearms: 0 });
+    expect(hub.invoked("Attach").length).toBe(1);
+  });
+
   test("an exact-session capture never re-arms", async () => {
     const hub = new FakeHub();
     const { tools } = setup(hub);

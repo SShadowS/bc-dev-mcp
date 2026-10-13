@@ -306,7 +306,8 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
               return await readFile(file, "utf8").catch(() => null);
             },
             localFile: (objectType, objectId) => index.byId(objectType, objectId)?.file,
-            ...(maxRearms > 0 ? { rearm: { attach, maxRearms } } : {}),
+            // maxRearms 0 still counts the stray (strayBindsExhausted on the first); only an exact session never has strays.
+            ...(target.sessionId === undefined ? { rearm: { attach, maxRearms } } : {}),
           });
           const id = randomUUID();
           state.recordWrites = collector;
