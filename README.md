@@ -196,6 +196,12 @@ unexpected break, lifecycle failure, early session detach, or truncation keeps t
 fail-closed. Exact groups collected before a detach remain available, but the tool does not claim
 that no later writes were missed.
 
+A next-session or user-filtered capture whose bound session detaches before any break (a stray
+bind, seen in about half the `breakOnNext: "WebServiceClient"` attaches on BC28) is re-armed
+after ~10 s rather than stopped: status reports `phase: "rearming"` and `strayBinds`/`rearms`
+counters, and a workload started in that window is missed. After `maxRearms` (default 3) strays
+the capture stops with `stopReason: "strayBindsExhausted"`.
+
 **Static cross-check (optional, needs [al-sem](https://github.com/SShadowS/al-sem)).** When `alsem`
 is found (`BC_DEV_ALSEM` or PATH), start also returns `staticWriters`: the write sites
 (`Insert`/`Modify`/`ModifyAll`/`Delete`/`DeleteAll`/`Rename`, temporary records excluded unless

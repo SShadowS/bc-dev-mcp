@@ -56,6 +56,12 @@ and returns a truncated, incomplete report. Missing source/span, an unsupported 
 failure, unknown runtime table identity, or debugger failure also keeps the result fail-closed.
 If the session detaches before `bcdev_record_writes_finish`, retained exact groups remain useful
 but `complete` is false because later writes cannot be ruled out.
+A bound session that detaches before any break is a stray bind (about half the attaches with
+`breakOnNext: "WebServiceClient"` on BC28): the capture re-attaches after ~10 s instead of stopping
+(`phase: "rearming"`, `strayBinds`/`rearms` counters, one warning per stray). A workload triggered
+while `phase` is `rearming` is missed, so trigger it once status is back to `arming`. More strays
+than `maxRearms` (default 3) stop with `stopReason: "strayBindsExhausted"`; use `Background`,
+`WebClient`, or a `sessionId` instead.
 If `alsem` is installed, start returns `staticWriters` (al-sem's possible write sites) and finish adds
 `staticCrossCheck`: `staticNotObserved` (possible but never ran) and `observedNotStatic` (ran, but
 al-sem does not list it; `inUnknownBucket` marks RecordRef-style writes). Mind its caveats (al-sem
