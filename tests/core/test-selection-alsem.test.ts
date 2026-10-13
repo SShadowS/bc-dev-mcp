@@ -178,9 +178,13 @@ describe("selectTests with an al-sem graph", () => {
     expect(picked(result)).toEqual([["IntTest", "direct"]]);
   });
 
-  test.if(process.platform === "win32")("on win32 a path differing only in case joins", () => {
+  test("a path differing only in case joins by location on win32; on linux only by name", () => {
     const nodes = BASE_NODES.map((n) => (n["id"] === "r:calc-int" ? { ...n, sourcePath: "SRC/logic.CODEUNIT.al" } : n));
-    expect(picked(select(changeAt("src/Logic.Codeunit.al", 6), { graph: graphOf(nodes) }))).toEqual([["IntTest", "direct"]]);
+    const win = select(changeAt("src/Logic.Codeunit.al", 6), { graph: graphOf(nodes), platform: "win32" });
+    expect(picked(win)).toEqual([["IntTest", "direct"]]);
+    expect(win.warnings.join("\n")).not.toContain("joined by name");
+    const linux = select(changeAt("src/Logic.Codeunit.al", 6), { graph: graphOf(nodes), platform: "linux" });
+    expect(linux.warnings.join("\n")).toContain("joined by name");
   });
 
   test("a name mismatch at the location falls back to the name join, with a warning", () => {

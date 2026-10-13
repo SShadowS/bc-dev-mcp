@@ -77,6 +77,8 @@ export interface TestSelectionInput {
   coverageMap?: CoverageMap | null;
   /** Maximum test codeunits per shard (default: one shard). */
   maxCodeunitsPerShard?: number;
+  /** Decides path case-folding (win32 folds); defaults to the host's. */
+  platform?: NodeJS.Platform;
 }
 
 const SCORE: Record<SelectionReason, number> = { "new-test": 1, direct: 0.9, "coverage-history": 0.8, event: 0.5, dynamic: 0.3 };
@@ -96,9 +98,9 @@ const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const overlaps = (ranges: ChangedLineRange[], start: number, end: number) =>
   ranges.some((range) => range.end >= start && range.start <= end);
 /** Repo-relative path key: `/`-separated, case-folded on win32 (git's recorded case can differ from the disk's). */
-const pathKey = (path: string) => {
+const pathKeyFor = (platform: NodeJS.Platform) => (path: string) => {
   const slashed = path.split("\\").join("/").replace(/^\.\//, "");
-  return process.platform === "win32" ? slashed.toLowerCase() : slashed;
+  return platform === "win32" ? slashed.toLowerCase() : slashed;
 };
 /** A node's member name compared the way discovery reads names: a doubled quote is one quote. */
 const memberOf = (node: CallGraphNode) => (node.memberName ?? "").split('""').join('"').toLowerCase();
@@ -135,7 +137,7 @@ interface Locatable {
  * al-sem at the keyword), and the same name. Falls back to every node of the object with the name,
  * with a warning; empty when neither finds a node.
  */
-function indexAlSemGraph(graph: CallGraph) {
+function indexAlSemGraph(graph: CallGraph, pathKey: (path: string) => string) {
   const byPath = new Map<string, CallGraphNode[]>();
   const byName = new Map<string, CallGraphNode[]>();
   for (const node of graph.nodes) {
@@ -171,6 +173,7 @@ type Changed = Locatable & { kind: "procedure" | "trigger"; methodId: number | n
 export function selectTests(input: TestSelectionInput): TestSelection {
   const { changes, discovered, tests, graph, coverageMap } = input;
   const alSem = graph.engine === "al-sem";
+  const pathKey = pathKeyFor(input.platform ?? process.platform);
   const fallbackReasons: string[] = [];
   const warnings: string[] = [...(graph.warnings ?? [])];
   const rangesOf = new Map(changes.files.map((file) => [pathKey(file.relativeFile), file.ranges]));
@@ -193,7 +196,7 @@ export function selectTests(input: TestSelectionInput): TestSelection {
 
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   const altoolNodes = alSem ? undefined : indexAltoolGraph(graph);
-  const alSemNodes = alSem ? indexAlSemGraph(graph) : undefined;
+  const alSemNodes = alSem ? indexAlSemGraph(graph, pathKey) : undefined;
   if (alSem && graph.meta) {
     const workspace = graph.meta.workspace?.name;
     const recovered = new Set(graph.meta.recoveredFiles.map((f) => pathKey(f)));
