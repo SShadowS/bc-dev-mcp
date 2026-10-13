@@ -6,6 +6,7 @@ import {
   AlProcedureDiscoveryCache,
   calculateProcedureMethodId,
   discoverAlProcedureIdentities,
+  discoverTestMethodIdentities,
 } from "../../src/core/al-procedures";
 
 function symbolPackage(symbols: unknown): Buffer {
@@ -565,5 +566,53 @@ describe("AL procedure identities", () => {
     const missing = join(tmpdir(), `bcmcp-missing-${Date.now()}-${Math.random()}`);
     const error = await discoverAlProcedureIdentities(missing, ["Missing.al"]).catch((caught) => caught);
     expect(error).toMatchObject({ code: "CONFIGURATION_ERROR", category: "configuration" });
+  });
+});
+
+describe("test method identities", () => {
+  test("joins live-captured testMethodId values to test method names", async () => {
+    const vectors = JSON.parse(
+      readFileSync(resolve("tests/fixtures/coverage-gap/test-method-ids.json"), "utf8"),
+    ) as { vectors: Array<{ codeunitId: number; method: string; testMethodId: number }> };
+
+    const found = await discoverTestMethodIdentities(resolve("demos/hello-bug"));
+
+    expect(found.complete).toBe(true);
+    const byId = new Map(found.methods.map((m) => [`${m.codeunitId}|${m.methodId}`, m.method]));
+    for (const vector of vectors.vectors) {
+      expect(byId.get(`${vector.codeunitId}|${vector.testMethodId}`)).toBe(vector.method);
+    }
+  });
+
+  test("only [Test] methods are joined; helpers and non-test codeunits are excluded", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-testids-"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
+    writeFileSync(join(project, "Tests.Codeunit.al"), [
+      'codeunit 50200 "My Tests"',
+      "{",
+      "    Subtype = Test;",
+      "",
+      "    [Test]",
+      "    procedure splitsevenly()",
+      "    begin",
+      "        Helper();",
+      "    end;",
+      "",
+      "    local procedure Helper()",
+      "    begin",
+      "    end;",
+      "}",
+    ].join("\n"));
+    writeFileSync(join(project, "Worker.Codeunit.al"), "codeunit 50201 Worker\n{\n    procedure SplitsEvenly()\n    begin\n    end;\n}\n");
+
+    const found = await discoverTestMethodIdentities(project);
+
+    expect(found.methods).toEqual([{
+      codeunitId: 50200,
+      codeunitName: "My Tests",
+      method: "splitsevenly",
+      file: resolve(project, "Tests.Codeunit.al"),
+      methodId: calculateProcedureMethodId("SplitsEvenly", { navTypeKind: 0, symbolKind: 2 }, [], 17).methodId,
+    }]);
   });
 });
