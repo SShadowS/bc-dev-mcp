@@ -21,7 +21,7 @@ machine-local); pointers in `CLAUDE.local.md`.
 ## Runtime & Build
 
 - **Bun** for dev/test/build; the built artifact targets **Node 22+**.
-- Runtime deps are exactly four: `@microsoft/signalr`, `@modelcontextprotocol/server`, `@modelcontextprotocol/client` (MCP SDK v2), `zod`. Don't add more without a design change.
+- Runtime deps are exactly five: `@microsoft/signalr`, `@modelcontextprotocol/server`, `@modelcontextprotocol/client` (MCP SDK v2), `zod`, and `@sshadows/bc-toolbox-envelope` (the shared toolbox error body/CLI envelope and core error codes; `src/core/agent-errors.ts` adds bc-dev-mcp's extension codes on top). Don't add more without a design change.
 - MCP SDK v2 serves both protocol eras: `serveStdio` answers 2025-11-25 `initialize` and 2026-07-28 `server/discover` (see `scripts/e2e.md` "MCP 2026-07-28").
 
 ```bash

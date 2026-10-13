@@ -12,7 +12,7 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | Metric | Value |
 |--------|-------|
 | Runtime | Bun (dev/build) · Node 22+ (dist) |
-| Runtime dependencies | 4 (`@microsoft/signalr`, `@modelcontextprotocol/server`, `@modelcontextprotocol/client`, `zod`) |
+| Runtime dependencies | 5 (`@microsoft/signalr`, `@modelcontextprotocol/server`, `@modelcontextprotocol/client`, `zod`, `@sshadows/bc-toolbox-envelope`) |
 | Transport | MCP over stdio (protocol 2026-07-28 and 2025-11-25 clients) |
 | Server requirement | BC dev API `WebApiVersion >= 7.0` (AL 18 platform, e.g. BC28) |
 | Auth | Azure CLI / Entra ID (SaaS) · UserPassword (on-prem / docker) |
