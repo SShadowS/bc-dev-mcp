@@ -129,6 +129,9 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       if (result["phase"] === "arming") {
         return ["Trigger the matching session and target operation, then call bcdev_record_writes_status again."];
       }
+      if (result["phase"] === "rearming") {
+        return ["A stray session bound and detached before any break; wait about 10 seconds for the re-attach (phase arming) before triggering the workload, then call bcdev_record_writes_status again."];
+      }
       if (result["phase"] === "collecting") {
         return ["Let the target operation finish, then call bcdev_record_writes_finish for the grouped writer report."];
       }
@@ -141,6 +144,9 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
         : [];
       if (result["truncated"] === true) {
         return ["Narrow the target workload or deliberately raise maxObservedWrites, then rerun the capture."];
+      }
+      if (result["stopReason"] === "strayBindsExhausted") {
+        return ["Every arm bound a stray session that detached before any break; rerun with breakOnNext Background or WebClient, a specific sessionId, or a higher maxRearms."];
       }
       if (result["complete"] !== true) {
         return ["Review unresolved groups and warnings before treating the capture window as exhaustive, then rerun with trusted deployed source if needed.", ...crossStep];

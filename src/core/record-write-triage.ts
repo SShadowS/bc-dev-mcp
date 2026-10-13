@@ -1,4 +1,4 @@
-import type { DebuggerClient, VariableNode } from "./hubs/debugger-hub";
+import { isAttachBusyError, type DebuggerClient, type VariableNode } from "./hubs/debugger-hub";
 import { redactAuthorization } from "./redaction";
 import type { DebuggerEvent, StackFrameInfo } from "./types";
 
@@ -49,10 +49,12 @@ export interface RecordWriteUnresolvedGroup {
 }
 
 export interface RecordWriteStatus {
-  phase: "arming" | "collecting" | "stopped" | "failed";
+  phase: "arming" | "rearming" | "collecting" | "stopped" | "failed";
   target: RecordWriteTarget;
   sessionId: number | null;
   summary: RecordWriteSummary;
+  strayBinds: number;
+  rearms: number;
   truncated: boolean;
   warning: string | null;
 }
@@ -60,10 +62,12 @@ export interface RecordWriteStatus {
 export interface RecordWriteReport {
   target: RecordWriteTarget;
   outcome: "completed" | "truncated" | "failed";
-  stopReason: "finished" | "sessionDetached" | "maxObservedWrites" | "fatal";
+  stopReason: "finished" | "sessionDetached" | "maxObservedWrites" | "strayBindsExhausted" | "fatal";
   complete: boolean;
   truncated: boolean;
   summary: RecordWriteSummary;
+  strayBinds: number;
+  rearms: number;
   writers: RecordWriteWriterGroup[];
   unresolved: RecordWriteUnresolvedGroup[];
   warnings: string[];
@@ -114,7 +118,27 @@ export interface RecordWriteCollectorOptions {
   client: Pick<DebuggerClient, "getSourceContent" | "evalWatch" | "step" | "releaseForShutdown" | "stop">;
   localSource: (objectType: number, objectId: number) => Promise<string | null>;
   localFile: (objectType: number, objectId: number) => string | undefined;
+  /** Present = a detach before any break in the current arm is a stray bind: re-attach instead of stopping. */
+  rearm?: RecordWriteRearmOptions;
 }
+
+export interface RecordWriteRearmOptions {
+  /** Re-attach the same DebuggerClient with the original options, so events keep reaching this collector. */
+  attach: () => Promise<void>;
+  /** Stray binds tolerated per capture before stopping with strayBindsExhausted (default 3). */
+  maxRearms?: number;
+  /** Wait before re-attaching; attempt n waits n * delayMs (default 10000). */
+  delayMs?: number;
+  /** Attach attempts per re-arm while BC still holds the old registration (default 3). */
+  maxAttachAttempts?: number;
+  /** Timer seam; returns a cancel function (default setTimeout/clearTimeout). */
+  schedule?: (fn: () => void, ms: number) => () => void;
+}
+
+const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
+  const timer = setTimeout(fn, ms);
+  return () => clearTimeout(timer);
+};
 
 const OPERATION_BY_NAME: Record<string, RecordWriteOperation> = {
   // WIRE: DebugOptions.BreakOnRecordWrite stops on the AL database write methods
@@ -500,6 +524,13 @@ export class RecordWriteCollector {
   private phaseValue: RecordWriteStatus["phase"] = "arming";
   private sessionObserved = false;
   private sessionIdValue: number | null = null;
+  private hostIdValue: string | null = null;
+  private breakInArm = false;
+  private strayBindCount = 0;
+  private rearmCount = 0;
+  private armGeneration = 0;
+  private cancelRearmWait: (() => void) | null = null;
+  private rearmTask: Promise<void> = Promise.resolve();
   private tableNameValue: string | null = null;
   private observedWrites = 0;
   private matchedWrites = 0;
@@ -544,6 +575,8 @@ export class RecordWriteCollector {
       target: { tableId: this.options.tableId, tableName: this.tableNameValue },
       sessionId: this.sessionIdValue,
       summary: this.summary(),
+      strayBinds: this.strayBindCount,
+      rearms: this.rearmCount,
       truncated: this.truncatedValue,
       warning: this.warnings.at(-1) ?? null,
     };
@@ -555,6 +588,9 @@ export class RecordWriteCollector {
     // which the serialized chain can be drained without mistaking a quiet local queue
     // for a quiet transport.
     this.finishing = true;
+    // A pending re-arm never attaches after finish: cancel its wait, let an in-flight attach settle.
+    this.cancelRearmWait?.();
+    await this.rearmTask;
     this.shutdownRelease = this.accepting && !this.terminal()
       ? this.options.client.releaseForShutdown()
       : Promise.resolve(false);
@@ -616,6 +652,8 @@ export class RecordWriteCollector {
       complete: outcome === "completed" && this.unresolvedWrites === 0 && !this.evidenceLost,
       truncated: this.truncatedValue,
       summary: this.summary(),
+      strayBinds: this.strayBindCount,
+      rearms: this.rearmCount,
       writers: [...this.writers.values()].sort((a, b) => a.firstSequence - b.firstSequence).map((group) => ({
         ...group,
         stack: cloneStack(group.stack, this.options.localFile),
@@ -633,10 +671,15 @@ export class RecordWriteCollector {
       this.sessionObserved = true;
       this.phaseValue = "collecting";
       this.sessionIdValue = event.sessionId;
+      this.hostIdValue = event.hostId;
       if ("warning" in event) this.warnings.push(event.warning);
       return;
     }
     if (event.kind === "detached") {
+      if (this.options.rearm && !this.finishing && !this.breakInArm) {
+        await this.strayBind(this.options.rearm);
+        return;
+      }
       this.sessionObserved = true;
       this.paused = false;
       this.accepting = false;
@@ -662,6 +705,7 @@ export class RecordWriteCollector {
 
     this.phaseValue = "collecting";
     this.sessionObserved = true;
+    this.breakInArm = true;
     this.paused = true;
     const sequence = ++this.observedWrites;
     const stack = cloneStack(event.stack, this.options.localFile);
@@ -696,6 +740,78 @@ export class RecordWriteCollector {
 
     await this.options.client.step("continue");
     this.paused = false;
+  }
+
+  private async strayBind(rearm: RecordWriteRearmOptions): Promise<void> {
+    // WIRE: with breakOnNext WebServiceClient, BC28 binds a stray session at attach time in about
+    // half the attaches and detaches it within milliseconds, before any break (live Cronus28
+    // 2026-10-13, scripts/e2e.md record-write cross-check). A bind that detaches before its first
+    // break carried no workload, so re-arm instead of ending the capture.
+    this.strayBindCount++;
+    const generation = ++this.armGeneration;
+    const stray = `session ${this.sessionIdValue ?? "unknown"}, host ${this.hostIdValue ?? "unknown"}`;
+    this.sessionIdValue = null;
+    this.hostIdValue = null;
+    this.sessionObserved = false;
+    // The capture is detached until the re-attach lands; a workload in that window is missed.
+    this.evidenceLost = true;
+    await this.options.client.stop().catch(() => {});
+    const maxRearms = rearm.maxRearms ?? 3;
+    if (this.strayBindCount > maxRearms) {
+      this.accepting = false;
+      this.phaseValue = "stopped";
+      this.stopReasonValue = "strayBindsExhausted";
+      this.warnings.push(
+        `Stray debugger bind ${this.strayBindCount} (${stray}) detached before any break; maxRearms=${maxRearms} exhausted, capture stopped.`,
+      );
+      return;
+    }
+    const delayMs = rearm.delayMs ?? 10_000;
+    this.phaseValue = "rearming";
+    this.warnings.push(
+      `Stray debugger bind ${this.strayBindCount} (${stray}) detached before any break; re-arming in ${delayMs} ms. A workload started before the re-attach is missed.`,
+    );
+    this.rearmTask = this.reattach(rearm, generation, delayMs);
+  }
+
+  private async reattach(rearm: RecordWriteRearmOptions, generation: number, delayMs: number): Promise<void> {
+    const attempts = rearm.maxAttachAttempts ?? 3;
+    for (let attempt = 1; ; attempt++) {
+      if (!await this.rearmWait(rearm, delayMs * attempt)) return;
+      if (this.finishing || this.terminal() || generation !== this.armGeneration) return;
+      try {
+        this.breakInArm = false;
+        await rearm.attach();
+      } catch (error) {
+        if (this.finishing || this.terminal() || generation !== this.armGeneration) return;
+        // WIRE: BC28 rejects a re-attach with "An unexpected error occurred invoking 'Attach'" until the
+        // previous registration is released (~10 s; live Cronus28 2026-10-13, src/mcp/agent-errors.ts).
+        if (isAttachBusyError(error) && attempt < attempts) {
+          this.warnings.push(`Re-attach attempt ${attempt} rejected while Business Central releases the previous registration; retrying.`);
+          continue;
+        }
+        await this.fail(`Re-arm after a stray debugger bind failed: ${safeDetail(error)}`);
+        return;
+      }
+      if (generation !== this.armGeneration) return;
+      this.rearmCount++;
+      if (this.phaseValue === "rearming") this.phaseValue = "arming";
+      return;
+    }
+  }
+
+  private rearmWait(rearm: RecordWriteRearmOptions, ms: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const cancel = (rearm.schedule ?? defaultSchedule)(() => {
+        this.cancelRearmWait = null;
+        resolve(true);
+      }, ms);
+      this.cancelRearmWait = () => {
+        cancel();
+        this.cancelRearmWait = null;
+        resolve(false);
+      };
+    });
   }
 
   private async classify(sequence: number, stack: StackFrameInfo[]): Promise<void> {

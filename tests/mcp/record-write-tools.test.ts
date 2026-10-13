@@ -399,6 +399,42 @@ describe("record-write MCP tools", () => {
     expect(report.nextSteps.join(" ")).toContain("before treating");
   });
 
+  test("a stray bind (detach before any break) re-arms instead of stopping; finish cancels the re-arm", async () => {
+    const hub = new FakeHub();
+    const { state, tools } = setup(hub);
+    const start = await tools.get("bcdev_record_writes_start")!.handler({ tableId: 18, breakOnNext: "WebServiceClient" }) as {
+      maxRearms: number;
+    };
+    expect(start.maxRearms).toBe(3);
+    hub.emit("OnDetachedFromConnection", false);
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+    const status = await tools.get("bcdev_record_writes_status")!.handler({}) as {
+      phase: string;
+      strayBinds: number;
+      nextSteps: string[];
+    };
+    expect(status).toMatchObject({ phase: "rearming", strayBinds: 1 });
+    expect(status.nextSteps.join(" ")).toContain("wait about 10 seconds");
+
+    const report = await tools.get("bcdev_record_writes_finish")!.handler({}) as { stopReason: string; strayBinds: number; rearms: number };
+    expect(report).toMatchObject({ stopReason: "finished", strayBinds: 1, rearms: 0 });
+    await Bun.sleep(0);
+    expect(hub.invoked("Attach").length).toBe(1);
+    expect(state.debugOwner).toBeNull();
+  });
+
+  test("an exact-session capture never re-arms", async () => {
+    const hub = new FakeHub();
+    const { tools } = setup(hub);
+    const start = await tools.get("bcdev_record_writes_start")!.handler({ tableId: 18, sessionId: 321 }) as { maxRearms: number };
+    expect(start.maxRearms).toBe(0);
+    hub.emit("OnDetachedFromConnection", false);
+    await Bun.sleep(0);
+    const report = await tools.get("bcdev_record_writes_finish")!.handler({}) as { stopReason: string };
+    expect(report.stopReason).toBe("sessionDetached");
+  });
+
   test("an out-of-band user-filter rejection fails closed and preserves a partial report", async () => {
     const hub = new FakeHub();
     const { state, tools } = setup(hub);

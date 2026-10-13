@@ -717,3 +717,174 @@ describe("RecordWriteCollector", () => {
     expect(report.warnings.join(" ")).toContain("Customer Alias");
   });
 });
+
+describe("stray-bind re-arm", () => {
+  function timers() {
+    const pending: { fn: () => void; ms: number; cancelled: boolean }[] = [];
+    return {
+      live: () => pending.filter((t) => !t.cancelled),
+      schedule: (fn: () => void, ms: number) => {
+        const timer = { fn, ms, cancelled: false };
+        pending.push(timer);
+        return () => {
+          timer.cancelled = true;
+        };
+      },
+      fire() {
+        const timer = pending.find((t) => !t.cancelled);
+        if (!timer) throw new Error("no pending timer");
+        timer.cancelled = true;
+        timer.fn();
+      },
+    };
+  }
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  function setup(attachImpl: () => Promise<void> = async () => {}, maxRearms = 3) {
+    const fake = client(["Table Customer (18)"]);
+    const clock = timers();
+    let attaches = 0;
+    const collector = new RecordWriteCollector({
+      tableId: 18,
+      changesDeployed: false,
+      maxObservedWrites: 10,
+      client: fake as never,
+      localSource: async () => null,
+      localFile: () => undefined,
+      rearm: {
+        attach: async () => {
+          attaches++;
+          await attachImpl();
+        },
+        maxRearms,
+        delayMs: 1000,
+        schedule: clock.schedule,
+      },
+    });
+    return { fake, clock, collector, attaches: () => attaches };
+  }
+
+  test("a detach before any break re-arms after the delay and later breaks are collected", async () => {
+    const { fake, clock, collector, attaches } = setup();
+    collector.onEvent({ kind: "sessionBound", sessionId: 77, hostId: "h1" });
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await collector.waitForIdle();
+    expect(collector.status()).toMatchObject({ phase: "rearming", strayBinds: 1, rearms: 0, sessionId: null });
+    expect(collector.status().warning).toContain("session 77, host h1");
+    expect(fake.stops).toBe(1);
+    expect(clock.live()[0]!.ms).toBe(1000);
+    expect(attaches()).toBe(0);
+
+    clock.fire();
+    await tick();
+    expect(attaches()).toBe(1);
+    expect(collector.status()).toMatchObject({ phase: "arming", strayBinds: 1, rearms: 1 });
+
+    collector.onEvent({ kind: "sessionBound", sessionId: 78, hostId: "h1" });
+    collector.onEvent(brk());
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await collector.waitForIdle();
+    const report = await collector.finish();
+    expect(report).toMatchObject({
+      stopReason: "sessionDetached",
+      strayBinds: 1,
+      rearms: 1,
+      complete: false,
+      summary: { observedWrites: 1, matchedWrites: 1 },
+    });
+    expect(report.warnings.join(" ")).toContain("A workload started before the re-attach is missed");
+    expect(clock.live()).toEqual([]);
+  });
+
+  test("an immediate re-attach rejected while BC releases the registration is retried with backoff", async () => {
+    let calls = 0;
+    const { clock, collector, attaches } = setup(async () => {
+      if (++calls === 1) throw new Error("An unexpected error occurred invoking 'Attach' on the server.");
+    });
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await collector.waitForIdle();
+    clock.fire();
+    await tick();
+    expect(attaches()).toBe(1);
+    expect(collector.status().phase).toBe("rearming");
+    expect(clock.live()[0]!.ms).toBe(2000);
+    clock.fire();
+    await tick();
+    expect(attaches()).toBe(2);
+    expect(collector.status()).toMatchObject({ phase: "arming", rearms: 1 });
+  });
+
+  test("a non-busy re-attach failure fails the capture", async () => {
+    const { clock, collector } = setup(async () => {
+      throw new Error("Unable to bind the requested user-filtered session.");
+    });
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await collector.waitForIdle();
+    clock.fire();
+    await tick();
+    expect(collector.status().phase).toBe("failed");
+    const report = await collector.finish();
+    expect(report).toMatchObject({ outcome: "failed", stopReason: "fatal", complete: false });
+  });
+
+  test("more stray binds than maxRearms stop with strayBindsExhausted", async () => {
+    const { clock, collector, attaches } = setup(async () => {}, 1);
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await collector.waitForIdle();
+    clock.fire();
+    await tick();
+    collector.onEvent({ kind: "sessionBound", sessionId: null, hostId: null, warning: "invalid NST session id" });
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await collector.waitForIdle();
+    expect(collector.status()).toMatchObject({ phase: "stopped", strayBinds: 2, rearms: 1 });
+    expect(clock.live()).toEqual([]);
+    const report = await collector.finish();
+    expect(attaches()).toBe(1);
+    expect(report).toMatchObject({ stopReason: "strayBindsExhausted", complete: false, strayBinds: 2, rearms: 1 });
+    expect(report.warnings.join(" ")).toContain("maxRearms=1 exhausted");
+  });
+
+  test("a detach after a break keeps the session-ended behaviour", async () => {
+    const { clock, collector, attaches } = setup();
+    collector.onEvent(brk());
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await collector.waitForIdle();
+    expect(clock.live()).toEqual([]);
+    const report = await collector.finish();
+    expect(attaches()).toBe(0);
+    expect(report).toMatchObject({ stopReason: "sessionDetached", strayBinds: 0, rearms: 0 });
+  });
+
+  test("finish during rearming cancels the pending re-attach", async () => {
+    const { fake, clock, collector, attaches } = setup();
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await collector.waitForIdle();
+    expect(clock.live().length).toBe(1);
+    const report = await collector.finish();
+    expect(clock.live()).toEqual([]);
+    await tick();
+    expect(attaches()).toBe(0);
+    expect(fake.stops).toBe(2);
+    expect(report).toMatchObject({ stopReason: "finished", complete: false, strayBinds: 1, rearms: 0 });
+    expect(report.warnings).toContain("No debugger session bound during the capture window.");
+  });
+
+  test("finish during an in-flight re-attach waits for it, then stops the new attachment", async () => {
+    let releaseAttach!: () => void;
+    const { fake, clock, collector, attaches } = setup(() => new Promise<void>((resolve) => {
+      releaseAttach = resolve;
+    }));
+    collector.onEvent({ kind: "detached", terminateSession: false });
+    await collector.waitForIdle();
+    clock.fire();
+    await tick();
+    expect(attaches()).toBe(1);
+    const finishing = collector.finish();
+    releaseAttach();
+    const report = await finishing;
+    expect(report).toMatchObject({ stopReason: "finished", rearms: 1 });
+    expect(collector.status().phase).toBe("stopped");
+    expect(fake.stops).toBe(2);
+    expect(clock.live()).toEqual([]);
+  });
+});

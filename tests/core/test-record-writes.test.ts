@@ -165,6 +165,8 @@ describe("attributePolluterWrites", () => {
     complete: true,
     truncated: false,
     summary: { observedWrites: 3, matchedWrites: 3, uniqueWriters: 2, unrelatedWrites: 0, unresolvedWrites: 0 },
+    strayBinds: 0,
+    rearms: 0,
     writers: [writer(50100, "Polluter", 2), writer(50101, "Other"), { ...writer(50102, "X"), testMethod: null }],
     unresolved: [],
     warnings: [],

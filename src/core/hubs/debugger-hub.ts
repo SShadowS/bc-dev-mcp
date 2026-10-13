@@ -194,6 +194,15 @@ function toVariableNode(n: WireLocalNode): VariableNode {
   };
 }
 
+/**
+ * WIRE: BC28 releases a debugger registration asynchronously after StopDebugging/detach; an
+ * immediate re-attach fails with this SignalR text until the old slot is gone (~10 s; live Cronus28 2026-10-13).
+ */
+export function isAttachBusyError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.toLowerCase().includes("error occurred invoking 'attach'");
+}
+
 export class DebuggerClient {
   private hub: HubProxy | null = null;
   private pendingDebugOptions: Record<string, unknown> | null = null;

@@ -68,11 +68,18 @@ const unresolvedSchema = z.object({
   stack: z.array(stackFrameSchema).describe("Complete normalized AL call stack for the unresolved write"),
 }).describe("One grouped unresolved write");
 
+const strayBindsSchema = z.number()
+  .describe("Binds that detached before any break (stray sessions, seen with breakOnNext WebServiceClient); each is listed in warnings");
+const rearmsSchema = z.number().describe("Successful re-attaches after stray binds");
+
 const statusSchema = z.object({
-  phase: z.enum(["arming", "collecting", "stopped", "failed"]).describe("Background capture lifecycle phase"),
+  phase: z.enum(["arming", "rearming", "collecting", "stopped", "failed"])
+    .describe("Background capture lifecycle phase; rearming = a stray bind detached before any break and the debugger re-attaches after a delay (writes in that window are missed)"),
   target: targetSchema,
   sessionId: z.number().nullable().describe("Bound NST session ID, or null before binding/when identity lookup failed"),
   summary: summarySchema,
+  strayBinds: strayBindsSchema,
+  rearms: rearmsSchema,
   truncated: z.boolean().describe("true when maxObservedWrites released the workload before full observation"),
   warning: z.string().nullable().describe("Most recent redacted nonfatal or terminal warning"),
 });
@@ -80,10 +87,13 @@ const statusSchema = z.object({
 const reportSchema = z.object({
   target: targetSchema,
   outcome: z.enum(["completed", "truncated", "failed"]).describe("Final capture outcome"),
-  stopReason: z.enum(["finished", "sessionDetached", "maxObservedWrites", "fatal"]).describe("Why collection ended"),
+  stopReason: z.enum(["finished", "sessionDetached", "maxObservedWrites", "strayBindsExhausted", "fatal"])
+    .describe("Why collection ended; strayBindsExhausted = more stray binds than maxRearms (re-arm with breakOnNext Background/WebClient or a sessionId)"),
   complete: z.boolean().describe("true only when every write observed in this capture window was classified without evidence loss"),
   truncated: z.boolean().describe("true when the observed-write safety cap ended collection"),
   summary: summarySchema,
+  strayBinds: strayBindsSchema,
+  rearms: rearmsSchema,
   writers: z.array(writerSchema).describe("Exact target-table writer groups"),
   unresolved: z.array(unresolvedSchema).describe("Fail-closed groups that could not be attributed to a runtime table"),
   warnings: z.array(z.string()).describe("Redacted lifecycle, source-trust, truncation, or classification warnings"),
@@ -165,6 +175,7 @@ function normalizeStart(params: Record<string, unknown>): {
   includeTemporary: boolean;
   changesDeployed: boolean;
   maxObservedWrites: number;
+  maxRearms: number;
 } {
   const tableId = params["tableId"];
   if (typeof tableId !== "number" || !Number.isSafeInteger(tableId) || tableId <= 0) {
@@ -183,6 +194,10 @@ function normalizeStart(params: Record<string, unknown>): {
       "validation",
     );
   }
+  const maxRearms = params["maxRearms"] ?? 3;
+  if (typeof maxRearms !== "number" || !Number.isInteger(maxRearms) || maxRearms < 0 || maxRearms > 10) {
+    throw new BcDevError("INVALID_ARGUMENT", "maxRearms must be an integer from 0 through 10", "validation");
+  }
   if (params["includeTemporary"] !== undefined && typeof params["includeTemporary"] !== "boolean") {
     throw new BcDevError("INVALID_ARGUMENT", "includeTemporary must be a boolean", "validation");
   }
@@ -194,6 +209,7 @@ function normalizeStart(params: Record<string, unknown>): {
     includeTemporary: (params["includeTemporary"] as boolean | undefined) ?? false,
     changesDeployed: (params["changesDeployed"] as boolean | undefined) ?? false,
     maxObservedWrites,
+    maxRearms,
   };
 }
 
@@ -203,7 +219,7 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
       name: "bcdev_record_writes_start",
       title: "Start table write triage",
       description:
-        "Arm background record-write triage for one numeric table ID. Business Central breaks globally; the collector identifies each runtime receiver, groups exact target stacks, and auto-continues. Trigger the matching workload after start, then check status and finish. Returns recordingId, an opaque handle to pass to bcdev_record_writes_status/finish (optional there; it must match when given); it stays valid until bcdev_record_writes_finish or server restart.",
+        "Arm background record-write triage for one numeric table ID. Business Central breaks globally; the collector identifies each runtime receiver, groups exact target stacks, and auto-continues. Trigger the matching workload after start, then check status and finish. A next-session or user-filtered attach whose bound session detaches before any break (a stray bind; about half the attaches with breakOnNext WebServiceClient on BC28) is re-armed automatically after ~10 s, up to maxRearms; status shows phase rearming, and a workload started during that window is missed, so wait for phase arming before triggering it. Returns recordingId, an opaque handle to pass to bcdev_record_writes_status/finish (optional there; it must match when given); it stays valid until bcdev_record_writes_finish or server restart.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       schema: {
         ...connectionShape,
@@ -239,6 +255,13 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
           .max(10000)
           .optional()
           .describe("Safety cap across all observed writes (default 500); reaching it releases the workload undebugged"),
+        maxRearms: z
+          .number()
+          .int()
+          .min(0)
+          .max(10)
+          .optional()
+          .describe("Stray binds (detach before any break) re-armed per capture before stopping with strayBindsExhausted (default 3; ignored with sessionId)"),
       },
       outputSchema: z.object({
         armed: z.literal(true).describe("Debugger attach succeeded and background collection is armed"),
@@ -248,6 +271,7 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
         includeTemporary: z.boolean().describe("Whether temporary writes are included"),
         changesDeployed: z.boolean().describe("Caller-provided local source deployment assertion"),
         maxObservedWrites: z.number().describe("Effective observed-write safety cap"),
+        maxRearms: z.number().describe("Effective stray-bind re-arm budget (0 with sessionId: an exact session that detaches has ended)"),
         staticWriters: staticWritersSchema.optional()
           .describe("al-sem static writer sites for the table; omitted when no static provider is configured"),
       }),
@@ -261,6 +285,16 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
         try {
           const { config, authorization, project } = resolve(params, deps);
           const index = await AlObjectIndex.build(project);
+          const attachOptions = {
+            breakOnNext: params["breakOnNext"] as "WebClient" | "WebServiceClient" | "Background" | undefined,
+            ...target,
+            breakOnError: false,
+            breakOnRecordWrite: options.includeTemporary ? "all" as const : "nonTemporary" as const,
+            skipSystemTriggers: false,
+          };
+          const attach = () => client.connect(config, authorization, attachOptions);
+          // An exact session that detaches has ended; only next-session/user-filtered arms can bind a stray.
+          const maxRearms = target.sessionId === undefined ? options.maxRearms : 0;
           collector = new RecordWriteCollector({
             tableId: options.tableId,
             changesDeployed: options.changesDeployed,
@@ -272,19 +306,14 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
               return await readFile(file, "utf8").catch(() => null);
             },
             localFile: (objectType, objectId) => index.byId(objectType, objectId)?.file,
+            ...(maxRearms > 0 ? { rearm: { attach, maxRearms } } : {}),
           });
           const id = randomUUID();
           state.recordWrites = collector;
           state.recordWriteSlotToken = slotToken;
           state.recordingId = id;
           client.onEvent = (event) => collector?.onEvent(event);
-          await client.connect(config, authorization, {
-            breakOnNext: params["breakOnNext"] as "WebClient" | "WebServiceClient" | "Background" | undefined,
-            ...target,
-            breakOnError: false,
-            breakOnRecordWrite: options.includeTemporary ? "all" : "nonTemporary",
-            skipSystemTriggers: false,
-          });
+          await attach();
           // Optional al-sem enrichment (never throws): seeds the finish-time static-vs-observed diff.
           let staticWriters: z.infer<typeof staticWritersSchema> | undefined;
           if (deps.staticWriters) {
@@ -301,6 +330,7 @@ export function createRecordWriteTools(state: ServerState, deps: ToolDeps): Tool
             includeTemporary: options.includeTemporary,
             changesDeployed: options.changesDeployed,
             maxObservedWrites: options.maxObservedWrites,
+            maxRearms,
             ...(staticWriters ? { staticWriters } : {}),
           };
         } catch (error) {

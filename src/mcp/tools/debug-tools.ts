@@ -176,7 +176,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       name: "bcdev_debug_wait",
       title: "Wait for debugger event",
       description:
-        "Wait for the next debugger event (sessionBound, break, testRunFinished, detached, fatal). Timing out is a normal result — call again to keep waiting. Events queue up to 100 between calls; beyond that the oldest are discarded and droppedEvents reports how many.",
+        "Wait for the next debugger event (sessionBound, break, testRunFinished, detached, fatal). Timing out is a normal result — call again to keep waiting. Events queue up to 100 between calls; beyond that the oldest are discarded and droppedEvents reports how many. A detached event before any break usually means a stray session bound at attach time (common with breakOnNext WebServiceClient on BC28): nothing was debugged, so bcdev_debug_detach and attach again after about 10 seconds.",
       annotations: { readOnlyHint: true, openWorldHint: true },
       schema: {
         debugSessionId,
