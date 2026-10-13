@@ -45,6 +45,7 @@ function deps(fetchFn: typeof fetch): ToolDeps {
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
     cwd: mkdtempSync(join(tmpdir(), "bcprof-")),
     gitChanges: async (_project, baseRef) => ({ baseRef, mergeBase: "a".repeat(40), head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [], files: [] }),
+    callGraph: async () => ({ nodes: [], edges: [] }),
     nativeMcpGateway: new FakeNativeMcpGateway(),
   };
 }

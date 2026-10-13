@@ -40,6 +40,7 @@ function setup(responses: Array<() => Response>, env: Record<string, string> = {
     env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p", ...env },
     cwd: project,
     gitChanges: async () => { throw new Error("unused"); },
+    callGraph: async () => ({ nodes: [], edges: [] }),
     nativeMcpGateway: new FakeNativeMcpGateway(),
   };
   const tools = new Map(createTools(new ServerState(), deps).map((t) => [t.name, t]));

@@ -46,6 +46,7 @@ function depsFor(failureClass: FailureClass): ToolDeps {
     gitChanges: async (_project, baseRef): Promise<GitChangeSet> => ({
       baseRef, mergeBase: "a".repeat(40), head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [], files: [],
     }),
+    callGraph: async () => ({ nodes: [], edges: [] }),
     nativeMcpGateway: gateway,
   };
   if (failureClass === "serverDisconnect") {

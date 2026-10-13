@@ -37,6 +37,7 @@ async function connect() {
       head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
       files: [],
     }),
+    callGraph: async () => ({ nodes: [], edges: [] }),
     nativeMcpGateway: new FakeNativeMcpGateway(),
   });
   const client = new Client({ name: "test-client", version: "0.0.0" });

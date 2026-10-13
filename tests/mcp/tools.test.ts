@@ -48,6 +48,7 @@ function setup(
       head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
       files: [],
     }),
+    callGraph: async () => ({ nodes: [], edges: [] }),
     nativeMcpGateway: new FakeNativeMcpGateway(),
     ...overrides,
   };
