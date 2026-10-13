@@ -18,6 +18,16 @@ describe("agent errors", () => {
     expect(normalizeAgentError(new Error("Server returned breakpoint metadata for another AL object")).code).toBe("PROTOCOL_ERROR");
   });
 
+  test("a hub Attach failure right after a detach is a retryable SERVER_REJECTED, not an internal bug", () => {
+    // Live Cronus28 2026-10-13: an immediate re-attach fails after ~10 s with this exact SignalR text; 12 s later it works.
+    expect(normalizeAgentError(new Error("An unexpected error occurred invoking 'Attach' on the server."))).toMatchObject({
+      code: "SERVER_REJECTED",
+      category: "server",
+      retryable: true,
+      message: expect.stringContaining("wait about 10 seconds"),
+    });
+  });
+
   test("native debugger state relies on typed errors rather than loose message matching", () => {
     expect(normalizeAgentError(new Error("debug session identity cache failed")).code).toBe("INTERNAL_ERROR");
     expect(normalizeAgentError(new BcDevError(
