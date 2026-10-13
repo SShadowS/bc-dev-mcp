@@ -197,8 +197,22 @@ is unit-tested in `tests/mcp/protocol-eras.test.ts`; the native-MCP client side 
   `details.{handle,given,active,startTool,endTool}` and next steps naming the active handle.
   Slot-busy errors carry the active handle. Single-slot limits unchanged; the test-run lock is
   not cross-request state. <!-- 2026-10-13 unit (tests/mcp/handles.test.ts) -->
-- [ ] Live: attach/profile/record-writes against Cronus28 return a handle and accept it on
-  follow-ups end to end.
+- [x] Live, built server, both eras over real stdio: `node dist/index.js` (wf/batch-mcp2026: SDK v2 +
+  al-sem risk/order/writes/hotspots/prove merged) driven by a raw JSON-RPC client, once opening
+  with `initialize` (protocolVersion 2025-11-25) and once with `server/discover` + the per-request
+  2026-07-28 `_meta` envelope: tools/list (29), `bcdev_status`, `skills/list` + `skills/get`,
+  `bcdev_test_run` with a `progressToken`, debugger attach/wait/detach by `debugSessionId`.
+  <!-- 2026-10-13 BC28 (Cronus28, on-prem, no app published). Legacy: initialize answered 2025-11-25, serverInfo bc-dev-mcp 0.4.0, skills extension advertised. Modern: server/discover supportedVersions ["2026-07-28"], resultType complete, ttlMs 86400000; tools/list carried resultType/ttlMs. Both eras: bcdev_status webApiVersion 7.0; skills/list 5 skills, skills/get skill://bc-al-testing/SKILL.md with frontmatter + 1-entry resources manifest, resultType complete. bcdev_test_run 132536 (whole codeunit): 26 results (ErrorHasNotBeenThrown failed = the known last-error leak; plus the synthetic codeunit-level row) and 26 notifications/progress with the request's token, one per TestCompleted ("132536.IsTrueTest passed" ...), no `total` because the method count is unknown up front. bcdev_debug_attach returned a debugSessionId (uuid); bcdev_debug_wait with a wrong handle -> NOT_FOUND; with the right handle -> timedOut normal result; bcdev_debug_detach with the handle -> detached; a follow-up wait -> NO_DEBUG_SESSION. bcdev_app_list before/after: 169 apps, identical. -->
+- [ ] Live: profile/record-writes against Cronus28 return a handle and accept it on
+  follow-ups end to end. <!-- 2026-10-13: the debugSessionId half is live-verified (box above); profileId and recordingId still unit-only -->
+- [ ] Live: al-sem enrichments end to end on Cronus28 (test_select/test_run risk, order
+  staticPrediction, record_writes staticCrossCheck, profile_finish hotspot findings,
+  debug_wait effects:true). <!-- 2026-10-13: each is unit/fixture-tested with real alsem output (BC_DEV_ALSEM set); not driven through the merged built server against Cronus28 yet -->
+- [ ] Progress heartbeat on a long `bcdev_debug_wait` (every 10 s) and per-run progress on
+  `bcdev_test_orchestrate` live. <!-- unit-tested in tests/mcp/progress.test.ts; the 2026-10-13 smoke only exercised bcdev_test_run progress -->
+- [x] `bcdev_test_run` progress live: with a `progressToken` one `notifications/progress` per
+  completed test; without one, none. <!-- 2026-10-13 BC28 (Cronus28), built dist/index.js, both eras: 26/26 notifications carrying the token; the no-token path is unit-tested -->
+- [ ] Compiled `bc-dev-mcp.exe` reaches the hubs. <!-- 2026-10-13 BC28 (Cronus28), same smoke against `bc-dev-mcp.exe`: discover/initialize, tools/list, bcdev_status, skills/*, bcdev_app_list all fine, but every SignalR tool (bcdev_test_run, bcdev_debug_attach) fails INTERNAL_ERROR "Cannot find module 'eventsource'". @microsoft/signalr's HttpConnection does `requireFunc("ws")` / `requireFunc("eventsource")` at runtime on Node, which `bun build --compile` does not embed. PRE-EXISTING: an exe compiled from main (4832f3d, SDK v1) fails identically. `node dist/index.js` is unaffected (resolves them from node_modules). -->
 - [ ] Live with a current (2025-era) Claude Code client: tools list and a call succeeds.
 - [ ] Native MCP passthrough (SaaS Sandbox): the client currently uses the SDK default
   (`legacy`, plain `initialize`). Before flipping `src/core/native-mcp.ts` to
