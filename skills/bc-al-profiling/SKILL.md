@@ -41,6 +41,12 @@ stateful and the steps cannot be reordered.
   `PROFILE_ACTIVE`; call `bcdev_profile_finish` first. `bcdev_profile_poll` and
   `bcdev_profile_finish` without a capture fail with `PROFILE_NOT_ACTIVE`. Finish always
   releases the slot, even when it returns `captured: false` or throws, so it is also your reset.
+- **The capture is tenant-wide.** If another client or a crashed earlier process left one armed,
+  start fails `PROFILE_ACTIVE` with `details.heldElsewhere: true`. Release it with
+  `bcdev_profile_finish` and that capture's `debuggingContext` (from the start that armed it);
+  its data is discarded. Keep `debuggingContext` from every start for this reason.
+- **API (WebServiceClient) sessions record nothing.** They finish `captured: false`; trigger a
+  real WebClient session (browser or business-central-mcp).
 - **Snapshot port, not the dev port.** Profiling uses the snapshot-debugger endpoint, default
   port **7083**, separate from the dev endpoint port (often 7049). Pass `snapshotPort` to
   `bcdev_profile_status` and `bcdev_profile_start` if the server maps it elsewhere; poll and
