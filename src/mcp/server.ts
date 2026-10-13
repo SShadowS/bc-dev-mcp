@@ -121,8 +121,17 @@ export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
         annotations: tool.annotations,
       },
       async (params: Record<string, unknown>, ctx) => {
+        const progressToken = ctx.mcpReq._meta?.progressToken;
         try {
-          return toToolResponse(await tool.handler(params, { signal: ctx.mcpReq.signal }));
+          return toToolResponse(await tool.handler(params, {
+            signal: ctx.mcpReq.signal,
+            progress: progressToken === undefined ? undefined : (progress, total, message) => {
+              void ctx.mcpReq.notify({
+                method: "notifications/progress",
+                params: { progressToken, progress, ...(total !== undefined && { total }), ...(message !== undefined && { message }) },
+              }).catch(() => {});
+            },
+          }));
         } catch (err) {
           return toAgentToolError(tool.name, err);
         }

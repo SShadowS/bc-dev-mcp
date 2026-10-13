@@ -45,6 +45,8 @@ export interface ToolDefinition {
 
 export interface ToolExecutionContext {
   signal?: AbortSignal;
+  /** Present only when the request carried a progressToken; otherwise callers must not emit. */
+  progress?: (progress: number, total?: number, message?: string) => void;
 }
 
 export interface DebugTarget {

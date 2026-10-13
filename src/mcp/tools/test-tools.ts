@@ -319,7 +319,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           "Explicit assertion that the current working-tree versions of changed AL objects are deployed to this server. Required for covered/uncovered classifications because procedure coverage does not carry an app or source hash.",
         ),
       },
-      handler: async (params) => {
+      handler: async (params, context) => {
         claimTestRun(state);
         try {
           const { config, authorization, project } = resolve(params, deps);
@@ -356,11 +356,21 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
                     ),
               }));
           await requireTestRunningSupport(config, authorization, deps);
+          const plannedGroups = params["codeunits"] as Array<{ id: number; methods?: string[] }>;
+          // total is known only when every group names its methods
+          const plannedTotal = plannedGroups.every((g) => g.methods?.length)
+            ? plannedGroups.reduce((n, g) => n + g.methods!.length, 0)
+            : undefined;
           const result = await new TestRunnerClient(deps.hubFactory).run(
             config,
             authorization,
-            params["codeunits"] as Array<{ id: number; methods?: string[] }>,
-            { company: params["company"] as string | undefined, coverage: coverageMode },
+            plannedGroups,
+            {
+              company: params["company"] as string | undefined,
+              coverage: coverageMode,
+              onTestCompleted: context?.progress && ((r, completed) =>
+                context.progress!(completed, plannedTotal, `${r.codeunitId}.${r.method} ${r.status}`)),
+            },
           );
           enrichTestRun(result);
           const needsCoverageMapping = result.coverage?.some((entry) => entry.coveredProcedures.length > 0) ?? false;
@@ -490,7 +500,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
         }
         claimTestRun(state);
         try {
-          if (mode === "order") return await runOrderOrchestration(params, state, deps, context?.signal);
+          if (mode === "order") return await runOrderOrchestration(params, state, deps, context?.signal, context?.progress);
           const { config, authorization, project } = resolve(params, deps);
           const plan = params["codeunits"] as Array<{ id: number; methods?: string[] }>;
           const runsRequested = (params["runs"] as number | undefined) ?? 3;
@@ -521,6 +531,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             }
             enrichTestRun(result);
             runs.push(result);
+            context?.progress?.(runs.length, runsRequested, `run ${runs.length}/${runsRequested} ${result.runAborted ? "aborted" : "finished"}`);
             if (result.runAborted === true) break;
             if (clientCancelled() && index + 1 < runsRequested) {
               cancellationObserved = true;

@@ -198,9 +198,11 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         message: z.string().optional().describe("Fatal error detail, on kind=fatal"),
         droppedEvents: z.number().optional().describe("Events discarded because the 100-event queue overflowed (cumulative for the session); absent when none were lost"),
       }),
-      handler: async (params) => {
+      handler: async (params, context) => {
         const session = requireSession(state, params);
-        const event = await session.wait((params["timeoutMs"] as number | undefined) ?? 30000);
+        let beats = 0;
+        const heartbeat = context?.progress && setInterval(() => context.progress!(++beats, undefined, "waiting for break"), 10000);
+        const event = await session.wait((params["timeoutMs"] as number | undefined) ?? 30000).finally(() => clearInterval(heartbeat));
         const result =
           "timedOut" in event
             ? event

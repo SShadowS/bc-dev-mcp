@@ -16,6 +16,8 @@ export interface RunOptions {
   company?: string;
   coverage?: CoverageMode;
   debuggingContext?: string;
+  /** Called after each TestCompleted row (pure callback; the MCP layer turns it into progress). */
+  onTestCompleted?: (result: TestMethodResult, completed: number) => void;
 }
 
 interface WireCoverageForTest {
@@ -96,6 +98,7 @@ export class TestRunnerClient {
           durationMs: duration,
           output: output ?? "",
         });
+        opts.onTestCompleted?.(results[results.length - 1]!, results.length);
       });
 
       hub.on("TestRunCompleted", (...args) => {
