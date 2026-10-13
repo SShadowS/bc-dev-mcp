@@ -62,7 +62,7 @@ export interface StaticWriteSite {
   objectId: number;
   objectDisplay: string;
   routine: string;
-  /** Workspace-relative path (the `ws:` prefix is stripped), 1-based line. */
+  /** Workspace-relative path (the `ws:` prefix is stripped), 1-based line (al-sem reports 0-based; converted in effectsOf). */
   file: string;
   line: number;
   /** al-sem tempState: known(false) | known(true) | unknown. */
@@ -145,7 +145,8 @@ interface RawEffect {
 /** `<appId>:Codeunit:50171#<hash>` */
 const STABLE_ID = /:([A-Za-z]+):(\d+)#/;
 
-function effectsOf(payload: Record<string, unknown>): RawEffect[] {
+/** `tableId` = the watched table's al-sem id: a routine that touches it may also write other tables, whose effects must not leak into the set. */
+function effectsOf(payload: Record<string, unknown>, tableId: string | undefined): RawEffect[] {
   const list = payload["effects"];
   if (!Array.isArray(list)) return [];
   const out: RawEffect[] = [];
@@ -157,11 +158,15 @@ function effectsOf(payload: Record<string, unknown>): RawEffect[] {
     const routine = obj(origin?.["routine"]);
     const anchor = obj(origin?.["anchor"]);
     const id = STABLE_ID.exec(str(routine?.["stableId"]) ?? "");
-    const line = anchor?.["line"];
-    if (!id || typeof line !== "number") continue;
+    const anchorLine = anchor?.["line"];
+    if (!id || typeof anchorLine !== "number") continue;
+    const unknownBucket = e["isUnknownBucket"] === true;
+    if (!unknownBucket && str(e["tableId"]) !== tableId) continue;
+    // WIRE: al-sem anchor line/column are 0-based (fixture: Insert on file line 8 -> 7); the tool surface is 1-based.
+    const line = anchorLine + 1;
     out.push({
       operationId: str(e["operationId"]) ?? `${id[1]}:${id[2]}:${line}:${op}`,
-      unknownBucket: e["isUnknownBucket"] === true,
+      unknownBucket,
       site: {
         operation: op,
         objectType: id[1]!,
@@ -216,13 +221,13 @@ export function createAlSemStaticWritersProvider(
         parseEnvelope((await run(binary, ["query", ...args, project, "--format", "json", "--deterministic"])).stdout, kind);
 
       let version = "";
-      let resolved: { selector: string; name: string | null; routines: RoutineRef[] } | undefined;
+      let resolved: { selector: string; name: string | null; id: string | undefined; routines: RoutineRef[] } | undefined;
       for (const selector of selectors) {
         const touches = await query("query.touches", ["touches", "--table", selector]);
         version = touches.version;
         const table = obj(touches.payload["table"]);
         if (table?.["resolution"] === "resolved") {
-          resolved = { selector, name: str(table["name"]) ?? null, routines: routinesOf(touches.payload) };
+          resolved = { selector, name: str(table["name"]) ?? null, id: str(table["id"]), routines: routinesOf(touches.payload) };
           break;
         }
       }
@@ -235,7 +240,9 @@ export function createAlSemStaticWritersProvider(
       if (routines.length > scanned.length) {
         warnings.push(`al-sem lists ${routines.length} routines touching the table; only the first ${MAX_SCANNED_ROUTINES} were expanded, so the static set is incomplete.`);
       }
-      const effects = await mapLimited(scanned, async (r) => effectsOf((await query("query.effects", ["effects", "--routine", r.stableId])).payload));
+      const tableAlsemId = resolved.id;
+      if (!tableAlsemId) throw new SoftFail("alsem touches output carries no table id, so effects cannot be matched to the table");
+      const effects = await mapLimited(scanned, async (r) => effectsOf((await query("query.effects", ["effects", "--routine", r.stableId])).payload, tableAlsemId));
 
       const seen = new Set<string>();
       const sites: StaticWriteSite[] = [];

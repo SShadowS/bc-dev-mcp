@@ -45,20 +45,42 @@ describe("static writer set from recorded al-sem output", () => {
     expect(writers!.alsemVersion).toBe("1.5.0");
     expect(writers!.table).toEqual({ selector: `${APP_ID}/table/50170`, name: "RW Ledger" });
     expect(writers!.sites.map(label).sort()).toEqual([
-      "Codeunit RW Ledger Writer.Adjust Modify@16",
-      "Codeunit RW Ledger Writer.Post Insert@7",
-      "Codeunit RW Ledger Writer.Purge DeleteAll@24",
-      "Codeunit RW Ledger Writer.Rekey Rename@32",
+      "Codeunit RW Ledger Writer.Adjust Modify@17",
+      "Codeunit RW Ledger Writer.Post Insert@8",
+      "Codeunit RW Ledger Writer.Purge DeleteAll@25",
+      "Codeunit RW Ledger Writer.Rekey Rename@33",
+      "Codeunit RW Mixed Writer.Both Insert@8",
     ]);
-    expect(writers!.sites[0]!.file).toBe("src/LedgerWriter.Codeunit.al");
-    expect(writers!.unknownBucketSites.map(label)).toEqual(["Codeunit RW Ledger Writer.DynamicWrite Insert@57"]);
+    expect(writers!.sites[0]!.file).toMatch(/^src\/.*\.Codeunit\.al$/);
+    expect(writers!.unknownBucketSites.map(label).sort()).toEqual([
+      "Codeunit RW Ledger Writer.DynamicWrite Insert@58",
+      "Codeunit RW Mixed Writer.DynPlusOther Insert@23",
+    ]);
     expect(writers!.caveats.join(" ")).toContain("#28");
     expect(writers!.caveats.join(" ")).toContain("#9");
   });
 
   test("includeTemporary keeps the temporary-record write", async () => {
     const { writers } = await createAlSemStaticWritersProvider({}, replay())({ ...request, includeTemporary: true });
-    expect(writers!.sites.map(label)).toContain("Codeunit RW Ledger Writer.ScratchOnly Insert@40");
+    expect(writers!.sites.map(label)).toContain("Codeunit RW Ledger Writer.ScratchOnly Insert@41");
+  });
+
+  test("writes to another table are not writers of the watched one (regression)", async () => {
+    const { writers } = await createAlSemStaticWritersProvider({}, replay())(request);
+    const all = [...writers!.sites, ...writers!.unknownBucketSites].map(label);
+    // Both.Other.Insert@9, OtherOnly.DeleteAll@16 and DynPlusOther.Other.Delete@24 write "RW Other" (50172).
+    expect(all.filter((l) => l.includes("RW Mixed Writer"))).toEqual(["Codeunit RW Mixed Writer.Both Insert@8", "Codeunit RW Mixed Writer.DynPlusOther Insert@23"]);
+    // Unknown-bucket effects never leak into the proven set.
+    expect(writers!.sites.map(label).filter((l) => l.includes("DynPlusOther"))).toEqual([]);
+  });
+
+  test("site lines are 1-based file lines (al-sem anchors are 0-based)", async () => {
+    const { writers } = await createAlSemStaticWritersProvider({}, replay())({ ...request, includeTemporary: true });
+    expect(writers!.sites.length).toBeGreaterThan(0);
+    for (const site of [...writers!.sites, ...writers!.unknownBucketSites]) {
+      const source = readFileSync(join(fixture, site.file), "utf8").split(/\r?\n/);
+      expect(source[site.line - 1]).toContain(`.${site.operation}`);
+    }
   });
 
   test("falls back from the appId selector to the table name", async () => {
@@ -122,15 +144,16 @@ describe("static versus observed diff", () => {
   test("matched, statically-possible-never-observed, and observed-not-static (unknown bucket flagged)", async () => {
     await load();
     const diff = diffStaticVsObserved(writers, [
-      group({ line: 7 }), // Post Insert
-      group({ line: 16, operation: "modify", methodName: "Adjust" }),
-      group({ line: 57, methodName: "DynamicWrite" }), // in al-sem's unknown bucket
+      group({ line: 8 }), // Post Insert
+      group({ line: 17, operation: "modify", methodName: "Adjust" }),
+      group({ line: 58, methodName: "DynamicWrite" }), // in al-sem's unknown bucket
       group({ line: 99, objectId: 50172, methodName: "Elsewhere", operation: "delete" }), // al-sem has no idea
     ], true);
     expect(diff.matched).toBe(2);
     expect(diff.staticNotObserved.map(label).sort()).toEqual([
-      "Codeunit RW Ledger Writer.Purge DeleteAll@24",
-      "Codeunit RW Ledger Writer.Rekey Rename@32",
+      "Codeunit RW Ledger Writer.Purge DeleteAll@25",
+      "Codeunit RW Ledger Writer.Rekey Rename@33",
+      "Codeunit RW Mixed Writer.Both Insert@8",
     ]);
     expect(diff.observedNotStatic.map((o) => [o.frame.methodName, o.inUnknownBucket])).toEqual([
       ["DynamicWrite", true],
@@ -141,10 +164,10 @@ describe("static versus observed diff", () => {
 
   test("a multi-line statement matches on its span; operation must agree", async () => {
     await load();
-    const spanned = group({ line: 6 });
-    spanned.stack[0]!.statementSpan = { from: { line: 6, column: 9 }, to: { line: 8, column: 3 } };
+    const spanned = group({ line: 7 });
+    spanned.stack[0]!.statementSpan = { from: { line: 7, column: 9 }, to: { line: 9, column: 3 } };
     expect(diffStaticVsObserved(writers, [spanned], false).matched).toBe(1);
-    expect(diffStaticVsObserved(writers, [group({ line: 7, operation: "modify" })], false).observedNotStatic).toHaveLength(1);
+    expect(diffStaticVsObserved(writers, [group({ line: 8, operation: "modify" })], false).observedNotStatic).toHaveLength(1);
     expect(diffStaticVsObserved(writers, [], false).observationComplete).toBe(false);
   });
 });
