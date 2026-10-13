@@ -1,0 +1,267 @@
+{
+  "alsemVersion": "1.5.0",
+  "deterministic": true,
+  "diagnostics": [],
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "kind": "digest",
+  "payload": {
+    "changed": {
+      "diffProvided": false,
+      "files": [
+        "src/RiskOps.Codeunit.al"
+      ]
+    },
+    "changedRootsDiagnostics": [],
+    "entries": [
+      {
+        "coverage": {
+          "reasons": [],
+          "status": "complete"
+        },
+        "effects": [
+          {
+            "conditionality": "unconditional-on-success",
+            "confidence": "static",
+            "detail": {},
+            "evidence": {
+              "column": 8,
+              "excerpt": "commit",
+              "file": "ws:src/RiskOps.Codeunit.al",
+              "line": 9,
+              "sourceKind": "source"
+            },
+            "factId": "73d39a50ee20c861",
+            "guarantees": [
+              "COMMIT_REACHABLE",
+              "COMMIT_ON_SUCCESS_PATH",
+              "COMMIT_DOMINATES_RETURN",
+              "WRITE_COMMITTED_BEFORE_RETURN"
+            ],
+            "provenance": "direct",
+            "scopedGuarantees": [
+              {
+                "interveningBoundary": "none",
+                "label": "COMMIT_REACHABLE",
+                "scope": "owning-routine",
+                "validForRefutation": false
+              },
+              {
+                "interveningBoundary": "none",
+                "label": "COMMIT_ON_SUCCESS_PATH",
+                "scope": "owning-routine",
+                "validForRefutation": false
+              },
+              {
+                "interveningBoundary": "none",
+                "label": "COMMIT_DOMINATES_RETURN",
+                "scope": "owning-routine",
+                "validForRefutation": false
+              },
+              {
+                "interveningBoundary": "none",
+                "label": "WRITE_COMMITTED_BEFORE_RETURN",
+                "scope": "owning-routine",
+                "validForRefutation": false
+              },
+              {
+                "commitOccurrenceId": "73d39a50ee20c861",
+                "interveningBoundary": "none",
+                "label": "COMMIT_DOMINATES_RETURN",
+                "returnOccurrenceId": "eee641e14d75935f",
+                "scope": "root",
+                "validForRefutation": true
+              }
+            ],
+            "transactionContext": "span-has-known-writes",
+            "type": "COMMIT",
+            "viaPaths": [
+              []
+            ],
+            "viaPathsTruncated": false
+          },
+          {
+            "conditionality": "unconditional-on-success",
+            "confidence": "static",
+            "detail": {
+              "resourceDisplay": "Risk Order",
+              "resourceId": "5f1c9a0e-0000-4000-8000-000000000a51/table/50990"
+            },
+            "evidence": {
+              "column": 8,
+              "excerpt": "Order.Modify",
+              "file": "ws:src/RiskOps.Codeunit.al",
+              "line": 8,
+              "sourceKind": "source"
+            },
+            "factId": "022f0ff159ab5d49",
+            "guarantees": [
+              "COMMIT_REACHABLE"
+            ],
+            "provenance": "direct",
+            "scopedGuarantees": [
+              {
+                "interveningBoundary": "none",
+                "label": "COMMIT_REACHABLE",
+                "scope": "owning-routine",
+                "validForRefutation": false
+              }
+            ],
+            "transactionContext": "unknown",
+            "type": "DB_MODIFY",
+            "viaPaths": [
+              []
+            ],
+            "viaPathsTruncated": false
+          }
+        ],
+        "entryDiagnostics": [],
+        "routine": {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/RiskOps.Codeunit.al",
+            "line": 2,
+            "sourceKind": "source"
+          },
+          "display": "PostOrder",
+          "objectDisplay": "",
+          "stableId": "5f1c9a0e-0000-4000-8000-000000000a51:Codeunit:50990#10d2b23913f7c88af9b19635123d28d6aa9cc8ef78850c62a33c366a98058a45"
+        },
+        "unresolved": [],
+        "unresolvedTraversal": {
+          "maxDepth": 64,
+          "truncated": false,
+          "visitedRoutines": 1
+        }
+      },
+      {
+        "coverage": {
+          "reasons": [],
+          "status": "complete"
+        },
+        "effects": [
+          {
+            "conditionality": "error-path",
+            "confidence": "static",
+            "detail": {},
+            "evidence": {
+              "column": 12,
+              "excerpt": "error-call",
+              "file": "ws:src/RiskOps.Codeunit.al",
+              "line": 24,
+              "sourceKind": "source"
+            },
+            "factId": "16f681b59258396e",
+            "guarantees": [],
+            "provenance": "direct",
+            "scopedGuarantees": [],
+            "transactionContext": "unknown",
+            "type": "ERROR_THROW",
+            "viaPaths": [
+              []
+            ],
+            "viaPathsTruncated": false
+          },
+          {
+            "conditionality": "error-path",
+            "confidence": "static",
+            "detail": {},
+            "evidence": {
+              "column": 12,
+              "excerpt": "Error",
+              "file": "ws:src/RiskOps.Codeunit.al",
+              "line": 24,
+              "sourceKind": "source"
+            },
+            "factId": "183f488762234ddf",
+            "guarantees": [],
+            "provenance": "direct",
+            "scopedGuarantees": [],
+            "transactionContext": "unknown",
+            "type": "UI_ERROR",
+            "viaPaths": [
+              []
+            ],
+            "viaPathsTruncated": false
+          }
+        ],
+        "entryDiagnostics": [],
+        "routine": {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/RiskOps.Codeunit.al",
+            "line": 21,
+            "sourceKind": "source"
+          },
+          "display": "CheckAmount",
+          "objectDisplay": "",
+          "stableId": "5f1c9a0e-0000-4000-8000-000000000a51:Codeunit:50990#43b2110c9c105ec9af45ce434f2e633f3b659b84356a2720606f2ffeb28da9b1"
+        },
+        "unresolved": [],
+        "unresolvedTraversal": {
+          "maxDepth": 64,
+          "truncated": false,
+          "visitedRoutines": 1
+        }
+      },
+      {
+        "coverage": {
+          "reasons": [],
+          "status": "complete"
+        },
+        "effects": [
+          {
+            "conditionality": "unconditional-on-success",
+            "confidence": "static",
+            "detail": {
+              "resourceDisplay": "Risk Order",
+              "resourceId": "5f1c9a0e-0000-4000-8000-000000000a51/table/50990"
+            },
+            "evidence": {
+              "column": 8,
+              "excerpt": "Order.Modify",
+              "file": "ws:src/RiskOps.Codeunit.al",
+              "line": 18,
+              "sourceKind": "source"
+            },
+            "factId": "f7a28e33011f8fd0",
+            "guarantees": [],
+            "provenance": "direct",
+            "scopedGuarantees": [],
+            "transactionContext": "unknown",
+            "type": "DB_MODIFY",
+            "viaPaths": [
+              []
+            ],
+            "viaPathsTruncated": false
+          }
+        ],
+        "entryDiagnostics": [],
+        "routine": {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/RiskOps.Codeunit.al",
+            "line": 12,
+            "sourceKind": "source"
+          },
+          "display": "ResetAmount",
+          "objectDisplay": "",
+          "stableId": "5f1c9a0e-0000-4000-8000-000000000a51:Codeunit:50990#770914429adf9369638303a610a6a3ab8a2f8495ba1e53d2fbef8ac01ffa8856"
+        },
+        "unresolved": [],
+        "unresolvedTraversal": {
+          "maxDepth": 64,
+          "truncated": false,
+          "visitedRoutines": 1
+        }
+      }
+    ],
+    "summary": {
+      "rootsRequested": 3,
+      "rootsResolved": 3,
+      "totalEffects": 5,
+      "totalUnresolved": 0
+    },
+    "workspaceFingerprint": "5a2aeb1e9169ce2370c2c0c408e33d6a2b401dc62789d5cc2408ce296e733ef3"
+  },
+  "schemaVersion": "1.3.0"
+}

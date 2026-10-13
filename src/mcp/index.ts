@@ -6,6 +6,7 @@ import { buildServer } from "./server";
 import { ServerState } from "./state";
 import { collectGitChanges } from "../core/git-changes";
 import { createCallGraphProvider } from "../core/call-graph";
+import { createAlSemRiskProvider } from "../core/risk";
 import { SdkNativeMcpGateway } from "../core/native-mcp";
 import { createHttp10Get } from "../core/http10";
 
@@ -21,6 +22,7 @@ const deps = {
   cwd: process.cwd(),
   gitChanges: collectGitChanges,
   callGraph: createCallGraphProvider(process.env),
+  riskDigest: createAlSemRiskProvider(process.env),
   nativeMcpGateway: new SdkNativeMcpGateway(fetch),
 };
 
