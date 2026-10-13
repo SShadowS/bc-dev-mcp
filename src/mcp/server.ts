@@ -1,4 +1,5 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, type CacheHint } from "@modelcontextprotocol/server";
+import { z } from "zod";
 import type { ServerState } from "./state";
 import { createTools, type ToolDeps } from "./tools";
 import { skills, skillsIndexJson } from "./skills.generated";
@@ -36,9 +37,7 @@ export function installSdkErrorFormatter(
     if (/Output validation error:/i.test(message)) {
       return toAgentToolError(tool, new BcDevError("PROTOCOL_ERROR", message, "protocol"));
     }
-    if (/Tool\s+\S+\s+not found/i.test(message)) {
-      return toAgentToolError(tool, new BcDevError("NOT_FOUND", message, "server"));
-    }
+    // An unknown tool never reaches this formatter: SDK v2 answers it with a -32602 protocol error.
     return toAgentToolError(tool, new Error(message));
   };
   try {
@@ -74,11 +73,30 @@ export function toToolResponse(result: unknown): {
   };
 }
 
+// The tool list and the skill resources are embedded at build time and never change while the
+// process runs, so 2026-07-28 clients may cache them for a day (the client-side ceiling) and share
+// the cache across principals. Cache entries are keyed by serverInfo name@version, so a release
+// with a new version invalidates them.
+const STATIC_CACHE_HINT: CacheHint = { ttlMs: 86_400_000, cacheScope: "public" };
+
 export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
   const server = new McpServer(
     { name: "bc-dev-mcp", version: "0.4.0" },
-    // Skills served as resources under skill:// — tracks draft SEP-2640 (io.modelcontextprotocol/skills).
-    { capabilities: { extensions: { "io.modelcontextprotocol/skills": {} } } },
+    {
+      capabilities: {
+        // Fixed lists: never send list_changed, so don't advertise it (the SDK defaults it to true).
+        tools: { listChanged: false },
+        resources: { listChanged: false },
+        // Skills served as resources under skill:// — tracks draft SEP-2640 (io.modelcontextprotocol/skills).
+        extensions: { "io.modelcontextprotocol/skills": {} },
+      },
+      cacheHints: {
+        "tools/list": STATIC_CACHE_HINT,
+        "resources/list": STATIC_CACHE_HINT,
+        "resources/read": STATIC_CACHE_HINT,
+        "server/discover": STATIC_CACHE_HINT,
+      },
+    },
   );
   installSdkErrorFormatter(server);
 
@@ -88,13 +106,13 @@ export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
       {
         title: tool.title,
         description: tool.description,
-        inputSchema: tool.schema,
+        inputSchema: z.object(tool.schema),
         outputSchema: tool.outputSchema,
         annotations: tool.annotations,
       },
-      async (params: Record<string, unknown>, extra) => {
+      async (params: Record<string, unknown>, ctx) => {
         try {
-          return toToolResponse(await tool.handler(params, { signal: extra.signal }));
+          return toToolResponse(await tool.handler(params, { signal: ctx.mcpReq.signal }));
         } catch (err) {
           return toAgentToolError(tool.name, err);
         }

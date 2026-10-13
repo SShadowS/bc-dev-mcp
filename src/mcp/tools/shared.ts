@@ -1,5 +1,5 @@
 import { resolve as resolvePath } from "node:path";
-import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { HubFactory } from "../../core/hubs/signalr-base";
 import { BcDevError } from "../../core/agent-errors";

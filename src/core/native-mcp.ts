@@ -1,13 +1,13 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
+  Client,
+  ProtocolError,
+  ProtocolErrorCode,
+  SdkError,
+  SdkErrorCode,
+  SdkHttpError,
   StreamableHTTPClientTransport,
-  StreamableHTTPError,
-} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import {
-  ErrorCode,
-  McpError,
   type Implementation,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { BcDevError } from "./agent-errors";
 import type { AuthorizationProvider } from "./authorization";
@@ -111,7 +111,17 @@ function sdkConnectionFactory(
   headers: Headers,
   fetchFn: typeof fetch,
 ): NativeMcpConnection {
-  const client = new Client({ name: "bc-dev-mcp", version: "0.4.0" });
+  // 'auto' probes 2026-07-28 `server/discover` first and falls back to the 2025 `initialize`
+  // handshake on a legacy answer, so a BC build that adopts the new revision is used without a
+  // code change.
+  // WIRE: ASSUMED, not yet observed live — the BC cloud gateway answers the pre-initialize
+  // `server/discover` probe with a JSON-RPC error or a non-401/403/5xx HTTP status (both read as
+  // legacy by SDK 2.3.1), not with silence (an HTTP probe timeout rejects the connect) or a 5xx.
+  // Re-verify per scripts/e2e.md "MCP 2026-07-28".
+  const client = new Client(
+    { name: "bc-dev-mcp", version: "0.4.0" },
+    { versionNegotiation: { mode: "auto" } },
+  );
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: { headers },
     fetch: fetchFn,
@@ -178,7 +188,7 @@ function abortable<T>(task: Promise<T>, signal: AbortSignal): Promise<T> {
     const onAbort = () => finish(() => reject(
       signal.reason instanceof Error
         ? signal.reason
-        : new McpError(ErrorCode.RequestTimeout, "Native MCP operation timed out"),
+        : new SdkError(SdkErrorCode.RequestTimeout, "Native MCP operation timed out"),
     ));
     signal.addEventListener("abort", onAbort, { once: true });
     task.then(
@@ -249,8 +259,8 @@ function requestHeaders(
 
 function normalizeNativeError(error: unknown): BcDevError {
   if (error instanceof BcDevError) return error;
-  if (error instanceof StreamableHTTPError) {
-    const status = error.code;
+  if (error instanceof SdkHttpError) {
+    const status = error.status;
     if (status === 401 || status === 403) {
       return new BcDevError(
         "AUTHENTICATION_FAILED",
@@ -273,18 +283,18 @@ function normalizeNativeError(error: unknown): BcDevError {
     }
     return new BcDevError(
       "SERVER_REJECTED",
-      `Business Central native MCP rejected the request${status === undefined ? "" : ` (HTTP ${status})`}`,
+      `Business Central native MCP rejected the request (HTTP ${status})`,
       "server",
-      status !== undefined && status >= 500,
+      status >= 500,
       {
-        status: status ?? null,
+        status,
         upstreamMessage: nativeErrorDetail(error),
       },
       { cause: error },
     );
   }
-  if (error instanceof McpError) {
-    if (error.code === ErrorCode.RequestTimeout) {
+  if (error instanceof SdkError) {
+    if (error.code === SdkErrorCode.RequestTimeout) {
       return new BcDevError(
         "TIMEOUT",
         "Business Central native MCP did not respond before the operation timeout",
@@ -294,7 +304,9 @@ function normalizeNativeError(error: unknown): BcDevError {
         { cause: error },
       );
     }
-    if (error.code === ErrorCode.ConnectionClosed) {
+    // EraNegotiationFailed: the connect-time `server/discover` probe hit a network failure or a
+    // 5xx, which the SDK reports without an era verdict.
+    if (error.code === SdkErrorCode.ConnectionClosed || error.code === SdkErrorCode.EraNegotiationFailed) {
       return new BcDevError(
         "ENDPOINT_UNREACHABLE",
         "The Business Central native MCP connection closed before the request completed",
@@ -304,7 +316,9 @@ function normalizeNativeError(error: unknown): BcDevError {
         { cause: error },
       );
     }
-    if (error.code === ErrorCode.MethodNotFound) {
+  }
+  if (error instanceof ProtocolError) {
+    if (error.code === ProtocolErrorCode.MethodNotFound) {
       return new BcDevError(
         "NOT_FOUND",
         "Business Central native MCP did not expose the requested tool or method",
@@ -314,7 +328,7 @@ function normalizeNativeError(error: unknown): BcDevError {
         { cause: error },
       );
     }
-    if (error.code === ErrorCode.InvalidParams) {
+    if (error.code === ProtocolErrorCode.InvalidParams) {
       return new BcDevError(
         "SERVER_REJECTED",
         "Business Central native MCP rejected the upstream tool arguments",
@@ -328,7 +342,7 @@ function normalizeNativeError(error: unknown): BcDevError {
       "SERVER_REJECTED",
       "Business Central native MCP returned a protocol error",
       "server",
-      error.code === ErrorCode.InternalError,
+      error.code === ProtocolErrorCode.InternalError,
       {
         protocolCode: error.code,
         upstreamMessage: nativeErrorDetail(error),
@@ -422,7 +436,7 @@ export class SdkNativeMcpGateway implements NativeMcpGateway {
     let phase: NativeMcpPhase = "authorization";
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      controller.abort(new McpError(ErrorCode.RequestTimeout, "Native MCP operation timed out"));
+      controller.abort(new SdkError(SdkErrorCode.RequestTimeout, "Native MCP operation timed out"));
     }, timeoutMs);
     const options: NativeRequestOptions = {
       signal: controller.signal,
