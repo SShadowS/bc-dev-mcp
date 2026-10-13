@@ -65,6 +65,7 @@ misc:
   --out-dir <dir>            artifact directory (default ".")
   --dry-run                  capture + convert, print the manifest, skip the POST
   --keep-artifacts           keep .snapshot.zip / .ir.json even on success
+  --json                     print one toolbox CLI envelope to stdout (logs stay on stderr)
   -h, --help                 show this help
 
 exit codes: 0 shipped/duplicate/no-capture/dry-run, 1 cycle failed, 2 bad usage`;
@@ -83,7 +84,7 @@ export function resolveShipConfig(argv: string[], env: Record<string, string | u
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "-h" || a === "--help") return { kind: "help" };
-    if (a === "--dry-run" || a === "--keep-artifacts") {
+    if (a === "--dry-run" || a === "--keep-artifacts" || a === "--json") {
       flags.set(a, true);
       continue;
     }

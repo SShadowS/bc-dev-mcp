@@ -8,6 +8,10 @@ import { createAuthorizationProviderFactory } from "../src/core/authorization";
 import { spawnRunner } from "../src/core/snapshot/converter";
 import { resolveShipConfig, SHIP_USAGE } from "../src/core/ship/args";
 import { runCaptureShipCycle } from "../src/core/ship/capture-cycle";
+import { shipOutcomeEnvelope, usageEnvelope } from "../src/core/ship/envelope";
+
+// --json: stdout carries exactly one toolbox CLI envelope; human output stays on stderr.
+const json = process.argv.includes("--json");
 
 const res = resolveShipConfig(process.argv.slice(2), process.env);
 if (res.kind === "help") {
@@ -17,6 +21,7 @@ if (res.kind === "help") {
 if (res.kind === "error") {
   for (const e of res.errors) console.error(`error: ${e}`);
   console.error(`\n${SHIP_USAGE}`);
+  if (json) console.log(JSON.stringify(usageEnvelope(res.errors)));
   process.exit(2);
 }
 
@@ -29,6 +34,8 @@ const outcome = await runCaptureShipCycle(res.config, res.connection, {
   log: (msg) => console.error(`[capture-and-ship] ${msg}`),
   uuid: randomUUID,
 });
+
+if (json) console.log(JSON.stringify(shipOutcomeEnvelope(outcome)));
 
 switch (outcome.kind) {
   case "shipped":
@@ -44,7 +51,7 @@ switch (outcome.kind) {
     process.exit(0);
     break;
   case "dry-run":
-    console.log(JSON.stringify({ manifest: outcome.manifest, gzippedBytes: outcome.gzippedBytes, zipPath: outcome.zipPath, irPath: outcome.irPath }, null, 2));
+    if (!json) console.log(JSON.stringify({ manifest: outcome.manifest, gzippedBytes: outcome.gzippedBytes, zipPath: outcome.zipPath, irPath: outcome.irPath }, null, 2));
     console.error("[capture-and-ship] dry run — nothing POSTed; artifacts kept");
     process.exit(0);
     break;
