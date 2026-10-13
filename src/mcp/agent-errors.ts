@@ -77,7 +77,10 @@ function recoverySteps(
     case "RECORD_WRITE_TRIAGE_NOT_ACTIVE": return ["Call bcdev_record_writes_start before checking or finishing record-write triage."];
     case "TEST_RUN_ACTIVE": return ["Wait for the active test run to finish, then retry."];
     case "PROFILE_NOT_ACTIVE": return ["Call bcdev_profile_start before polling or finishing a profile."];
-    case "PROFILE_ACTIVE": return ["Call bcdev_profile_finish before starting another profile capture."];
+    case "PROFILE_ACTIVE":
+      return details["heldElsewhere"] === true
+        ? ["Another client or an earlier bc-dev-mcp process holds this tenant's capture. Call bcdev_profile_finish with its debuggingContext (returned by the bcdev_profile_start that armed it) to release it, then start again."]
+        : ["Call bcdev_profile_finish before starting another profile capture."];
     case "SQL_INSIGHT_NOT_ENABLED": return ["Detach, then call bcdev_debug_attach with sqlInsight: true before retrying SQL inspection."];
     case "TOOL_DISABLED": return ["Use an enabled tool, or enable the requested tool before retrying."];
     case "GIT_ERROR": return ["Verify the AL project Git repository and coverageAgainst ref, then retry bcdev_test_run."];

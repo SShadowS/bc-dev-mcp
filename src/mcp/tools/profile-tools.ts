@@ -196,6 +196,12 @@ export function createProfileTools(
           };
         } catch (err) {
           state.profile = null; // roll back the claimed slot on attach failure
+          // WIRE: a capture armed by another client (or a crashed process) holds the tenant: attach
+          // returns HTTP 400 "A snapshot debugging session has already started on this tenant"
+          // (live Cronus29 2026-10-13); finish with that capture's debuggingContext releases it.
+          if (err instanceof Error && /snapshot debugging session has already started/i.test(err.message)) {
+            throw new BcDevError("PROFILE_ACTIVE", `${err.message} (held by another client or an earlier process)`, "state", false, { heldElsewhere: true });
+          }
           throw err;
         }
       },
@@ -219,9 +225,12 @@ export function createProfileTools(
       description: "Finish the active capture, extract the .alcpuprofile, write it to disk, and return a ranked AL self-time hotspot summary. If nothing was recorded, reports captured:false. When the hotspots are in the AL workspace app (project, default server cwd) and al-sem (alsem) is available, each matching hotspot also carries al-sem's static performance findings (title, confidence, evidence call chain, suggested fix); without alsem the hotspots come back unchanged with one warning.",
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       schema: {
+        ...connectionShape,
         profileId,
         outPath: z.string().optional().describe("Where to write the .alcpuprofile (default: <cwd>/<ctx>.alcpuprofile)"),
         project: z.string().optional().describe("AL workspace folder (with app.json) whose code was profiled; enables al-sem hotspot explanations (default: server cwd, used only if it holds an app.json)"),
+        snapshotPort: z.number().optional().describe("Snapshot-debugger port for debuggingContext release (default 7083)"),
+        debuggingContext: z.string().optional().describe("Release a capture this process did not start (another client, or a crashed earlier process: bcdev_profile_start fails PROFILE_ACTIVE with heldElsewhere). Its recorded data is discarded"),
       },
       outputSchema: z.looseObject({
         captured: z.boolean(),
@@ -239,6 +248,13 @@ export function createProfileTools(
         hint: z.string().optional(),
       }),
       handler: async (params) => {
+        const orphan = params["debuggingContext"] as string | undefined;
+        if (orphan !== undefined && orphan !== state.profile?.debuggingContext) {
+          const { config, authorization } = resolve(params, deps);
+          const port = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
+          await new SnapshotClient(deps.fetchFn, config, port, authorization).finish(orphan, null);
+          return { captured: false, released: true, hint: `Released capture ${orphan}; its data was discarded. Call bcdev_profile_start again.` };
+        }
         const p = requireProfile(state, params);
         const client = new SnapshotClient(deps.fetchFn, p.config, p.snapshotPort, p.authorization);
         try {

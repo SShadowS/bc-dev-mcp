@@ -75,6 +75,24 @@ describe("profile tools", () => {
     expect(error).toMatchObject({ code: "PROFILE_ACTIVE", category: "state" });
   });
 
+  test("a capture held elsewhere is PROFILE_ACTIVE heldElsewhere, and finish with its debuggingContext releases it", async () => {
+    const urls: string[] = [];
+    const fetchFn = (async (u: RequestInfo | URL) => {
+      urls.push(u.toString());
+      return u.toString().includes("attach")
+        ? new Response('"A snapshot debugging session has already started on this tenant."', { status: 400 })
+        : new Response(new Uint8Array(0));
+    }) as unknown as typeof fetch;
+    const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));
+    const error = await tools.get("bcdev_profile_start")!.handler({ ...conn }).catch((caught) => caught);
+    expect(error).toMatchObject({ code: "PROFILE_ACTIVE", category: "state", details: { heldElsewhere: true } });
+    expect(state.profile).toBeNull();
+    const r = (await tools.get("bcdev_profile_finish")!.handler({ ...conn, debuggingContext: "orphan-ctx" })) as Record<string, unknown>;
+    expect(r).toMatchObject({ captured: false, released: true });
+    expect(urls.at(-1)).toContain("finish");
+    expect(urls.at(-1)).toContain("debuggingcontext=orphan-ctx");
+  });
+
   test("poll reports status and ready flag", async () => {
     const fetchFn = (async (u: RequestInfo | URL) => u.toString().includes("attach") ? new Response('"NextSessionOnTenant"') : new Response('"Started"')) as unknown as typeof fetch;
     const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));

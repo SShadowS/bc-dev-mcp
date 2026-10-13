@@ -71,6 +71,13 @@ describe("agent errors", () => {
     expect(agentErrorBody("bcdev_status", error).nextSteps.join(" ")).toContain("enabled tool");
   });
 
+  test("PROFILE_ACTIVE held by another client points at releasing it by debuggingContext", () => {
+    const elsewhere = new BcDevError("PROFILE_ACTIVE", "held", "state", false, { heldElsewhere: true });
+    expect(agentErrorBody("bcdev_profile_start", elsewhere).nextSteps.join(" ")).toContain("debuggingContext");
+    const local = new BcDevError("PROFILE_ACTIVE", "local", "state");
+    expect(agentErrorBody("bcdev_profile_start", local).nextSteps.join(" ")).not.toContain("debuggingContext");
+  });
+
   test("serializes a redacted machine-readable error with recovery steps", () => {
     const body = agentErrorBody(
       "bcdev_debug_wait",
