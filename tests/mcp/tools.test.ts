@@ -380,6 +380,45 @@ describe("tools", () => {
     expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
   });
 
+  test("coverageAgainst annotates only uncovered changed procedures with risk and surfaces the provider warning", async () => {
+    const cwd = makeProject();
+    writeFileSync(
+      join(cwd, "T.Codeunit.al"),
+      ["codeunit 50100 \"T\"", "{", "    Subtype = Test;", "", "    [Test]", "    procedure A()", "    begin", "    end;", "", "    procedure B()", "    begin", "    end;", "}", ""].join(String.fromCharCode(10)),
+    );
+    const methodId = calculateProcedureMethodId("A", { navTypeKind: 0, symbolKind: 2 }, [], 16).methodId!;
+    const risk = { level: "commits", summary: "commits", commits: true, writes: [], errors: false, ui: false, unresolved: 0 };
+    const asked: string[][] = [];
+    const entry = (display: string, line: number) => ({ display, objectType: "codeunit", objectId: 50100, file: "T.Codeunit.al", line, risk: risk as any });
+    const { tools } = setup(hub, undefined, undefined, {
+      cwd,
+      gitChanges: async (_project, baseRef) => ({
+        baseRef, mergeBase: "d".repeat(40), head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [],
+        files: [{ relativeFile: "T.Codeunit.al", ranges: [{ start: 5, end: 12 }] }],
+      }),
+      riskDigest: async (_project, files) => {
+        asked.push(files);
+        return { entries: [entry("A", 6), entry("B", 10)], warnings: ["Risk annotation unavailable: test warning."] };
+      },
+    });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", {
+        Tests: [{ ApplicationObjectId: 50100, MethodId: 77, CoveredProcedures: [{ ObjectType: 5, ObjectId: 50100, MethodId: methodId }] }],
+      }));
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }], coverageAgainst: "origin/main", changesDeployed: true,
+    }) as { coverageGaps: { procedures: Array<{ name: string; status: string; risk?: { summary: string } }>; warnings: string[] } };
+    const byName = new Map(result.coverageGaps.procedures.map((p) => [p.name, p]));
+    expect(byName.get("A")?.status).toBe("covered");
+    expect(byName.get("A")).not.toHaveProperty("risk");
+    expect(byName.get("B")?.status).toBe("uncovered");
+    expect(byName.get("B")?.risk?.summary).toBe("commits");
+    expect(result.coverageGaps.warnings).toContain("Risk annotation unavailable: test warning.");
+    expect(asked).toEqual([["T.Codeunit.al"]]);
+  });
+
   test("coverageAgainst reports unknown rather than uncovered when the coverage payload is missing", async () => {
     const { tools } = setup(hub, undefined, undefined, {
       gitChanges: async (_project, baseRef) => ({
@@ -1262,6 +1301,7 @@ describe("bcdev_test_select", () => {
     });
     const result = await tools.get("bcdev_test_select")!.handler({ project: fixture, baseRef: "origin/main" }) as Record<string, any>;
     expect(result["uncoverable"][0]["risk"]["summary"]).toBe("writes Sales Header");
+    expect(result["uncoverable"][0]["endLine"]).toBe(p.endLine);
     expect(result["warnings"]).toContain("Risk annotation unavailable: test warning.");
   });
 
