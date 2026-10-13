@@ -1,8 +1,10 @@
 // Embeds skills/*/SKILL.md into src/mcp/skills.generated.ts so the single-file
 // dist bundle and compiled exe can serve them as MCP resources (tracks draft SEP-2640).
-// Frontmatter constraints: single-line `name:` and `description:` values.
+// Frontmatter constraints: single-line `name:` and `description:` values; rules live in
+// src/core/skill-frontmatter.ts (SkillFrontmatterSchema).
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { SkillFrontmatterSchema } from "../src/core/skill-frontmatter";
 
 export interface EmbeddedSkill {
   name: string;
@@ -11,8 +13,6 @@ export interface EmbeddedSkill {
   mimeType: string;
   text: string;
 }
-
-const NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export async function collectSkills(skillsDir: string): Promise<EmbeddedSkill[]> {
   const out: EmbeddedSkill[] = [];
@@ -25,9 +25,9 @@ export async function collectSkills(skillsDir: string): Promise<EmbeddedSkill[]>
     const name = /^name:\s*(.+)\s*$/m.exec(fm[1]!)?.[1]?.trim();
     const description = /^description:\s*(.+)\s*$/m.exec(fm[1]!)?.[1]?.trim();
     if (!name || name !== entry.name) throw new Error(`${entry.name}/SKILL.md: frontmatter name must equal directory name`);
-    if (!NAME_RE.test(name)) throw new Error(`${name}: skill names use lowercase letters, digits, hyphens`);
-    if (!description) throw new Error(`${name}: frontmatter description is required`);
-    out.push({ name, description, uri: `skill://${name}/SKILL.md`, mimeType: "text/markdown", text });
+    const parsed = SkillFrontmatterSchema.safeParse({ name, description: description ?? "" });
+    if (!parsed.success) throw new Error(`${name}: ${parsed.error.issues[0]!.message}`);
+    out.push({ name, description: parsed.data.description, uri: `skill://${name}/SKILL.md`, mimeType: "text/markdown", text });
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
   if (out.length === 0) throw new Error(`no skills found under ${skillsDir}`);
