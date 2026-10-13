@@ -36,7 +36,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "build": "bun run embed-skills && bun build src/mcp/index.ts --target=node --outfile dist/index.js",
-    "compile": "bun run embed-skills && bun build src/mcp/index.ts --compile --outfile bc-dev-mcp.exe",
+    "compile": "bun run embed-skills && bun build scripts/compile-entry.ts --compile --outfile bc-dev-mcp.exe",
     "prepublishOnly": "bun run test && bun run typecheck && bun run build"
   },
   "dependencies": {
