@@ -43,3 +43,10 @@ derived from the signature; only the objectId tells them apart.
 Copy BC28 symbols into `.alpackages/` (git-ignored, for example from `demos/hello-bug/.alpackages`),
 compile with `alc.exe /project:<this dir> /packagecachepath:<this dir>/.alpackages /out:<scratch>.app`,
 publish with `bcdev_app_publish`, then rerun the command above. Do not commit the `.app` or `.alpackages`.
+
+## Recorded call graph
+
+`call-graph.jsonl` is `altool graph extract` + `stitch` output (AL 30.0.2863738, 2026-10-13) for
+this folder, trimmed to node `id/kind/objectName/objectId/memberName/line` and edge
+`caller/callee/kind/confidence` (absolute `sourcePath` dropped). `tests/core/test-selection.test.ts`
+runs the selection core against it and `coverage-map.json`. Regenerate it whenever the source changes.
