@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { BasicAuthorizationProvider } from "../../src/core/authorization";
 import type { HubFactory } from "../../src/core/hubs/signalr-base";
-import { findTestMethodFrame, runTestsWithRecordWrites } from "../../src/core/test-record-writes";
+import type { BisectedVictim } from "../../src/core/test-order-bisect";
+import { attributePolluterWrites, findTestMethodFrame, runTestsWithRecordWrites, type TestRunRecordWrites } from "../../src/core/test-record-writes";
 import type { ConnectionConfig } from "../../src/core/types";
 import { FakeHub } from "../fakes/fake-hub";
 
@@ -139,5 +140,72 @@ describe("findTestMethodFrame", () => {
 
   test("returns null when no frame belongs to a planned codeunit", () => {
     expect(findTestMethodFrame([frame(50200, "Other"), frame(130450, "OnRun")], [{ id: 50100 }])).toBeNull();
+  });
+});
+
+describe("attributePolluterWrites", () => {
+  const stackFor = (codeunitId: number, method: string) => [
+    { objectType: 1, objectId: 18, objectName: "Customer", methodName: "OnInsert", line: 1 },
+    { objectType: 5, objectId: codeunitId, objectName: "", methodName: method, line: 3 },
+  ];
+  const writer = (codeunitId: number, method: string, count = 1) => ({
+    operation: "insert" as const,
+    receiver: "Customer",
+    count,
+    firstSequence: 1,
+    lastSequence: count,
+    source: "deployed" as const,
+    stack: stackFor(codeunitId, method),
+    testMethod: { codeunitId, method, frameIndex: 1 },
+  });
+  const writes = (over: Partial<TestRunRecordWrites["writes"]> = {}): TestRunRecordWrites["writes"] => ({
+    target: { tableId: 18, tableName: "Customer" },
+    outcome: "completed",
+    stopReason: "finished",
+    complete: true,
+    truncated: false,
+    summary: { observedWrites: 3, matchedWrites: 3, uniqueWriters: 2, unrelatedWrites: 0, unresolvedWrites: 0 },
+    writers: [writer(50100, "Polluter", 2), writer(50101, "Other"), { ...writer(50102, "X"), testMethod: null }],
+    unresolved: [],
+    warnings: [],
+    ...over,
+  });
+  const victim = (outcome: BisectedVictim["outcome"], remaining: { codeunitId: number; method: string }[]): BisectedVictim => ({
+    codeunitId: 50100,
+    method: "Victim",
+    outcome,
+    ...(outcome === "found" ? { polluter: remaining[0] } : {}),
+    remainingCandidates: remaining,
+    probes: 2,
+  });
+
+  test("found polluter gets its observed writes; never claims commit", () => {
+    const [row] = attributePolluterWrites([victim("found", [{ codeunitId: 50100, method: "polluter" }])], writes());
+    expect(row).toMatchObject({
+      codeunitId: 50100,
+      method: "Victim",
+      outcome: "found",
+      table: { tableId: 18, tableName: "Customer" },
+      captureComplete: true,
+      unattributedWriteGroups: 1,
+      suspects: [{ codeunitId: 50100, method: "polluter", evidence: "writeObserved", writes: [{ operation: "insert", receiver: "Customer", count: 2, source: "deployed" }] }],
+    });
+    expect(JSON.stringify({ ...row, note: undefined })).not.toMatch(/commit/i);
+    expect(row!.note).toMatch(/not.*commit/i);
+  });
+
+  test("unresolved candidates: noWriteObserved on a complete capture, unknown on an incomplete one", () => {
+    const v = victim("compound", [{ codeunitId: 50101, method: "Other" }, { codeunitId: 50103, method: "Quiet" }]);
+    expect(attributePolluterWrites([v], writes())[0]!.suspects.map((s) => s.evidence)).toEqual(["writeObserved", "noWriteObserved"]);
+    const partial = writes({ complete: false, truncated: true, outcome: "truncated" });
+    const row = attributePolluterWrites([v], partial)[0]!;
+    expect(row.captureComplete).toBe(false);
+    expect(row.suspects.map((s) => s.evidence)).toEqual(["writeObserved", "unknown"]);
+  });
+
+  test("unresolved write groups bound to a suspect count as writeObserved", () => {
+    const unresolved = [{ reason: "receiverUnavailable" as const, operation: "modify" as const, receiver: null, count: 4, firstSequence: 5, lastSequence: 8, stack: stackFor(50103, "Quiet"), testMethod: { codeunitId: 50103, method: "Quiet", frameIndex: 1 } }];
+    const row = attributePolluterWrites([victim("found", [{ codeunitId: 50103, method: "Quiet" }])], writes({ unresolved }))[0]!;
+    expect(row.suspects[0]).toMatchObject({ evidence: "writeObserved", writes: [], unresolvedWrites: 4 });
   });
 });

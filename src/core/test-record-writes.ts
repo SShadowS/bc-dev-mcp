@@ -5,10 +5,15 @@ import { TestRunnerClient } from "./hubs/test-runner-hub";
 import {
   RecordWriteCollector,
   type RecordWriteCollectorOptions,
+  type RecordWriteOperation,
   type RecordWriteReport,
+  type RecordWriteSource,
+  type RecordWriteTarget,
   type RecordWriteUnresolvedGroup,
   type RecordWriteWriterGroup,
 } from "./record-write-triage";
+import type { BisectedVictim, BisectOutcome } from "./test-order-bisect";
+import { identityKey, type OrchestratedTestIdentity } from "./test-orchestration";
 import type { CodeunitTestGroup, ConnectionConfig, RunTestsResult, StackFrameInfo } from "./types";
 
 const CODEUNIT_OBJECT_TYPE = 5;
@@ -111,4 +116,71 @@ export async function runTestsWithRecordWrites(opts: TestRunRecordWritesOptions)
       unresolved: report.unresolved.map((group) => ({ ...group, testMethod: findTestMethodFrame(group.stack, opts.plan) })),
     },
   };
+}
+
+/**
+ * What the collector saw a suspect do. "writeObserved" = a write statement on the target table
+ * broke in that test method. Never "committed": the collector sees the statement, not whether
+ * the row persisted, was rolled back, or the write failed.
+ */
+export type PolluterWriteEvidence = "writeObserved" | "noWriteObserved" | "unknown";
+
+export interface PolluterWriteSuspect extends OrchestratedTestIdentity {
+  evidence: PolluterWriteEvidence;
+  writes: { operation: RecordWriteOperation; receiver: string; count: number; source: RecordWriteSource }[];
+  /** Writes in this method whose statement or receiver could not be resolved to the target table. */
+  unresolvedWrites: number;
+}
+
+export interface PolluterWriteAttribution extends OrchestratedTestIdentity {
+  outcome: BisectOutcome;
+  table: RecordWriteTarget;
+  /** false = capture truncated/failed: a suspect with no observed write is "unknown", not clean. */
+  captureComplete: boolean;
+  /** The bisected polluter when found, otherwise its remaining candidates. */
+  suspects: PolluterWriteSuspect[];
+  /** Writer groups with no planned-codeunit frame (cannot be tied to a test method). */
+  unattributedWriteGroups: number;
+  note: string;
+}
+
+const WRITE_NOTE =
+  "Writes are record-write breaks observed in each suspect test method. The collector does not see whether a write committed, was rolled back, or failed.";
+
+/**
+ * Pure: join a record-write capture (runTestsWithRecordWrites over the failing order) into the
+ * bisect report, per victim: which suspect test methods were observed writing the target table.
+ */
+export function attributePolluterWrites(
+  victims: BisectedVictim[],
+  writes: TestRunRecordWrites["writes"],
+): PolluterWriteAttribution[] {
+  const keyOf = (m: TestMethodFrame | null) => (m ? identityKey(m.codeunitId, m.method) : null);
+  return victims.map((victim) => {
+    const suspects = (victim.polluter ? [victim.polluter] : victim.remainingCandidates).map((s): PolluterWriteSuspect => {
+      const key = identityKey(s.codeunitId, s.method);
+      const own = writes.writers.filter((w) => keyOf(w.testMethod) === key);
+      const unresolvedWrites = writes.unresolved
+        .filter((u) => keyOf(u.testMethod) === key)
+        .reduce((n, u) => n + u.count, 0);
+      const seen = own.length > 0 || unresolvedWrites > 0;
+      return {
+        codeunitId: s.codeunitId,
+        method: s.method,
+        evidence: seen ? "writeObserved" : writes.complete ? "noWriteObserved" : "unknown",
+        writes: own.map(({ operation, receiver, count, source }) => ({ operation, receiver, count, source })),
+        unresolvedWrites,
+      };
+    });
+    return {
+      codeunitId: victim.codeunitId,
+      method: victim.method,
+      outcome: victim.outcome,
+      table: writes.target,
+      captureComplete: writes.complete,
+      suspects,
+      unattributedWriteGroups: writes.writers.filter((w) => !w.testMethod).length,
+      note: WRITE_NOTE,
+    };
+  });
 }
