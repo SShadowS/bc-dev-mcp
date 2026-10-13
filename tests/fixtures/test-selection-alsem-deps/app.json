@@ -1,0 +1,12 @@
+{
+  "id": "aaaa1111-0000-0000-0000-000000000063",
+  "name": "GWs",
+  "publisher": "probe",
+  "version": "1.0.0.0",
+  "runtime": "13.0",
+  "idRanges": [{ "from": 50200, "to": 50299 }],
+  "dependencies": [
+    { "id": "bbbb2222-0000-0000-0000-000000000063", "name": "XDep", "publisher": "probe", "version": "1.0.0.0" },
+    { "id": "cccc3333-0000-0000-0000-000000000063", "name": "SymLib", "publisher": "probe", "version": "1.0.0.0" }
+  ]
+}

@@ -41,6 +41,33 @@ the same way as the test-selection fixture's. It has 2 `Event` edges and 6 `Inte
 **no `Run` edge**. altool records `Codeunit.Run(Codeunit::"Acc Nightly Recalc")` as a `Direct` edge
 to the built-in `Codeunit # Run`, so `Acc Nightly Recalc` is reachable only through coverage history.
 
+`call-graph.al-sem.jsonl` is `alsem graph` output (schema `al-sem.callgraph` v1; al-sem branch
+`issue-63` at `40613433`, release build, 2026-10-13), recorded with
+`ALCH_DRIVER_VERSION_OVERRIDE="al-sem issue-63 (40613433)"` so a re-record does not churn the engine
+field. 92 nodes and 94 edges: 3 `Interface` edges from `TaxAmount`, 2 `Event` edges, and the D4 chain
+`RecalcNightly -Run-> Acc Nightly Recalc (object) -Trigger(lifecycle)-> OnRun -Direct-> ApplyDecay`.
+No `.alpackages` here, so `meta.apps` lists the Microsoft apps as `missing`; nothing in the fixture
+calls them.
+
+## al-sem engine results (offline, 2026-10-13)
+
+Selection only (`tests/core/test-selection-acceptance.test.ts` replays it), with the al-sem graph:
+
+| Diff | No map: selected | reasons | uncoverable | fallback | With map | reasons |
+| --- | --- | --- | --- | --- | --- | --- |
+| D1 discount | 9 / 40 | direct | - | no | 9 / 40 | direct + coverage-history |
+| D2 interface | 10 / 40 | event | - | no | 10 / 40 | coverage-history + event, event |
+| D3 event | 5 / 40 | event | - | no | 5 / 40 | coverage-history + event |
+| D4 Codeunit.Run | 1 / 40 (`NightlyRecalcDecays`) | event | - | no | 1 / 40 | coverage-history + event |
+| D5 OnRun trigger | 1 / 40 (`NightlyRecalcDecays`) | event | - | **no** | 1 / 40 | event |
+| D6 multi-file | 5 / 40 | direct | `ExportLine` | no | 5 / 40 | direct + coverage-history |
+| D7 app.json only | all 40 | - | - | yes (non-AL file) | all 40 | - |
+
+Compared with altool: D4 no longer needs the coverage map, D5 no longer falls back, and
+`ExportLine` being `uncoverable` is now a statement about the graph (no test can reach it under
+al-sem's stated assumptions), not only an absence of evidence. The live Cronus28 rerun of D1-D7 with
+the al-sem engine (publish each bug, run full and selected) is still to do (`scripts/e2e.md`).
+
 ## Live acceptance results (2026-10-13, Cronus28)
 
 For each planted bug: edit the working tree, run `bcdev_test_select baseRef=HEAD
