@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ALSEM_ENV_VAR } from "../../src/core/call-graph";
-import { createAlSemRiskProvider, findRisk, parseAlSemDigest, sortByRisk, type RiskSubject } from "../../src/core/risk";
+import { createAlSemRiskProvider, findRisk, parseAlSemDigest, sortByRisk, type RiskSubject, type RoutineRisk } from "../../src/core/risk";
 
 const fixture = join(import.meta.dir, "..", "fixtures", "alsem-risk");
 const recorded = readFileSync(join(fixture, "digest.json"), "utf8");
@@ -23,6 +23,23 @@ describe("alsem digest risk", () => {
 
   test("the object type takes part in the join (table 50990 is not codeunit 50990)", () => {
     expect(findRisk(entries, subject("PostOrder", 3, 1))).toBeUndefined();
+  });
+
+  test("a single same-named entry elsewhere does not lend its risk (effect-free overload, field triggers)", () => {
+    const risk: RoutineRisk = { level: "commits", summary: "commits", commits: true, writes: [], errors: false, ui: false, unresolved: 0 };
+    const at = (objectType: string, display: string, line: number) =>
+      ({ display, objectType, objectId: 50990, file: "src/RiskOps.Codeunit.al", line, risk });
+    // Foo(A) at 3-6 has no effects (no entry); Foo(A;B) at 8-11 commits.
+    const overloads = [at("codeunit", "Foo", 8)];
+    expect(findRisk(overloads, { ...subject("Foo", 3), endLine: 6 })).toBeUndefined();
+    expect(findRisk(overloads, { ...subject("Foo", 8), endLine: 11 })?.level).toBe("commits");
+    // Field 1 OnValidate throws; field 2 OnValidate (14-16) is empty.
+    const triggers = [at("table", "Amount.OnValidate", 9)];
+    const trigger = (startLine: number, endLine?: number) => ({ ...subject("Amount.OnValidate", startLine, 1), endLine });
+    expect(findRisk(triggers, trigger(14, 16))).toBeUndefined();
+    // A same-named trigger later in the file (line 20) must not match a bounded 14-16 span.
+    expect(findRisk([at("table", "Amount.OnValidate", 20)], trigger(14, 16))).toBeUndefined();
+    expect(findRisk(triggers, trigger(8, 12))?.level).toBe("commits");
   });
 
   test("sorts commits > writes > error-ui > none, stable within a level", () => {

@@ -152,12 +152,13 @@ export interface RiskSubject {
   endLine?: number;
 }
 
-/** The digest entry for a changed procedure (al-sem lists only routines with effects; none = no entry): same object type + id + name; overloads split by location. */
+/** The digest entry for a changed procedure (al-sem lists only routines with effects; none = no entry): same object type + id + name; overloads and same-named triggers split by location. */
 export function findRisk(entries: DigestEntry[], subject: RiskSubject): RoutineRisk | undefined {
   const typeName = Object.keys(AL_OBJECT_TYPE).find((k) => AL_OBJECT_TYPE[k] === subject.objectType);
   const same = entries.filter((e) =>
     e.objectId === subject.objectId && e.objectType === typeName && e.display.toLowerCase() === subject.name.toLowerCase());
-  if (same.length <= 1) return same[0]?.risk;
+  // Always locate, even with one candidate: al-sem skips effect-free routines, so a same-named
+  // overload or field trigger elsewhere in the object would otherwise lend its risk to this one.
   const file = subject.relativeFile.replace(/\\/g, "/").toLowerCase();
   // Discovery starts at the first attribute, al-sem at the keyword: the anchor is at or after startLine.
   const inSpan = same.filter((e) =>

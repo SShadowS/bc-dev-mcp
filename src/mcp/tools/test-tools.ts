@@ -244,7 +244,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           reaches: z.array(z.string()).describe("Changed procedures this test reaches, as Object.Procedure"),
         })).describe("Ranked, most confident first"),
         uncoverable: z.array(z.looseObject({
-          objectName: z.string(), name: z.string(), relativeFile: z.string(), startLine: z.number(),
+          objectName: z.string(), name: z.string(), relativeFile: z.string(), startLine: z.number(), endLine: z.number(),
           risk: riskSchema.optional().describe("al-sem effect summary (needs alsem; absent otherwise)"),
         })).describe("Changed procedures no test reaches statically or by coverage history; with alsem sorted by risk (commits > writes > error-ui > none)"),
         changedProcedures: z.array(z.looseObject({ kind: z.enum(["procedure", "trigger"]), objectName: z.string(), name: z.string() })),

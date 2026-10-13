@@ -31,6 +31,8 @@ export interface ChangedProcedureRef {
   methodId: number | null;
   relativeFile: string;
   startLine: number;
+  /** Bounds the routine's span (risk joins by location). */
+  endLine: number;
 }
 
 export interface SelectedTest {
@@ -238,7 +240,7 @@ export function selectTests(input: TestSelectionInput): TestSelection {
   ].sort((a, b) => compare(a.relativeFile, b.relativeFile) || a.startLine - b.startLine || compare(a.name, b.name));
   const changedProcedures: ChangedProcedureRef[] = changed.map((p) => ({
     kind: p.kind, objectType: p.objectType, objectId: p.objectId, objectName: p.objectName, name: p.name,
-    methodId: p.methodId, relativeFile: p.relativeFile, startLine: p.startLine,
+    methodId: p.methodId, relativeFile: p.relativeFile, startLine: p.startLine, endLine: p.endLine,
   }));
 
   const evidence = new Map<string, { test: TestMethodIdentity; reasons: Set<SelectionReason>; reaches: Set<string> }>();
