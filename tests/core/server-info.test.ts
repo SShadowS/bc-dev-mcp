@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DevEndpointError, fetchServerInfo } from "../../src/core/server-info";
+import { DevEndpointError, fetchServerInfo, verifyDevAuthentication } from "../../src/core/server-info";
 import { BasicAuthorizationProvider } from "../../src/core/authorization";
 import type { ConnectionConfig } from "../../src/core/types";
 
@@ -98,5 +98,42 @@ describe("fetchServerInfo", () => {
   test("malformed 200 body throws http-kind DevEndpointError", async () => {
     const badFetch = (async () => new Response("not json", { status: 200 })) as unknown as typeof fetch;
     await expect(fetchServerInfo(config, auth, badFetch)).rejects.toMatchObject({ kind: "http" });
+  });
+});
+
+describe("verifyDevAuthentication", () => {
+  function recording(status: number) {
+    const urls: string[] = [];
+    const fetchFn = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(status === 404 ? '{"status":404}' : null, { status });
+    }) as unknown as typeof fetch;
+    return { urls, fetchFn };
+  }
+
+  test("probes parameterless dev/sourcecontent with the tenant; 404 means authenticated", async () => {
+    const { urls, fetchFn } = recording(404);
+    await verifyDevAuthentication(config, auth, fetchFn);
+    expect(urls).toEqual(["http://localhost:7049/BC/dev/sourcecontent?tenant=default"]);
+  });
+
+  test("401 from the gated route throws the auth error even though metadata answered", async () => {
+    const { fetchFn } = recording(401);
+    await expect(verifyDevAuthentication(config, auth, fetchFn)).rejects.toMatchObject({
+      kind: "auth",
+      message: expect.stringContaining("BC_DEV_USER and BC_DEV_PASSWORD"),
+    });
+  });
+
+  test("cloud targets are not probed", async () => {
+    const { urls, fetchFn } = recording(401);
+    const cloud: ConnectionConfig = { environmentType: "Sandbox", authentication: "EntraId", environmentName: "Sandbox", tenant: "t" };
+    await verifyDevAuthentication(cloud, auth, fetchFn);
+    expect(urls).toEqual([]);
+  });
+
+  test("network failure is unreachable, not a silent pass", async () => {
+    const failing = (async () => { throw new TypeError("fetch failed"); }) as unknown as typeof fetch;
+    await expect(verifyDevAuthentication(config, auth, failing)).rejects.toMatchObject({ kind: "unreachable" });
   });
 });
