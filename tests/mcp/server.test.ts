@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/client";
+import { createHash } from "node:crypto";
+import { z } from "zod";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -152,7 +154,7 @@ describe("server wiring", () => {
     expect(body.nextSteps.join(" ")).toContain("input schema");
   });
 
-  test("serves skills as skill:// resources with an index", async () => {
+  test("serves skills as skill:// resources (no legacy index.json)", async () => {
     const client = await connect();
     const { resources } = await client.listResources();
     const uris = resources.map((r) => r.uri).sort();
@@ -162,15 +164,7 @@ describe("server wiring", () => {
       "skill://bc-al-source-symbols/SKILL.md",
       "skill://bc-al-testing/SKILL.md",
       "skill://bc-native-mcp/SKILL.md",
-      "skill://index.json",
     ]);
-
-    const index = await client.readResource({ uri: "skill://index.json" });
-    const parsed = JSON.parse((index.contents[0] as { text: string }).text) as {
-      skills: Array<{ url: string; type: string }>;
-    };
-    expect(parsed.skills).toHaveLength(5);
-    for (const s of parsed.skills) expect(uris).toContain(s.url);
 
     const skill = await client.readResource({ uri: "skill://bc-al-debugging/SKILL.md" });
     const content = skill.contents[0] as { mimeType?: string; text: string };
@@ -210,10 +204,56 @@ describe("server wiring", () => {
     expect(unresolved).toEqual([]);
   });
 
-  test("declares the skills extension capability", async () => {
+  test("declares the skills extension plus resources (SEP-2640), without directoryRead", async () => {
     const client = await connect();
-    const caps = client.getServerCapabilities() as { extensions?: Record<string, object> };
-    expect(caps.extensions?.["io.modelcontextprotocol/skills"]).toBeDefined();
+    const caps = client.getServerCapabilities() as { resources?: object; extensions?: Record<string, object> };
+    expect(caps.resources).toBeDefined();
+    expect(caps.extensions?.["io.modelcontextprotocol/skills"]).toEqual({});
+  });
+
+  describe("skills/list and skills/get (SEP-2640)", () => {
+    const ListResult = z.looseObject({ skills: z.array(z.looseObject({ uri: z.string() })) });
+    const GetResult = z.looseObject({ skill: z.looseObject({ uri: z.string() }) });
+    type Entry = { uri: string; frontmatter: Record<string, string>; resources: Array<{ uri: string; digest: string; size: number }> };
+    const sha256 = (text: string) => `sha256:${createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex")}`;
+
+    test("skills/list returns every skill with frontmatter, manifest and static cache fields", async () => {
+      const client = await connect();
+      const result = await client.request({ method: "skills/list", params: {} }, ListResult);
+      // resultType/ttlMs/cacheScope are asserted on the raw 2026-07-28 wire in protocol-eras.test.ts.
+      const entries = result.skills as unknown as Entry[];
+      expect(entries.map((e) => e.uri).sort()).toEqual((await client.listResources()).resources.map((r) => r.uri).sort());
+      for (const e of entries) {
+        expect(e.frontmatter.name).toBe(e.uri.split("/")[2]!);
+        expect(e.frontmatter.description!.length).toBeGreaterThan(20);
+        expect(e.resources).toHaveLength(1);
+        expect(e.resources[0]!.uri).toBe(e.uri);
+      }
+    });
+
+    test("manifest digest and size match the bytes resources/read serves; skills/get agrees with skills/list", async () => {
+      const client = await connect();
+      const listed = (await client.request({ method: "skills/list", params: {} }, ListResult)).skills as unknown as Entry[];
+      for (const entry of listed) {
+        const got = await client.request({ method: "skills/get", params: { uri: entry.uri } }, GetResult);
+        expect(got.skill).toEqual(entry);
+
+        const { text } = (await client.readResource({ uri: entry.uri })).contents[0] as { text: string };
+        expect(entry.resources[0]!.digest).toBe(sha256(text));
+        expect(entry.resources[0]!.size).toBe(Buffer.byteLength(text, "utf8"));
+        // Frontmatter in the entry equals the frontmatter inside the served SKILL.md.
+        for (const [key, value] of Object.entries(entry.frontmatter)) expect(text).toContain(`${key}: ${value}`);
+      }
+    });
+
+    test("skills/get for an unknown skill is -32602 Invalid params", async () => {
+      const client = await connect();
+      const err = await client
+        .request({ method: "skills/get", params: { uri: "skill://nope/SKILL.md" } }, GetResult)
+        .then(() => undefined, (e: unknown) => e);
+      expect(err).toBeInstanceOf(ProtocolError);
+      expect((err as ProtocolError).code).toBe(ProtocolErrorCode.InvalidParams);
+    });
   });
 
   test("profile tools are listed with schemas", async () => {

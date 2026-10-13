@@ -49,7 +49,7 @@ Never record access tokens, Authorization headers, authenticated URLs, or unreda
 - [x] bcdev_test_run with two codeunits: results for both, sequential execution. <!-- 2026-07-03: confirmed against BC28, codeunits 132536 + 132606 -->
 - [x] bcdev_debug_attach + bcdev_debug_run_tests + bcdev_debug_wait → break → bcdev_debug_variables → bcdev_debug_continue → testRunFinished. <!-- 2026-07-03 round 3 (fix 56f32de): full tool-level flow validated end-to-end against BC28 — attach (no fatal queued), started:true, break-on-error event w/ 2-frame stack, variables + eval at frame 0, stepOver → step break, continue → testRunFinished with results attached; detach + immediate re-attach both clean. See "Round 3" in scripts/e2e-results-2026-07-03.md -->
 - [x] bcdev_debug_detach mid-break: BC session released (check server). <!-- 2026-07-03 round 2: raw StopDebugging+disconnect while held at a break released the session immediately; test completed as failed with "The debugger stopped the current activity."; Get-NAVServerSession shows no leftovers -->
-- [x] tools/list shows title/annotations/outputSchema for all 24 tools; resources/list shows the four skill:// resources. <!-- deterministic server tests plus built-server item 9 listing 2026-07-30 -->
+- [x] tools/list shows title/annotations/outputSchema for all 24 tools; resources/list shows the five skill:// resources. <!-- deterministic server tests plus built-server item 9 listing 2026-07-30 -->
 
 ## Test orchestration (SaaS Sandbox, BC28)
 
@@ -158,6 +158,46 @@ payloads. Initial evidence belongs in
 - [x] Bare JWT-shaped error detail is redacted, omitted server identity decoration becomes
   `server:null` without discarding a successful result, and native debugger state relies on
   typed errors rather than loose identity/paused message matching. <!-- deterministic core, output-schema, and agent-error tests 2026-07-28 -->
+
+## MCP 2026-07-28 (protocol eras, SDK v2)
+
+bc-dev-mcp runs on MCP SDK v2 (`@modelcontextprotocol/server` / `client` 2.3.1). The server side
+is unit-tested in `tests/mcp/protocol-eras.test.ts`; the native-MCP client side needs a live run.
+
+- [x] `serveStdio` serves both eras from one factory over one shared `ServerState`: a 2025-11-25
+  `initialize` and a 2026-07-28 `server/discover` (body `_meta` envelope with
+  `io.modelcontextprotocol/protocolVersion`, `clientInfo`, `clientCapabilities`) are both answered
+  on stdio. <!-- 2026-10-13 unit (in-memory) + raw stdio smoke against `node dist/index.js` and `bc-dev-mcp.exe` -->
+- [x] Modern results carry `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`;
+  `tools/list`, `resources/list`, `resources/read` (skills) and `server/discover` carry
+  `ttlMs: 86400000, cacheScope: "public"` (static, embedded at build). <!-- 2026-10-13 unit -->
+- [x] `tools.listChanged` / `resources.listChanged` are advertised `false` (SDK v2 defaults them to
+  `true`); the lists never change at runtime. <!-- 2026-10-13 unit + stdio smoke -->
+- [x] Unknown tool → JSON-RPC error `-32602` ("Tool X not found") on both eras, not an `isError`
+  result. Input-schema failures are still `isError` results with the structured error body. <!-- 2026-10-13 unit + stdio smoke -->
+- [x] Skills extension (final SEP-2640): `skills/list` / `skills/get` answer on both eras with
+  `uri`, full `frontmatter` and a `resources` manifest whose `sha256:` digest and byte size equal
+  the bytes `resources/read` returns; results carry `resultType: "complete"`,
+  `ttlMs: 86400000`, `cacheScope: "public"`; unknown URI → `-32602`; `skill://index.json` is gone
+  (not in the spec). <!-- 2026-10-13 unit (in-memory + raw 2026-07-28 wire) -->
+- [x] Statelessness: cross-request state is referenced by explicit handles, not connection
+  identity. `bcdev_debug_attach` → `debugSessionId`, `bcdev_profile_start` → `profileId`,
+  `bcdev_record_writes_start` → `recordingId` (in `structuredContent` + `outputSchema`). Every
+  follow-up accepts the handle optionally: omitted = the single active slot (backward
+  compatible); given and not active → `NOT_FOUND` (category `state`) with
+  `details.{handle,given,active,startTool,endTool}` and next steps naming the active handle.
+  Slot-busy errors carry the active handle. Single-slot limits unchanged; the test-run lock is
+  not cross-request state. <!-- 2026-10-13 unit (tests/mcp/handles.test.ts) -->
+- [ ] Live: attach/profile/record-writes against Cronus28 return a handle and accept it on
+  follow-ups end to end.
+- [ ] Live with a current (2025-era) Claude Code client: tools list and a call succeeds.
+- [ ] Native MCP passthrough (SaaS Sandbox): the client currently uses the SDK default
+  (`legacy`, plain `initialize`). Before flipping `src/core/native-mcp.ts` to
+  `versionNegotiation: { mode: "auto" }`, send a pre-initialize `server/discover` probe with the
+  routing headers and record what the BC gateway answers (JSON-RPC error / HTTP status / silence).
+  A JSON-RPC error or non-5xx status reads as legacy and is safe; silence (`TIMEOUT`) or a 5xx
+  breaks every native call with no fallback, so keep `legacy`. `auto` also costs one extra round
+  trip per native call.
 
 ## Targeted debugger attach (Sandbox)
 

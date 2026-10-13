@@ -1,5 +1,5 @@
 import { resolve as resolvePath } from "node:path";
-import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { HubFactory } from "../../core/hubs/signalr-base";
 import { BcDevError } from "../../core/agent-errors";
@@ -45,6 +45,8 @@ export interface ToolDefinition {
 
 export interface ToolExecutionContext {
   signal?: AbortSignal;
+  /** Present only when the request carried a progressToken; otherwise callers must not emit. */
+  progress?: (progress: number, total?: number, message?: string) => void;
 }
 
 export interface DebugTarget {
@@ -403,14 +405,73 @@ export async function mapBreakpoints(
   return results;
 }
 
-export function requireSession(state: ServerState): DebugSession {
+/*
+ * MCP 2026-07-28 statelessness: cross-request state is referenced by an explicit handle the client
+ * passes back. The server keeps single-slot captures, so a handle is optional — omitted means "the
+ * active one" (backward compatible); given, it must match or the call fails NOT_FOUND.
+ */
+export interface HandleKind {
+  field: "debugSessionId" | "profileId" | "recordingId";
+  label: string;
+  startTool: string;
+  endTool: string;
+}
+
+export const DEBUG_HANDLE: HandleKind = {
+  field: "debugSessionId",
+  label: "debug session",
+  startTool: "bcdev_debug_attach",
+  endTool: "bcdev_debug_detach",
+};
+export const PROFILE_HANDLE: HandleKind = {
+  field: "profileId",
+  label: "profile capture",
+  startTool: "bcdev_profile_start",
+  endTool: "bcdev_profile_finish",
+};
+export const RECORDING_HANDLE: HandleKind = {
+  field: "recordingId",
+  label: "record-write capture",
+  startTool: "bcdev_record_writes_start",
+  endTool: "bcdev_record_writes_finish",
+};
+
+export function handleShape(kind: HandleKind) {
+  return z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      `${kind.field} returned by ${kind.startTool}; valid until ${kind.endTool} (or server restart). ` +
+        `Optional: omitted uses the single active ${kind.label}; given, it must match the active one or the call fails NOT_FOUND.`,
+    );
+}
+
+export function assertHandle(kind: HandleKind, params: Record<string, unknown>, active: string | null): void {
+  const given = params[kind.field];
+  if (given === undefined || given === active) return;
+  throw new BcDevError(
+    "NOT_FOUND",
+    active === null
+      ? `${kind.field} ${String(given)} is not active — no ${kind.label} is running (it ended or was never started)`
+      : `${kind.field} ${String(given)} does not match the active ${kind.label} ${active}`,
+    "state",
+    false,
+    { handle: kind.field, given: String(given), active, startTool: kind.startTool, endTool: kind.endTool },
+  );
+}
+
+export function requireSession(state: ServerState, params: Record<string, unknown> = {}): DebugSession {
   if (state.debugOwner === "recordWrites") {
     throw new BcDevError(
       "RECORD_WRITE_TRIAGE_ACTIVE",
       "Record-write triage is active — call bcdev_record_writes_status or bcdev_record_writes_finish first",
       "state",
+      false,
+      { recordingId: state.recordingId },
     );
   }
+  assertHandle(DEBUG_HANDLE, params, state.debug?.id ?? null);
   if (!state.debug) throw new BcDevError("NO_DEBUG_SESSION", "No debug session — call bcdev_debug_attach first", "state");
   return state.debug;
 }

@@ -20,8 +20,9 @@ machine-local); pointers in `CLAUDE.local.md`.
 
 ## Runtime & Build
 
-- **Bun** for dev/test/build; the built artifact targets **Node 18+**.
-- Runtime deps are exactly three: `@microsoft/signalr`, `@modelcontextprotocol/sdk`, `zod`. Don't add more without a design change.
+- **Bun** for dev/test/build; the built artifact targets **Node 22+**.
+- Runtime deps are exactly four: `@microsoft/signalr`, `@modelcontextprotocol/server`, `@modelcontextprotocol/client` (MCP SDK v2), `zod`. Don't add more without a design change.
+- MCP SDK v2 serves both protocol eras: `serveStdio` answers 2025-11-25 `initialize` and 2026-07-28 `server/discover` (see `scripts/e2e.md` "MCP 2026-07-28").
 
 ```bash
 bun run dev          # run the MCP server from source (stdio)
@@ -46,13 +47,13 @@ src/mcp/             # thin frontend
   server.ts              # buildServer: registerTool/registerResource wiring (testable over InMemoryTransport)
   tools/                 # the 29 bcdev_* tool definitions (zod schemas + metadata + handlers)
   skills.generated.ts    # GENERATED from skills/ by scripts/embed-skills.ts — do not edit
-  state.ts               # debug session singleton, event queue, run lock
+  state.ts               # single-slot debug/profile/record-write state + their opaque handles, event queue, run lock
   index.ts               # stdio entry: builds deps, calls buildServer, connects transport
 ```
 
 **Core rule:** everything in `src/core/` takes I/O dependencies (hub factory,
 fetch, env) as parameters, returns typed data, and never calls `console.*` or
-`process.exit()`. `src/` must be Node-18-compatible — **no `Bun.*` APIs in
+`process.exit()`. `src/` must be Node-22-compatible — **no `Bun.*` APIs in
 `src/`** (Bun is only for dev/test/build; `Bun.*` in tests is fine).
 
 The `HubProxy`/`HubFactory` seam exists so hub clients are tested against an
@@ -100,11 +101,17 @@ local `docs/superpowers/` working docs (pointers in `CLAUDE.local.md`).
 
 ## Skills over MCP
 
-The server serves `skills/*/SKILL.md` as `skill://` resources with a `skill://index.json`
-discovery index and declares the `io.modelcontextprotocol/skills` extension capability
-(tracks draft SEP-2640). Skill sources are authored in `skills/`; `bun run embed-skills`
-regenerates the committed `src/mcp/skills.generated.ts` (build/dev/compile run it
-automatically; a drift test fails if the generated file is stale).
+The server implements the final SEP-2640 Skills extension (`io.modelcontextprotocol/skills`,
+declared with `resources`; `directoryRead` off since every skill is a single `SKILL.md`).
+`skills/list` and `skills/get` are custom request handlers in `src/mcp/server.ts`; each entry
+carries `uri`, the full `frontmatter` object and a `resources` manifest (`uri`, `sha256:` digest,
+byte size). Results carry `resultType: "complete"`, a static long `ttlMs` and `cacheScope: "public"`;
+an unknown skill URI is JSON-RPC `-32602`. The file itself is served by `resources/read`
+(`skill://<name>/SKILL.md`). The spec has no `skill://index.json`, so it is no longer served.
+Skill sources are authored in `skills/`; `bun run embed-skills` regenerates the committed
+`src/mcp/skills.generated.ts` including the precomputed frontmatter, digest and size
+(build/dev/compile run it automatically; a drift test fails if the generated file is stale).
+Frontmatter values must be single-line `key: value`.
 
 ## Capture-and-ship recipe
 

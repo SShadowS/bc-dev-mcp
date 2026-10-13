@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { collectSkills, renderModule } from "../../scripts/embed-skills";
@@ -30,20 +31,28 @@ describe("skills embedding", () => {
     }
   });
 
-  test("index.json follows the agentskills discovery format", async () => {
+  test("precomputes full frontmatter, sha256 digest and byte size of the served text", async () => {
     const skills = await collectSkills(join(repoRoot, "skills"));
-    const module = renderModule(skills);
-    const match = /export const skillsIndexJson: string = (".*");/s.exec(module);
-    const index = JSON.parse(JSON.parse(match![1]!)) as {
-      $schema: string;
-      skills: Array<{ name: string; type: string; description: string; url: string }>;
-    };
-    expect(index.$schema).toBe("https://schemas.agentskills.io/discovery/0.2.0/schema.json");
-    expect(index.skills).toHaveLength(5);
-    for (const entry of index.skills) {
-      expect(entry.type).toBe("skill-md");
-      expect(entry.url).toBe(`skill://${entry.name}/SKILL.md`);
+    for (const s of skills) {
+      expect(s.frontmatter["name"]).toBe(s.name);
+      expect(s.frontmatter["description"]).toBe(s.description);
+      expect(s.digest).toBe(`sha256:${createHash("sha256").update(Buffer.from(s.text, "utf8")).digest("hex")}`);
+      expect(s.size).toBe(Buffer.byteLength(s.text, "utf8"));
     }
+  });
+
+  test("keeps extra frontmatter fields and rejects multi-line values", async () => {
+    const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const dir = await mkdtemp(join(tmpdir(), "bcmcp-skills-"));
+    await mkdir(join(dir, "ok-skill"));
+    await writeFile(join(dir, "ok-skill", "SKILL.md"), '---\nname: ok-skill\ndescription: "quoted"\nlicense: MIT\n---\nbody\n');
+    const [skill] = await collectSkills(dir);
+    expect(skill!.frontmatter).toEqual({ name: "ok-skill", description: "quoted", license: "MIT" });
+
+    await mkdir(join(dir, "bad-skill"));
+    await writeFile(join(dir, "bad-skill", "SKILL.md"), "---\nname: bad-skill\ndescription: x\n  continued\n---\nbody\n");
+    await expect(collectSkills(dir)).rejects.toThrow(/single-line/);
   });
 
   test("rejects a skill whose frontmatter name mismatches its directory", async () => {

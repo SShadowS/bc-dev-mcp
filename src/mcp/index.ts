@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { signalrHubFactory } from "../core/hubs/signalr-base";
 import { createAuthorizationProviderFactory } from "../core/authorization";
 import { buildServer } from "./server";
@@ -9,7 +9,10 @@ import { createCallGraphProvider } from "../core/call-graph";
 import { SdkNativeMcpGateway } from "../core/native-mcp";
 import { createHttp10Get } from "../core/http10";
 
-const server = buildServer(new ServerState(), {
+// One ServerState for the process: the debug session, event queue and run lock must survive
+// whichever McpServer instance serveStdio builds for the connection's protocol era.
+const state = new ServerState();
+const deps = {
   hubFactory: signalrHubFactory,
   authorizationFactory: createAuthorizationProviderFactory(),
   fetchFn: fetch,
@@ -19,6 +22,7 @@ const server = buildServer(new ServerState(), {
   gitChanges: collectGitChanges,
   callGraph: createCallGraphProvider(process.env),
   nativeMcpGateway: new SdkNativeMcpGateway(fetch),
-});
+};
 
-await server.connect(new StdioServerTransport());
+// serveStdio answers both a 2025-era `initialize` and a 2026-07-28 `server/discover` opening.
+serveStdio(() => buildServer(state, deps));

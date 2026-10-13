@@ -12,6 +12,9 @@ description: Interactively debug AL code on a Business Central server with the b
    add `userId`; to attach to a known active NST session, add its positive `sessionId` instead.
    The selectors are mutually exclusive, and exact `sessionId` targeting takes precedence over
    `breakOnNext`. One debugger at a time; `bcdev_debug_detach` before re-attaching.
+   Attach returns a `debugSessionId` handle. Pass it to every later `bcdev_debug_*` call (and
+   `bcdev_native_*` with `context: "debugging"`); it is optional, but when given it must match the
+   active session or the call fails `NOT_FOUND`. It stays valid until `bcdev_debug_detach`.
 2. `bcdev_debug_run_tests { codeunits: [{ id: <codeunitId> }] }` — starts the run bound to
    this debug session and returns immediately.
 3. `bcdev_debug_wait` — long-poll for events. Attach returns before a workload binds; a successful
@@ -34,6 +37,8 @@ Use the dedicated background workflow instead of manual `bcdev_debug_*` stepping
 1. `bcdev_record_writes_start { tableId: <positive numeric ID> }`.
    Add exactly one of `sessionId` or `userId` when needed, or choose `breakOnNext`.
    The tool returns after attach is armed; it does not wait for the session or workload.
+   It returns a `recordingId`; pass it to status and finish (optional, must match when given,
+   valid until `bcdev_record_writes_finish`).
 2. Trigger the matching session and operation. Business Central breaks on every record write
    globally; the collector identifies the runtime receiver, counts unrelated writes, groups exact
    target-table stacks, and automatically continues. Do not call `bcdev_debug_wait` or

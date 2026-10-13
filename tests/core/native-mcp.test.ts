@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ErrorCode, McpError, type Implementation } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ProtocolError,
+  ProtocolErrorCode,
+  SdkError,
+  SdkErrorCode,
+  SdkHttpError,
+  type Implementation,
+} from "@modelcontextprotocol/client";
 import {
   DEFAULT_NATIVE_MCP_TIMEOUT_MS,
   NATIVE_MCP_CLOUD_URL,
@@ -186,19 +192,15 @@ describe("BC native MCP gateway", () => {
         futureField: ["kept"],
       },
     });
-    expect(requests.map((request) => request.method)).toEqual([
-      "POST",
-      "POST",
-      "GET",
-      "POST",
-      "DELETE",
-      "POST",
-      "POST",
-      "GET",
-      "POST",
-      "DELETE",
-    ]);
+    // Each gateway call: initialize, initialized, SSE GET, request, DELETE.
+    const perCall = ["POST initialize", "POST notifications/initialized", "GET", "POST", "DELETE"];
+    expect(requests.map((request) =>
+      request.method === "POST" && request.body?.["method"] !== undefined && !["tools/list", "tools/call"].includes(String(request.body["method"]))
+        ? `POST ${String(request.body["method"])}`
+        : request.method,
+    )).toEqual([...perCall, ...perCall]);
     expect(requests[0]?.headers.get("Authorization")).toBe("Bearer secret-token");
+    expect(requests[0]?.headers.get("Company")).toBe("CRONUS");
     expect(requests[3]?.headers.get("Mcp-Session-Id")).toBe("native-session");
     expect(requests[4]?.headers.get("Mcp-Session-Id")).toBe("native-session");
     expect(requests[8]?.headers.get("Mcp-Session-Id")).toBe("native-session");
@@ -296,7 +298,7 @@ describe("BC native MCP gateway", () => {
 
   test("normalizes SDK timeouts and HTTP authentication failures", async () => {
     const timeoutConnection = new FakeConnection();
-    timeoutConnection.connectError = new McpError(ErrorCode.RequestTimeout, "Request timed out");
+    timeoutConnection.connectError = new SdkError(SdkErrorCode.RequestTimeout, "Request timed out");
     const timeout = await setup(timeoutConnection).gateway.listTools(target()).catch((caught) => caught);
     expect(timeout).toMatchObject({
       code: "TIMEOUT",
@@ -307,7 +309,7 @@ describe("BC native MCP gateway", () => {
     expect(timeoutConnection.closed).toBe(true);
 
     const authConnection = new FakeConnection();
-    authConnection.connectError = new StreamableHTTPError(401, "Unauthorized");
+    authConnection.connectError = new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, "Unauthorized", { status: 401 });
     const auth = await setup(authConnection).gateway.listTools(target()).catch((caught) => caught);
     expect(auth).toMatchObject({
       code: "AUTHENTICATION_FAILED",
@@ -391,9 +393,10 @@ describe("BC native MCP gateway", () => {
       "eyJ" + "zdWIiOiJzZWNyZXQifQ",
       "signature_part",
     ].join(".");
-    httpConnection.connectError = new StreamableHTTPError(
-      400,
+    httpConnection.connectError = new SdkHttpError(
+      SdkErrorCode.ClientHttpNotImplemented,
       `Authorization: Bearer secret-token Company does not exist; echoed ${jwt}`,
+      { status: 400 },
     );
     const httpError = await setup(httpConnection).gateway.listTools(target()).catch((caught) => caught);
 
@@ -410,8 +413,8 @@ describe("BC native MCP gateway", () => {
     expect(httpError.details.upstreamMessage).toContain("[REDACTED_JWT]");
 
     const protocolConnection = new FakeConnection();
-    protocolConnection.callError = new McpError(
-      ErrorCode.InvalidParams,
+    protocolConnection.callError = new ProtocolError(
+      ProtocolErrorCode.InvalidParams,
       "The required codeunitId argument was missing",
     );
     const protocolError = await setup(protocolConnection).gateway.callTool(
@@ -423,7 +426,7 @@ describe("BC native MCP gateway", () => {
       code: "SERVER_REJECTED",
       category: "server",
       details: {
-        upstreamMessage: "MCP error -32602: The required codeunitId argument was missing",
+        upstreamMessage: "The required codeunitId argument was missing",
       },
     });
   });

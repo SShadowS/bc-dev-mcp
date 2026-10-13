@@ -96,6 +96,7 @@ export async function runOrderOrchestration(
   state: ServerState,
   deps: ToolDeps,
   signal: AbortSignal | undefined,
+  progress?: (progress: number, total?: number, message?: string) => void,
 ) {
   const { config, authorization, project } = resolve(params, deps);
   const company = params["company"] as string | undefined;
@@ -112,11 +113,16 @@ export async function runOrderOrchestration(
   if (tableId !== undefined) state.assertDebugSlotAvailable(); // fail before the runs, not after
   await requireTestRunningSupport(config, authorization, deps);
 
+  let executions = 0;
   const result = await runOrderMode({
     selection,
     seeds,
     maxProbes: params["maxProbes"] as number | undefined,
-    execute: (groups) => new TestRunnerClient(deps.hubFactory).run(config, authorization, groups, { company }),
+    execute: async (groups) => {
+      const result = await new TestRunnerClient(deps.hubFactory).run(config, authorization, groups, { company });
+      progress?.(++executions, undefined, `executed ${groups.length} group(s), ${result.results.length} test result(s)`);
+      return result;
+    },
     cancelled: () => signal?.aborted === true,
   });
   const warnings = [...result.warnings];
