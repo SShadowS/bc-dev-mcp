@@ -3,6 +3,7 @@ import { AlObjectIndex } from "../../core/al-objects";
 import { BcDevError } from "../../core/agent-errors";
 import { DebuggerClient, type StepAction } from "../../core/hubs/debugger-hub";
 import { parseDatabaseStatistics } from "../../core/sql-insight";
+import { createAlSemBreakEffects } from "../../core/break-effects";
 import { enrichTestRun } from "../../core/agent-results";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { DebugSession, type ServerState } from "../state";
@@ -37,6 +38,7 @@ const sqlStatementSchema = z.object({
 const debugSessionId = handleShape(DEBUG_HANDLE);
 
 export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefinition[] {
+  let breakEffects = deps.breakEffects; // built lazily: only effects:true needs it
   return [
     {
       name: "bcdev_debug_attach",
@@ -179,11 +181,16 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
       schema: {
         debugSessionId,
         timeoutMs: z.number().min(1).max(300000).optional().describe("Max wait in milliseconds (default 30000, max 300000)"),
+        effects: z
+          .boolean()
+          .optional()
+          .describe("On a break event, also report what the top frame's routine can still do (commit, table writes, errors, UI) via al-sem. Optional: absent al-sem yields effects.status=unavailable, never an error."),
       },
       // single loose object, NOT a union (SDK 1.29 drops non-object outputSchema)
       outputSchema: z.looseObject({
         timedOut: z.boolean().optional().describe("true = no event within timeoutMs; normal — call again"),
         kind: z.enum(["sessionBound", "break", "testRunFinished", "detached", "fatal"]).optional(),
+        effects: z.looseObject({ status: z.enum(["ok", "symbolOnly", "unavailable", "unmatched", "ambiguous", "failed"]) }).optional().describe("Only with effects:true on a break: al-sem routine effects (proofs carry coverageComplete/unresolvedCallsites obligations)"),
         sessionId: z.number().nullable().optional().describe("Bound NST session ID on kind=sessionBound; null when identity lookup failed"),
         hostId: z.string().nullable().optional().describe("Bound NST host ID on kind=sessionBound; null when identity lookup failed"),
         warning: z.string().optional().describe("Nonfatal NST identity lookup detail on a warning-form sessionBound event"),
@@ -203,12 +210,19 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
         let beats = 0;
         const heartbeat = context?.progress && setInterval(() => context.progress!(++beats, undefined, "waiting for break"), 10000);
         const event = await session.wait((params["timeoutMs"] as number | undefined) ?? 30000).finally(() => clearInterval(heartbeat));
-        const result =
+        let result: Record<string, unknown> =
           "timedOut" in event
             ? event
             : event.kind === "testRunFinished"
               ? { ...event, results: session.lastTestRun }
               : annotateFiles(session, event as never);
+        if (params["effects"] === true && result["kind"] === "break") {
+          const top = (result["stack"] as Array<{ objectType: number; objectId: number; objectName: string; methodName: string }>)[0];
+          if (top) {
+            const inWorkspace = session.index.byId(top.objectType, top.objectId) !== undefined;
+            result = { ...result, effects: await (breakEffects ??= createAlSemBreakEffects(deps.env))({ project: session.index.projectDir, objectName: top.objectName, methodName: top.methodName, inWorkspace }) };
+          }
+        }
         return session.droppedEvents > 0 ? { ...result, droppedEvents: session.droppedEvents } : result;
       },
     },

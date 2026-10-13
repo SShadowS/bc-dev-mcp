@@ -1,3 +1,4 @@
+import type { BreakEffectsProvider } from "../../core/break-effects";
 import { resolve as resolvePath } from "node:path";
 import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -50,6 +51,8 @@ export interface ToolDeps {
   orderPredictor?: OrderPollutionPredictor;
   /** Optional al-sem static writer sets for record-write triage; absent = no static cross-check. */
   staticWriters?: StaticWritersProvider;
+  /** Optional al-sem enrichment of break events (bcdev_debug_wait effects:true); defaults to the alsem on BC_DEV_ALSEM/PATH. */
+  breakEffects?: BreakEffectsProvider;
   nativeMcpGateway: NativeMcpGateway;
   /** `alsem analyze` runner for bcdev_profile_finish hotspot explanations; defaults to spawning alsem (BC_DEV_ALSEM / PATH), tests inject a fake. */
   alsemAnalyze?: AlSemAnalyze;
