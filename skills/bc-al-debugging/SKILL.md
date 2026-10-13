@@ -97,7 +97,7 @@ at the same time.
   `unknown` is not proof that a value stayed the same.
 - **Pages double-break:** page triggers fire twice per interaction on BC28 — expect two
   identical breaks, continue through the second.
-- **What can this routine still do?** `bcdev_debug_wait { effects: true }` adds an `effects` block to a `break` (needs optional al-sem, `BC_DEV_ALSEM`): table writes and yes/no/unknown proofs for commit, error and UI. Trust a `no` only with `coverageComplete: true` and `unresolvedCallsites: 0`. Symbol-only top frames, overloads (candidates listed) and a missing alsem are reported in `effects.status`, never as errors.
+- **What can this routine still do?** `bcdev_debug_wait { effects: true }` adds an `effects` block to a `break` (needs optional al-sem, `BC_DEV_ALSEM`): table writes and yes/no/unknown proofs for commit, error and UI. Trust a `no` only with `coverageComplete: true` and `unresolvedCallsites: 0`, and read `throwsError: no` as "raises no error explicitly": runtime errors such as division by zero are not modelled. Symbol-only top frames, overloads (candidates listed) and a missing alsem are reported in `effects.status`, never as errors.
 - **Test results arrive on the `testRunFinished` event** from `bcdev_debug_wait`, not from
   `bcdev_debug_run_tests` (which only starts the run).
 - `break` events map object IDs back to local `.al` files (`file` on the event and each

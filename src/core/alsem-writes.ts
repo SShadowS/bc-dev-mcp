@@ -25,7 +25,8 @@ export const ALSEM_QUERY_SCHEMA_MAJOR = 1;
 /** Upper bound on routines whose effects are expanded (one alsem call each); beyond it the list is cut and says so. */
 export const MAX_SCANNED_ROUTINES = 200;
 
-const WRITE_OPS = new Set(["insert", "modify", "modifyall", "delete", "deleteall", "rename"]);
+/** WIRE: `alsem query effects` lists every DB operation, reads (Get, FindLast, ...) included; only these ops write. */
+export const WRITE_OPS = new Set(["insert", "modify", "modifyall", "delete", "deleteall", "rename"]);
 
 /** Listed once, verbatim, wherever a static set is shown. */
 export const STATIC_WRITER_CAVEATS = [

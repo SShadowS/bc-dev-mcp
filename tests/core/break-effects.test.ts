@@ -33,7 +33,18 @@ describe("break effects", () => {
     expect(out.proofs?.mayCommit).toMatchObject({ answer: "yes", coverageComplete: true, unresolvedCallsites: 0 });
     expect(out.proofs?.throwsError.answer).toBe("no");
     expect(out.proofs?.reachesUi.answer).toBe("no");
+    expect(out.limits?.some((l) => l.includes("runtime errors"))).toBe(true);
     expect(calls.filter((c) => c[0] === "prove").map((c) => c[3]).sort()).toEqual(["may-commit", "reaches-ui", "throws-error"]);
+  });
+
+  test("reads in the effects list (Get, FindLast) are not table writes", async () => {
+    // WIRE: `alsem query effects` lists every DB operation, reads included (recorded al-sem 1.5.0:
+    // Get + Modify). Live 2026-10-13 a break in RealWrite reported FindLast as a write.
+    const adjust = readFileSync(resolve(import.meta.dir, "../fixtures/record-writes/recorded/effects.Adjust.json"), "utf8");
+    const out = await createAlSemBreakEffects({}, async (_b, args) =>
+      ({ stdout: args[0] === "query" ? adjust : rec(`prove.post.${args[3]}.json`) }))(frame("Adjust"));
+    expect(out.status).toBe("ok");
+    expect(out.tableWrites).toEqual([{ op: "Modify", table: "RW Ledger", via: "direct", temporary: "known(false)" }]);
   });
 
   test("overloads are reported as candidates, no proofs", async () => {
