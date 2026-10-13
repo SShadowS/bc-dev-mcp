@@ -7,6 +7,7 @@ interface V8CallFrame {
 interface V8Node {
   id: number;
   callFrame?: V8CallFrame;
+  declaringApplication?: { appId?: string };
 }
 interface V8Profile {
   nodes?: V8Node[];
@@ -23,6 +24,8 @@ export interface Hotspot {
   selfSamples: number;
   selfMs: number;
   selfPct: number;
+  /** Declaring app id, lowercase without dashes (absent on platform/synthetic frames like IdleTime). */
+  appId?: string;
 }
 export interface ProfileSummary {
   durationMs: number;
@@ -51,7 +54,10 @@ export function summarizeProfile(profileJson: string, topN = 15): ProfileSummary
 
   const hotspots: Hotspot[] = [...selfMicros.entries()]
     .map(([id, micros]) => {
-      const cf = byId.get(id)?.callFrame ?? {};
+      const node = byId.get(id);
+      const cf = node?.callFrame ?? {};
+      // WIRE: a frame url has no app segment (live Cronus28/29, 2026-10-13); node.declaringApplication.appId is a dashless GUID.
+      const appId = node?.declaringApplication?.appId?.replace(/-/g, "").toLowerCase();
       return {
         function: cf.functionName || "(anonymous)",
         url: cf.url ?? "",
@@ -59,6 +65,7 @@ export function summarizeProfile(profileJson: string, topN = 15): ProfileSummary
         selfSamples: selfCount.get(id) ?? 0,
         selfMs: micros / 1000,
         selfPct: totalMicros > 0 ? (micros / totalMicros) * 100 : 0,
+        ...(appId ? { appId } : {}),
       };
     })
     .sort((a, b) => b.selfMs - a.selfMs)

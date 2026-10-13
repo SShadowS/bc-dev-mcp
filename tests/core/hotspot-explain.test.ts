@@ -62,6 +62,24 @@ describe("explainHotspots", () => {
     expect(result.hotspots[0]!.findings).toHaveLength(1);
   });
 
+  test("a frame declared by another app is not the workspace's, even with the same object id", async () => {
+    // WIRE: the frame url carries no app segment (live 2026-10-13); node.declaringApplication.appId is the only discriminator.
+    let calls = 0;
+    const ws = "22222222-0000-0000-0000-00000000a115"; // tests/fixtures/alsem-hotspots/ws/app.json
+    const analyze: AlSemAnalyze = async () => {
+      calls++;
+      return recorded;
+    };
+    const other = await explainHotspots([{ ...hot("SumLines", CU), appId: "99999999000000000000000000000001" }], project, analyze);
+    expect(calls).toBe(0);
+    expect(other.hotspots[0]!.findings).toBeUndefined();
+    const own = await explainHotspots([{ ...hot("SumLines", CU), appId: ws.replace(/-/g, "") }, { ...hot("SumLines", CU), appId: "99999999000000000000000000000001" }], project, analyze);
+    expect(calls).toBe(1);
+    expect(own.hotspots[0]!.findings).toHaveLength(1);
+    expect(own.hotspots[1]!.findings).toBeUndefined();
+    expect(own.analysis!.findingsMatched).toBe(1);
+  });
+
   test("caps findings per hotspot and counts the rest", async () => {
     const doc = JSON.parse(recorded);
     const one = doc.payload.findings[0];
