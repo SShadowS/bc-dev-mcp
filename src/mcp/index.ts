@@ -6,6 +6,7 @@ import { buildServer } from "./server";
 import { ServerState } from "./state";
 import { collectGitChanges } from "../core/git-changes";
 import { createCallGraphProvider } from "../core/call-graph";
+import { createAlSemOrderPredictor } from "../core/test-order-static";
 import { SdkNativeMcpGateway } from "../core/native-mcp";
 import { createHttp10Get } from "../core/http10";
 
@@ -18,6 +19,7 @@ const server = buildServer(new ServerState(), {
   cwd: process.cwd(),
   gitChanges: collectGitChanges,
   callGraph: createCallGraphProvider(process.env),
+  orderPredictor: createAlSemOrderPredictor(process.env),
   nativeMcpGateway: new SdkNativeMcpGateway(fetch),
 });
 

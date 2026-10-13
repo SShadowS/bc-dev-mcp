@@ -437,6 +437,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
       description:
         "mode 'repeat' (default): run one AL test selection sequentially 2–20 times, retain every enriched attempt, diff adjacent passed/failed sets, and flag flaky or incomplete method outcomes. "
         + "mode 'order': run each method alone, then the selection recorded, reversed and once per seed; classify od-victims (pass alone, fail after others), bisect each to its polluter, and optionally attribute the polluter's writes to pollutionTableId. "
+        + "When al-sem is installed (BC_DEV_ALSEM), a static pre-screen predicts polluter -> victim pairs (committed writes to a table a later method touches); the bisect probes them first and each pair is reported confirmed/refuted/unresolved. "
         + "Reports each method's TransactionModel and the project runners' TestIsolation. Needs local AL source. Non-rolled-back test side effects repeat on every attempt.",
       // destructiveHint:false assumes BC test isolation (TestIsolation=Codeunit) rolls back data
       // changes. Suites with disabled isolation or external side effects can repeat those effects.

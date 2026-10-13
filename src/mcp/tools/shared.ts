@@ -11,6 +11,7 @@ import type { ConnectionConfig } from "../../core/types";
 import { DEFAULT_DEV_PORT } from "../../core/urls";
 import type { GitChangeSet } from "../../core/git-changes";
 import type { CallGraphProvider } from "../../core/call-graph";
+import type { OrderPollutionPredictor } from "../../core/test-order-static";
 import type { NativeMcpGateway } from "../../core/native-mcp";
 import { upperInvariantUtf16 } from "../../core/al-identifiers";
 import type { Http10Get } from "../../core/http10";
@@ -30,6 +31,8 @@ export interface ToolDeps {
   gitChanges: (project: string, baseRef: string) => Promise<GitChangeSet>;
   /** Whole-program AL call graph (altool graph in production, fake in tests). */
   callGraph: CallGraphProvider;
+  /** Static order-pollution pre-screen (al-sem); absent = no prediction. */
+  orderPredictor?: OrderPollutionPredictor;
   nativeMcpGateway: NativeMcpGateway;
 }
 

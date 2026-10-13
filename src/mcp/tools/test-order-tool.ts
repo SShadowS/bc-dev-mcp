@@ -7,6 +7,7 @@ import { redactAuthorization } from "../../core/redaction";
 import { identityKey } from "../../core/test-orchestration";
 import { expandOrderSelection, runOrderMode } from "../../core/test-order-mode";
 import { planTestOrder } from "../../core/test-order-plan";
+import { explainPredictions, STATIC_PREDICTION_NOTE } from "../../core/test-order-static";
 import { attributePolluterWrites, runTestsWithRecordWrites, type PolluterWriteAttribution } from "../../core/test-record-writes";
 import type { CodeunitTestGroup } from "../../core/types";
 import type { ServerState } from "../state";
@@ -61,11 +62,29 @@ export const orderOutputSchema = z.object({
       polluter: identity.optional(),
       remainingCandidates: z.array(identity).describe("Smallest candidate set known to reproduce the failure"),
       probes: z.number().int(),
+      predictionProbes: z.array(z.object({ polluter: identity, reproduced: z.boolean().nullable() })).optional()
+        .describe("Statically predicted polluters probed alone before bisecting; reproduced null = inconclusive"),
     })),
     probes: z.number().int(),
     maxProbes: z.number().int(),
     capped: z.boolean(),
   }),
+  staticPrediction: z.object({
+    engine: z.literal("al-sem"),
+    alsemVersion: z.string(),
+    pairs: z.array(z.object({
+      polluter: identity,
+      victim: identity,
+      table: z.object({ id: z.string(), name: z.string().nullable() }).nullable()
+        .describe("al-sem table id and name; null = al-sem could not resolve the table (weak hint)"),
+      survives: z.enum(["explicitCommit", "transactionModel"])
+        .describe("explicitCommit = a Commit() runs before the polluter returns (survives even if it fails); transactionModel = committed when an AutoCommit/None method passes"),
+      reason: z.string(),
+      dynamic: z.enum(["confirmed", "refuted", "unresolved"]).describe("The pair checked against the runs and bisection"),
+      evidence: z.string(),
+    })),
+    note: z.string().describe("What the static pre-screen assumes and cannot see"),
+  }).nullable().describe("Predicted polluter -> victim pairs from al-sem, probed first by the bisect; null when al-sem is unavailable (see warnings)"),
   writeAttribution: z.array(identity.extend({
     outcome: z.enum(["found", "notReproduced", "compound", "capped", "inconclusive"]),
     table: z.object({ tableId: z.number().int(), tableName: z.string().nullable() }),
@@ -112,14 +131,20 @@ export async function runOrderOrchestration(
   if (tableId !== undefined) state.assertDebugSlotAvailable(); // fail before the runs, not after
   await requireTestRunningSupport(config, authorization, deps);
 
+  const files = new Map(discovered.map((c) => [c.codeunitId, c.file]));
+  const predicted = deps.orderPredictor
+    ? await deps.orderPredictor(project, selection.map((m) => ({ ...m, file: files.get(m.codeunitId)! })))
+    : { prediction: null, warnings: [] };
+
   const result = await runOrderMode({
     selection,
     seeds,
+    predictions: predicted.prediction?.pairs,
     maxProbes: params["maxProbes"] as number | undefined,
     execute: (groups) => new TestRunnerClient(deps.hubFactory).run(config, authorization, groups, { company }),
     cancelled: () => signal?.aborted === true,
   });
-  const warnings = [...result.warnings];
+  const warnings = [...predicted.warnings, ...result.warnings];
   let complete = result.complete;
 
   let writeAttribution: PolluterWriteAttribution[] | null = null;
@@ -184,6 +209,14 @@ export async function runOrderOrchestration(
       }),
       summary: result.analysis.summary,
       bisection: result.bisection,
+      staticPrediction: predicted.prediction
+        ? {
+            engine: "al-sem" as const,
+            alsemVersion: predicted.prediction.alsemVersion,
+            pairs: explainPredictions(predicted.prediction.pairs, result.analysis, result.bisection),
+            note: STATIC_PREDICTION_NOTE,
+          }
+        : null,
       writeAttribution,
     },
   };

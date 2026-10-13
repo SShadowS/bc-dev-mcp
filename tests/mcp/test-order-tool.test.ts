@@ -12,6 +12,8 @@ import type { ToolDeps } from "../../src/mcp/tools";
 import { FakeHub } from "../fakes/fake-hub";
 import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
 import { orderPollutionHub, POLLUTION_CODEUNIT as CU } from "../fakes/order-pollution-hub";
+import type { CommandRunner } from "../../src/core/call-graph";
+import { createAlSemOrderPredictor } from "../../src/core/test-order-static";
 
 const project = mkdtempSync(join(tmpdir(), "bcmcp-order-mode-"));
 mkdirSync(join(project, ".vscode"));
@@ -22,7 +24,7 @@ writeFileSync(
 copyFileSync(join(import.meta.dir, "../../demos/order-pollution/src/OrderPollutionTests.Codeunit.al"), join(project, "Tests.Codeunit.al"));
 writeFileSync(join(project, "Runner.Codeunit.al"), 'codeunit 50169 "Runner"\n{\n    Subtype = TestRunner;\n    TestIsolation = Codeunit;\n}\n');
 
-async function connect() {
+async function connect(orderPredictor?: ToolDeps["orderPredictor"]) {
   const state = new ServerState();
   const deps: ToolDeps = {
     // Fresh demo hub per Initialize; the debugger hub cannot connect.
@@ -42,6 +44,7 @@ async function connect() {
     }),
     nativeMcpGateway: new FakeNativeMcpGateway(),
     callGraph: async () => ({ nodes: [], edges: [] }),
+    ...(orderPredictor ? { orderPredictor } : {}),
   };
   const client = new Client({ name: "order-mode", version: "0.0.0" });
   const [c, s] = InMemoryTransport.createLinkedPair();
@@ -85,6 +88,44 @@ describe("bcdev_test_orchestrate mode 'order'", () => {
     expect(out.warnings.some((w) => w.includes("Record-write capture failed"))).toBe(true);
     expect(state.testRunActive).toBe(false);
     expect(state.debugOwner).toBeNull();
+  });
+
+  test("al-sem predictions seed the bisect and come back explained; output matches the schema", async () => {
+    const calls: string[][] = [];
+    const replay: CommandRunner = async (_b, args) => {
+      calls.push(args);
+      const source = args[0] === "digest" ? "digest.json" : args.includes("unknown") ? "touches-unknown.json" : "touches-50160.json";
+      copyFileSync(join(import.meta.dir, "../fixtures/alsem-order", source), args[args.indexOf("--out") + 1]!);
+    };
+    const { client } = await connect(createAlSemOrderPredictor({}, replay));
+    const res = await client.callTool({ name: "bcdev_test_orchestrate", arguments: { codeunits: [{ id: CU }], mode: "order", seeds: [1] } });
+    expect(res.isError).toBeFalsy();
+    const out = res.structuredContent as OrderResult & {
+      order: { staticPrediction: { pairs: { victim: { method: string }; dynamic: string }[] } | null };
+    };
+    expect(calls[0]).toContain("Tests.Codeunit.al");
+    expect(out.order.staticPrediction?.pairs.map((p) => [p.victim.method, p.dynamic])).toEqual([
+      ["VictimInsertsSameCustomer", "confirmed"],
+      ["IndependentRolledBackWrite", "refuted"],
+      ["VictimExpectsNoFlag", "confirmed"],
+    ]);
+    expect(out.order.bisection.victims.map((v) => [v.method, v.outcome])).toEqual([
+      ["VictimInsertsSameCustomer", "found"],
+      ["VictimExpectsNoFlag", "found"],
+    ]);
+  });
+
+  test("al-sem missing: no staticPrediction, one warning, the dynamic result is unchanged", async () => {
+    const missing: CommandRunner = async () => {
+      throw Object.assign(new Error("spawn alsem ENOENT"), { code: "ENOENT" });
+    };
+    const { client } = await connect(createAlSemOrderPredictor({}, missing));
+    const res = await client.callTool({ name: "bcdev_test_orchestrate", arguments: { codeunits: [{ id: CU }], mode: "order", seeds: [1] } });
+    expect(res.isError).toBeFalsy();
+    const out = res.structuredContent as OrderResult & { order: { staticPrediction: unknown } };
+    expect(out.order.staticPrediction).toBeNull();
+    expect(out.warnings.filter((w) => w.startsWith("Static pollution prediction skipped"))).toHaveLength(1);
+    expect(out.order.summary.odVictim).toBe(2);
   });
 
   test("clean selection: zero od-victims across 3 seeds", async () => {
