@@ -39,6 +39,22 @@ describe("agent errors", () => {
     });
   });
 
+  test("raw transport failures are retryable ENDPOINT_UNREACHABLE, not INTERNAL_ERROR", () => {
+    for (const raw of [
+      new TypeError("fetch failed"),
+      new Error("WebSocket closed with status code: 1006 (no reason given)."),
+      new Error("Failed to complete negotiation with the server: TypeError: fetch failed"),
+      new Error("connect ECONNREFUSED 127.0.0.1:7049"),
+      new Error("read ECONNRESET"),
+    ]) {
+      expect(normalizeAgentError(raw), raw.message).toMatchObject({ code: "ENDPOINT_UNREACHABLE", category: "network", retryable: true });
+    }
+  });
+
+  test("a missing local path (ENOENT) is NOT_FOUND", () => {
+    expect(normalizeAgentError(new Error("ENOENT: no such file or directory, scandir 'C:\\x'")).code).toBe("NOT_FOUND");
+  });
+
   test("classifies the SDK disabled-tool message as an expected state error", () => {
     const error = normalizeAgentError(new Error("Tool bcdev_status disabled"));
     expect(error).toMatchObject({ code: "TOOL_DISABLED", category: "state", retryable: false });
