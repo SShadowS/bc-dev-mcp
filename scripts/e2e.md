@@ -193,7 +193,8 @@ Complements the Sandbox checklist above — the feature's live evidence was SaaS
 - [x] sqlInsight:true — `<Database Statistics>` node present in GetVariables at a break; absent with the option off (BC28). <!-- 2026-07-16: present with on (latency 0.4156 ms, 45 executes), absent with off -->
 - [x] bcdev_debug_sql parses at least one SQLn child into {statement, executionTime, durationMs, approxRowsRead}. <!-- 2026-07-16 BC28: real SELECT statements parsed from the long-running list -->
 - [x] longRunningSqlThresholdMs — long-running list populates when a statement exceeds the threshold. <!-- 2026-07-16 BC28: threshold 1 ms captured 3 entries; note <Last SQL Statements> was empty while long-running populated -->
-- [ ] sqlInsight overhead: measure a test run with/without; note in the tool description if material.
+- [x] sqlInsight overhead: measure a test run with/without; note in the tool description if material. <!-- 2026-10-13 BC28: debug-bound runs (bcdev_debug_attach breakOnError:false, no breaks), off/on interleaved, 1 discarded warm-up, n=7 each, median wall-clock to testRunFinished. MS test codeunit 134000 (34 tests, SQL-heavy posting): off 10561 ms, on 10346 ms (-2.0%). hello-bug 50133 TempThenRealWrite+SqlThenError + 50131: off 93 ms, on 97 ms (+3.8%, within run-to-run noise of ~85-118 ms). Not material; no description note. Per-break read cost of the statistics node not separately measured. -->
+
 - [x] bcdev_debug_eval with WatchOption AllowLargeStrings=1 returns a >1KB string un-truncated (BC28). <!-- 2026-07-16: 2000-char PadStr returned in full (2002 chars incl. quotes); truncation-with-0 comparison not re-run -->
 
 ## Agent-grade responses (SaaS Sandbox)
