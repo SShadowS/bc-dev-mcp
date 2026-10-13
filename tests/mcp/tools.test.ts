@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTools, type ToolDeps } from "../../src/mcp/tools";
@@ -8,7 +8,8 @@ import { createAuthorizationProviderFactory } from "../../src/core/authorization
 import { ServerState } from "../../src/mcp/state";
 import { FakeHub, fakeHubFactory } from "../fakes/fake-hub";
 import type { GitChangeSet } from "../../src/core/git-changes";
-import { calculateProcedureMethodId } from "../../src/core/al-procedures";
+import { calculateProcedureMethodId, discoverAlProcedureIdentities } from "../../src/core/al-procedures";
+import { parseCallGraphJsonl } from "../../src/core/call-graph";
 import { readCoverageMap } from "../../src/core/coverage-map";
 import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
 import { buildAppPackage } from "../fixtures/app-package";
@@ -70,7 +71,7 @@ describe("tools", () => {
     hub = new FakeHub();
   });
 
-  test("registers all 28 tools", () => {
+  test("registers all 29 tools", () => {
     const { tools } = setup(hub);
     expect([...tools.keys()].sort()).toEqual([
       "bcdev_app_list",
@@ -101,6 +102,7 @@ describe("tools", () => {
       "bcdev_test_discover",
       "bcdev_test_orchestrate",
       "bcdev_test_run",
+      "bcdev_test_select",
     ]);
   });
 
@@ -1209,5 +1211,45 @@ describe("tools", () => {
     expect(hub.stopped).toBe(true);
     await tools.get("bcdev_debug_detach")!.handler({});
     expect(state.debug).toBeNull();
+  });
+});
+
+describe("bcdev_test_select", () => {
+  const fixture = join(import.meta.dir, "..", "fixtures", "test-selection");
+  const graph = parseCallGraphJsonl(readFileSync(join(fixture, "call-graph.jsonl"), "utf8"));
+
+  async function selectOn(changes: Partial<GitChangeSet>, params: Record<string, unknown> = {}) {
+    let graphCalls = 0;
+    const { tools } = setup(new FakeHub(), undefined, undefined, {
+      gitChanges: async (_project, baseRef) => ({
+        baseRef, mergeBase: "b".repeat(40), head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [], files: [], ...changes,
+      }),
+      callGraph: async () => { graphCalls++; return graph; },
+    });
+    const result = await tools.get("bcdev_test_select")!.handler({ project: fixture, baseRef: "origin/main", ...params }) as Record<string, any>;
+    return { result, graphCalls };
+  }
+
+  test("selects from a diff and emits shards that feed bcdev_test_run codeunits", async () => {
+    const { procedures } = await discoverAlProcedureIdentities(fixture, ["src/SelPricing.Codeunit.al"]);
+    const p = procedures.find((c) => c.name === "ApplyDiscount")!;
+    const { result, graphCalls } = await selectOn(
+      { files: [{ relativeFile: p.relativeFile, ranges: [{ start: p.startLine + 1, end: p.startLine + 1 }] }] },
+      { coverageMapFile: "coverage-map.json" },
+    );
+    expect(graphCalls).toBe(1);
+    expect(result["fallbackToAll"]).toBe(false);
+    expect(result["selection"].length).toBeGreaterThan(0);
+    const planned = result["shards"].flatMap((s: any) => s.codeunits.flatMap((c: any) => c.methods.map((m: string) => `${c.id}|${m}`)));
+    expect(planned.sort()).toEqual(result["selection"].map((s: any) => `${s.codeunitId}|${s.method}`).sort());
+    expect(result["warnings"].join(" ")).toContain("may be stale");
+  });
+
+  test("a non-AL change falls back to every test without compiling a graph", async () => {
+    const { result, graphCalls } = await selectOn({ nonAlFiles: ["app.json"] });
+    expect(graphCalls).toBe(0);
+    expect(result["fallbackToAll"]).toBe(true);
+    const planned = result["shards"].flatMap((s: any) => s.codeunits.flatMap((c: any) => c.methods));
+    expect(planned).toHaveLength(12);
   });
 });

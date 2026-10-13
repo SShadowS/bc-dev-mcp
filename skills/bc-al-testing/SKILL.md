@@ -24,6 +24,24 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
    `coverageAgainst: "origin/main"` and `changesDeployed: true`. The latter is your explicit
    confirmation that this working tree is deployed. This implies `coverage: "procedure"` and
    adds `coverageGaps` to the same result.
+6. To run only what a diff can affect, call `bcdev_test_select { baseRef: "origin/main" }`
+   before the run (local only: git plus `altool graph`; set `BC_DEV_ALTOOL` if altool is not on
+   PATH). Pass each `shards[].codeunits` to `bcdev_test_run` as `codeunits`, unchanged. Add
+   `coverageMapFile` from an earlier full run made with `bcdev_test_run { coverageMapFile }` so
+   coverage history joins the static call graph.
+
+## Selecting tests from a diff
+
+- **`fallbackToAll: true` means run everything.** The diff touched something selection cannot
+  see (non-AL files such as app.json, deleted AL files, triggers, properties or globals, a
+  procedure missing from the graph); `fallbackReasons` says what. `shards` then covers every test,
+  while `selection` still shows the ranked part.
+- **`uncoverable`** lists changed procedures no test reaches; selection cannot prove them.
+- **`reason`/`confidence`:** `new-test` (1) is a changed test method; history and the graph
+  agreeing scores 0.95; `direct` 0.9; `coverage-history` 0.8; `event` 0.5 is any path through an
+  Event/Interface/Run/Trigger edge, which over-approximates fan-out.
+- A coverage map recorded against another merge base still counts but is flagged stale in
+  `warnings`. Confirm with `coverageAgainst` on the selected run.
 
 ## Facts that save you time
 

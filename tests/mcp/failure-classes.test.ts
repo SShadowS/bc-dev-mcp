@@ -109,6 +109,12 @@ const table: FailureTable = {
   },
   bcdev_test_run: testRunnerGated({ codeunits }),
   bcdev_test_orchestrate: testRunnerGated({ codeunits }),
+  bcdev_test_select: {
+    invalidPath: { args: { project: missing, baseRef: "HEAD" }, code: "NOT_FOUND" },
+    missingAuth: { na: "local git diff, AL source scan and altool graph only; no server or credentials involved" },
+    unsupportedFeature: { na: "local git diff, AL source scan and altool graph only; no server involved" },
+    serverDisconnect: { na: "local git diff, AL source scan and altool graph only; no server involved" },
+  },
   bcdev_debug_attach: connected(),
   bcdev_debug_run_tests: sessionScoped,
   bcdev_debug_wait: sessionScoped,

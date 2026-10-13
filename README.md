@@ -96,6 +96,7 @@ Debugger attach returns as soon as Business Central accepts the request; binding
 | `environmentName` | launch.json / tool param | — | SaaS environment name |
 | `server` | launch.json / tool param | — | BC server URL, e.g. `http://bcserver` |
 | `serverInstance` | launch.json / tool param | — | Server instance, e.g. `BC` |
+| `BC_DEV_ALTOOL` | env var | `altool` on PATH | Path to `altool.exe` (AL extension `bin` folder); `bcdev_test_select` uses its `graph` command |
 | `BC_DEV_API_PORT` | env var | `7048` | On-prem Automation API port used by the `bcdev_app_*` tools |
 | `port` | launch.json / tool param | `7049` | Developer service port |
 | `tenant` | launch.json / tool param | `default` | Tenant (hub negotiate requires one) |
@@ -123,7 +124,7 @@ Azure access tokens are acquired with `az account get-access-token`, cached only
 MCP client (agent)
   |
   v  (stdio)
-src/mcp/server.ts ── tools/ (28 bcdev_* tools) ── state.ts (debug/test/profile ownership)
+src/mcp/server.ts ── tools/ (29 bcdev_* tools) ── state.ts (debug/test/profile ownership)
   |
   v
 src/core/  (pure library — typed returns, injected deps)
@@ -144,6 +145,7 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_status` | Preflight: reachability, auth, dev API version, feature gates |
 | `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files |
 | `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, optional coverage, and Git-aware changed-procedure gaps |
+| `bcdev_test_select` | Before a run: turn a Git diff into a ranked test selection (call graph + coverage history), uncoverable procedures, `bcdev_test_run`-ready shards, and a fallbackToAll flag |
 | `bcdev_test_orchestrate` | Repeat one selection 2–20 times, retain every run, diff adjacent pass/fail sets, and flag flaky/incomplete methods |
 | `bcdev_debug_attach` | Arm next-session/user-filtered attach or target an existing NST session; optionally set breakpoints |
 | `bcdev_debug_run_tests` | Run tests with breakpoints live |
@@ -387,7 +389,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 |------|---------|
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
-| `src/mcp/tools/` | The 28 bcdev_* tool definitions (zod schemas + metadata + handlers) |
+| `src/mcp/tools/` | The 29 bcdev_* tool definitions (zod schemas + metadata + handlers) |
 | `src/mcp/state.ts` | Debug session singleton, event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/test-orchestration.ts` | Pure repeat-run identity, stability classification, and adjacent pass/fail diff analysis |

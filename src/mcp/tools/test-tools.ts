@@ -5,9 +5,10 @@ import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { fetchServerInfo } from "../../core/server-info";
 import type { CoverageEntry, CoverageMode, RunTestsResult } from "../../core/types";
 import { enrichTestRun, mapTestRunSources, testRunNeedsSourceMapping } from "../../core/agent-results";
-import { AlProcedureDiscoveryCache, discoverAlProcedureIdentities } from "../../core/al-procedures";
+import { AlProcedureDiscoveryCache, discoverAlProcedureIdentities, discoverTestMethodIdentities } from "../../core/al-procedures";
 import { analyzeCoverageGaps } from "../../core/coverage-gaps";
-import { buildCoverageMap, writeCoverageMap, type TestMethodName } from "../../core/coverage-map";
+import { buildCoverageMap, readCoverageMap, writeCoverageMap, type TestMethodName } from "../../core/coverage-map";
+import { selectTests } from "../../core/test-selection";
 import { BcDevError } from "../../core/agent-errors";
 import { analyzeTestOrchestration } from "../../core/test-orchestration";
 import { redactAuthorization } from "../../core/redaction";
@@ -199,6 +200,71 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
       handler: async (params) => {
         const project = (params["project"] as string | undefined) ?? deps.cwd;
         return { tests: await discoverTests(project), runners: await discoverTestRunners(project) };
+      },
+    },
+    {
+      name: "bcdev_test_select",
+      title: "Select AL tests for a Git diff",
+      description:
+        "Pick the AL test methods a Git diff can affect, before running anything: changed procedures are expanded through the altool call graph (Direct, Event, Interface, Run, Trigger edges) to reaching [Test] methods and unioned with an optional coverage map from an earlier bcdev_test_run. Returns a ranked selection, uncoverable changed procedures, shards whose codeunits feed bcdev_test_run unchanged, and fallbackToAll when the diff is outside what selection can see. Local only (git + altool); no server needed.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      schema: {
+        project: connectionShape.project,
+        baseRef: z.string().min(1).describe(
+          "Git base ref (for example origin/main). Its merge-base with HEAD is compared to the working tree, including untracked AL files, exactly as bcdev_test_run coverageAgainst does.",
+        ),
+        coverageMapFile: z.string().min(1).optional().describe(
+          "Coverage map written by an earlier bcdev_test_run coverageMapFile, relative to the project. Adds coverage-history evidence; without it selection is static reachability only.",
+        ),
+        maxCodeunitsPerShard: z.number().int().min(1).optional().describe("Maximum test codeunits per shard (default: one shard)"),
+      },
+      outputSchema: z.looseObject({
+        baseRef: z.string(),
+        mergeBase: z.string().describe("Commit the diff was taken from"),
+        selection: z.array(z.looseObject({
+          codeunitId: z.number().int(),
+          method: z.string(),
+          reason: z.enum(["direct", "event", "coverage-history", "new-test"]).describe("Strongest evidence; event = any indirect Event/Interface/Run/Trigger path"),
+          reasons: z.array(z.string()),
+          confidence: z.number().describe("0-1 rank score"),
+          reaches: z.array(z.string()).describe("Changed procedures this test reaches, as Object.Procedure"),
+        })).describe("Ranked, most confident first"),
+        uncoverable: z.array(z.looseObject({ objectName: z.string(), name: z.string(), relativeFile: z.string(), startLine: z.number() }))
+          .describe("Changed procedures no test reaches statically or by coverage history"),
+        changedProcedures: z.array(z.looseObject({ objectName: z.string(), name: z.string() })),
+        shards: z.array(z.object({
+          codeunits: z.array(z.object({ id: z.number().int(), methods: z.array(z.string()) })).describe("Pass as bcdev_test_run codeunits"),
+        })).describe("Run plan; covers every test when fallbackToAll"),
+        fallbackToAll: z.boolean().describe("true = the diff touches something selection cannot see; run the whole suite"),
+        fallbackReasons: z.array(z.string()),
+        warnings: z.array(z.string()),
+      }),
+      handler: async (params) => {
+        const project = (params["project"] as string | undefined) ?? deps.cwd;
+        const coverageMapFile = params["coverageMapFile"] as string | undefined;
+        const cache = procedureDiscoveryCache(deps);
+        const tests = await discoverTestMethodIdentities(project, cache);
+        const changes = await deps.gitChanges(project, params["baseRef"] as string);
+        const discovered = changes.files.length === 0
+          ? { procedures: [], warnings: [], complete: true }
+          : await discoverAlProcedureIdentities(project, changes.files.map((file) => file.relativeFile), cache);
+        const coverageMap = coverageMapFile === undefined ? null : await readCoverageMap(resolvePath(project, coverageMapFile));
+        // No changed procedures means no graph lookups; skip the altool compile.
+        const graph = discovered.procedures.length === 0 ? { nodes: [], edges: [] } : await deps.callGraph(project);
+        const result = selectTests({
+          changes,
+          discovered,
+          tests: tests.methods,
+          graph,
+          coverageMap,
+          maxCodeunitsPerShard: params["maxCodeunitsPerShard"] as number | undefined,
+        });
+        const warnings = [...tests.warnings, ...discovered.warnings, ...result.warnings];
+        if (!tests.complete) warnings.push("Some [Test] methods have no compiler method identity; they cannot match the call graph or coverage history by identity.");
+        if (coverageMap?.mergeBase && coverageMap.mergeBase !== changes.mergeBase) {
+          warnings.push(`The coverage map was recorded against ${coverageMap.mergeBase}, not this diff's merge base ${changes.mergeBase}; its history may be stale.`);
+        }
+        return { baseRef: changes.baseRef, mergeBase: changes.mergeBase, ...result, warnings };
       },
     },
     {
