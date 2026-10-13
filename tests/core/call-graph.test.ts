@@ -235,6 +235,18 @@ describe("call-graph engine choice", () => {
     expect(viaVersion.warnings![0]).toContain("version 9 is not supported");
   });
 
+  test("auto keeps al-sem's reason when the altool fallback fails too", async () => {
+    const failed = Object.assign(new Error("exit 1"), { code: 1, stderr: "snapshot build failed" });
+    const both: CommandRunner = async (binary) => {
+      if (binary === "alsem") throw failed;
+      throw Object.assign(new Error("spawn altool ENOENT"), { code: "ENOENT" });
+    };
+    const error = (await createCallGraphProvider({}, both)("proj").catch((e: unknown) => e)) as BcDevError;
+    expect(error.message).toContain(ALTOOL_ENV_VAR);
+    expect(error.message).toContain("snapshot build failed");
+    expect(String(error.details["alsemError"])).toContain("snapshot build failed");
+  });
+
   test("an explicit engine surfaces its own errors; an unknown engine value is a configuration error", async () => {
     const notFound = Object.assign(new Error("spawn alsem ENOENT"), { code: "ENOENT" });
     const alsemOnly = await createCallGraphProvider({ [ENGINE_ENV_VAR]: "al-sem" }, alsemRunner(AL_JSONL, [], notFound))("proj").catch((e: unknown) => e);

@@ -415,9 +415,19 @@ export function createCallGraphProvider(
       return await alsem(project);
     } catch (error) {
       const notFound = error instanceof BcDevError && error.details["notFound"] === true;
-      const graph = await altool(project);
-      if (notFound) return graph;
       const reason = error instanceof Error ? error.message : String(error);
+      let graph: CallGraph;
+      try {
+        graph = await altool(project);
+      } catch (fallbackError) {
+        // Both engines failed: keep al-sem's reason, which the altool error would hide.
+        if (fallbackError instanceof BcDevError) {
+          throw new BcDevError(fallbackError.code, `${fallbackError.message} (al-sem was tried first: ${reason})`, fallbackError.category, fallbackError.retryable,
+            { ...fallbackError.details, alsemError: reason }, { cause: fallbackError });
+        }
+        throw fallbackError;
+      }
+      if (notFound) return graph;
       return { ...graph, warnings: [...(graph.warnings ?? []), `al-sem call graph unavailable (${reason}); used altool instead.`] };
     }
   };
