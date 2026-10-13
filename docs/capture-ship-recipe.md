@@ -116,6 +116,15 @@ Exit codes: `0` shipped / duplicate / no session captured / dry-run;
 `1` cycle failed (message names the stage; artifacts retained);
 `2` bad usage.
 
+With `--json`, stdout carries exactly one bc-toolbox CLI envelope
+([@sshadows/bc-toolbox-envelope](https://github.com/SShadowS/bc-toolbox-envelope)); logs stay on
+stderr and the exit codes are unchanged. Success is `status: "ok"` with `data.outcome`
+(`shipped`, `duplicate`, `no-capture` or `dry-run`). Failure is `status: "error"` with a core
+`error.code` (`ENDPOINT_UNREACHABLE` at preflight, `CONFIGURATION_ERROR` at convert, `TIMEOUT` for
+the run budget, `SERVER_REJECTED` for attach/capture/finish/ship, `AUTHENTICATION_FAILED` on a
+401/403, `INVALID_ARGUMENT` for bad usage), `details.stage`, any retained artifact paths, and
+`nextSteps`.
+
 ## Scheduling
 
 Run it **off-peak**. Instrumentation is not free on the profiled server — it
