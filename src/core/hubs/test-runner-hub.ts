@@ -73,6 +73,13 @@ export class TestRunnerClient {
         groupIndex++;
         groupResultBaseline = results.length;
         // WIRE: RunTests(codeunitId, testMethods[]) (lmt-decomp HubBasedTestRunnerService.RunTestInternal)
+        // WIRE: groups run sequentially in plan order, and each RunTests group is rolled back
+        // on completion (even explicit Commit()), so no data carries to the next group or the
+        // next Initialize. Inside a group, methods run in codeunit declaration order and see
+        // earlier methods' writes; the testMethods[] order is ignored. A codeunit may run only
+        // once per Initialize: a second RunTests for it closes the hub mid-group (NST
+        // "An item with the same key has already been added"), so ordered single-method
+        // groups of one codeunit need one Initialize each. (live BC28 2026-10-13, scripts/e2e.md #33)
         await hub.invoke("RunTests", group.id, group.methods ?? []).catch((err) => finish(String(err)));
       };
 
