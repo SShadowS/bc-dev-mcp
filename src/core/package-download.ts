@@ -135,7 +135,8 @@ function packageUrl(c: ConnectionConfig, selector: NormalizedPackageSelector): s
   if (selector.appId) {
     params.set("appId", selector.appId);
   }
-  if (c.tenant) params.set("tenant", c.tenant);
+  // WIRE: on-prem BC28 401s dev/packages without a tenant param, like hub negotiate (live 2026-10-13).
+  params.set("tenant", c.tenant ?? "default");
   // WIRE: BC28 SaaS downloads one package with GET dev/packages and the
   // publisher/appName/versionText selector above. Validated 2026-07-30; see the dated evidence.
   return `${baseClientUrl(c)}dev/packages?${params.toString()}`;

@@ -21,7 +21,8 @@ export function sourceContentUrl(c: ConnectionConfig, objectType: number, object
   // requires DevApiFeature.GetSourceCode => dev API 2.0 (dep-decomp DevApiFeatureExtensions.cs).
   // Validated live on BC28 on-prem 2026-07-04 and SaaS Sandbox 2026-07-30.
   const params = new URLSearchParams({ type: String(objectType), id: String(objectId) });
-  if (c.tenant) params.set("tenant", c.tenant);
+  // WIRE: on-prem BC28 401s dev/sourcecontent without a tenant param, like hub negotiate (live 2026-10-13).
+  params.set("tenant", c.tenant ?? "default");
   return `${baseClientUrl(c)}dev/sourcecontent?${params.toString()}`;
 }
 

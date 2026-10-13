@@ -28,6 +28,8 @@ function fakeFetch(status: number, body: string | null, capture?: { url?: string
 describe("sourceContentUrl", () => {
   test("builds the on-prem route with type, id, and tenant", () => {
     expect(sourceContentUrl(config, 5, 50130)).toBe("http://localhost:7049/BC/dev/sourcecontent?type=5&id=50130&tenant=default");
+    // No configured tenant still sends tenant=default (on-prem 401s without one).
+    expect(sourceContentUrl({ ...config, tenant: undefined }, 5, 50130)).toBe("http://localhost:7049/BC/dev/sourcecontent?type=5&id=50130&tenant=default");
   });
 
   test("builds the cloud route on the v2.0 base", () => {

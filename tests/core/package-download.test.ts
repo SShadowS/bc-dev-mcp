@@ -75,6 +75,8 @@ describe("packageDownloadUrl", () => {
     expect(packageDownloadUrl(config, selector)).toBe(
       "http://localhost:7049/BC/dev/packages?publisher=Microsoft&appName=System+Application&versionText=28.0.0.0&appId=63ca2fa4-4f03-4f2b-a480-172fef340d3f&tenant=default",
     );
+    // No configured tenant still sends tenant=default (on-prem 401s without one).
+    expect(packageDownloadUrl({ ...config, tenant: undefined }, selector)).toContain("&tenant=default");
   });
 
   test("builds the SaaS route and omits appId for the Application concept", () => {
