@@ -82,7 +82,7 @@ interface IdentityRecord extends OrchestratedTestIdentity {
   key: string;
 }
 
-function identityKey(codeunitId: number, method: string): string {
+export function identityKey(codeunitId: number, method: string): string {
   return `${codeunitId}\u0000${upperInvariantUtf16(method.trim())}`;
 }
 
