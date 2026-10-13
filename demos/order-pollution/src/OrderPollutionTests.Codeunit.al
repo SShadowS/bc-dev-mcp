@@ -8,6 +8,8 @@ codeunit 50161 "Order Pollution Tests"
     // Pollution only exists INSIDE one RunTests group: BC rolls every group back on
     // completion (even explicit Commit()) and runs a group's methods in declaration order,
     // so a polluter must be declared above its victim and selected in the same group.
+    // Every non-polluter is EXPLICITLY AutoRollback: the default with no [TransactionModel]
+    // attribute is AutoCommit, which would make any writing method a polluter too.
 
     [Test]
     [TransactionModel(TransactionModel::AutoCommit)]
@@ -23,6 +25,7 @@ codeunit 50161 "Order Pollution Tests"
     end;
 
     [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
     procedure IndependentArithmetic()
     begin
         if 6 * 7 <> 42 then
@@ -30,6 +33,7 @@ codeunit 50161 "Order Pollution Tests"
     end;
 
     [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
     procedure VictimInsertsSameCustomer()
     var
         Customer: Record Customer;
@@ -41,6 +45,7 @@ codeunit 50161 "Order Pollution Tests"
     end;
 
     [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
     procedure IndependentCompanyName()
     begin
         if CompanyName() = '' then
@@ -59,11 +64,13 @@ codeunit 50161 "Order Pollution Tests"
     end;
 
     [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
     procedure IndependentRolledBackWrite()
     var
         Customer: Record Customer;
     begin
-        // Writes but does not pollute: AutoRollback (the default) undoes it when the method ends.
+        // Writes but does not pollute: the explicit AutoRollback undoes it when the method ends.
+        // (Without the attribute the default is AutoCommit, and ODPOLL-C6 would persist for the group.)
         Customer.Init();
         Customer."No." := 'ODPOLL-C6';
         Customer.Insert();
@@ -72,6 +79,7 @@ codeunit 50161 "Order Pollution Tests"
     end;
 
     [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
     procedure VictimExpectsNoFlag()
     var
         Flag: Record "Order Pollution Flag";
@@ -82,6 +90,7 @@ codeunit 50161 "Order Pollution Tests"
     end;
 
     [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
     procedure IndependentLast()
     begin
         if StrLen('done') <> 4 then

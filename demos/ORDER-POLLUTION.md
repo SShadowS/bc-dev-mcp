@@ -26,6 +26,11 @@ not the sequence in `testMethods[]`. Across groups and across codeunits there is
 
 ## The eight methods (declaration order)
 
+A `[Test]` method with no `[TransactionModel]` attribute defaults to **AutoCommit** (BC docs;
+`discoverTests` reports it that way). So every non-polluter below carries an explicit
+`[TransactionModel(TransactionModel::AutoRollback)]`; without it, 6 would commit `ODPOLL-C6`
+and become a polluter, and the victims' own writes would persist for the rest of the group.
+
 | # | Method | TransactionModel | Role |
 |---|--------|------------------|------|
 | 1 | `PolluterCommitsCustomer` | AutoCommit | Inserts Customer `ODPOLL-C1`, `Commit()` |
@@ -52,7 +57,8 @@ not the sequence in `testMethods[]`. Across groups and across codeunits there is
 Expected od-victims: **3** (polluter 1, write to table Customer) and **7** (polluter 5,
 write to table 50160 "Order Pollution Flag"). Both pass in isolation, fail only after their
 polluter in the same group, and the minimal polluter is a single method. 6 is the
-"writes, but does not leak" control for write attribution: AutoRollback undoes it.
+"writes, but does not leak" control for write attribution: its explicit AutoRollback undoes it
+(drop the attribute and it defaults to AutoCommit and leaks).
 
 ## Building
 
