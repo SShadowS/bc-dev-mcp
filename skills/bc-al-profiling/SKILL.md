@@ -13,7 +13,9 @@ stateful and the steps cannot be reordered.
 
 1. `bcdev_profile_status` — preflight the snapshot-debugger endpoint. Check `reachable: true`
    and `sampleProfilingSupported: true` (snapshot API major >= 3). On failure, read `error`.
-2. `bcdev_profile_start` — arms the profiler and returns a `debuggingContext`.
+2. `bcdev_profile_start` — arms the profiler and returns a `profileId` handle (plus the wire
+   `debuggingContext`). Pass `profileId` to poll and finish; it is optional, but when given it
+   must match the active capture or the call fails `NOT_FOUND`. Valid until `bcdev_profile_finish`.
    - `kind: "sampling"` (default): statistical stack samples every `samplingIntervalMs`
      (50 / 100 / 150, default 100). Dependency-free.
    - `kind: "instrumentation"`: records every call, so self-time is exact. Needs the

@@ -28,7 +28,8 @@ default dynamic configuration.
 First use `bcdev_debug_attach`, trigger the workload, and call `bcdev_debug_wait` until it
 returns a `break`. Native debugging is deliberately unavailable while merely attached,
 binding, running, or after `bcdev_debug_continue`. At the break, list the `debugging`
-catalog and call its tools. Finish by using `bcdev_debug_continue` or
+catalog and call its tools, passing the `debugSessionId` from attach (optional; must match the
+active session when given, and is rejected for other contexts). Finish by using `bcdev_debug_continue` or
 `bcdev_debug_detach`.
 
 Record-write triage owns its debugger internally and cannot be inspected through this
