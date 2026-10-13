@@ -1,0 +1,43 @@
+{
+  "alsemVersion": "1.5.0",
+  "deterministic": true,
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "kind": "query.touches",
+  "payload": {
+    "direction": "both",
+    "table": {
+      "id": "unknown",
+      "isUnknownBucket": true,
+      "resolution": "resolved",
+      "selector": "unknown"
+    },
+    "up": {
+      "note": "workspace-global: every routine whose transitive cone touches this table. Scope it with --from <routine> --direction up.",
+      "routineCount": 2,
+      "routines": [
+        {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/LedgerWriter.Codeunit.al",
+            "line": 55
+          },
+          "display": "DynamicWrite",
+          "objectDisplay": "Codeunit RW Ledger Writer",
+          "stableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50171#b03221522e4993db58fc4c4c984e53b2f107864b125142827ec2bf377022a86f"
+        },
+        {
+          "anchor": {
+            "column": 4,
+            "file": "ws:src/MixedWriter.Codeunit.al",
+            "line": 18
+          },
+          "display": "DynPlusOther",
+          "objectDisplay": "Codeunit RW Mixed Writer",
+          "stableId": "3c1b8a52-7d4e-4f0a-9b6e-2a5d9c7e1f43:Codeunit:50173#d07c15fedefa08b1c88d2177e236625cbfae57b0e50b7a031d3f8dae0643cb99"
+        }
+      ],
+      "scoped": false
+    }
+  },
+  "schemaVersion": "1.0.0"
+}

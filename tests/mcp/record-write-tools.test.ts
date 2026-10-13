@@ -33,7 +33,7 @@ function project(): string {
   return dir;
 }
 
-function setup(hub: FakeHub) {
+function setup(hub: FakeHub, extra: Partial<ToolDeps> = {}) {
   const state = new ServerState();
   const deps: ToolDeps = {
     hubFactory: fakeHubFactory(hub),
@@ -50,6 +50,7 @@ function setup(hub: FakeHub) {
     }),
     callGraph: async () => ({ nodes: [], edges: [] }),
     nativeMcpGateway: new FakeNativeMcpGateway(),
+    ...extra,
   };
   return {
     state,
@@ -146,6 +147,61 @@ describe("record-write MCP tools", () => {
     expect(() => finishTool.outputSchema.parse(report)).not.toThrow();
     expect(state.debugOwner).toBeNull();
     expect(state.recordWrites).toBeNull();
+  });
+
+  test("al-sem static writers seed start and are diffed against the observed stacks at finish", async () => {
+    const hub = new FakeHub();
+    hub.onInvoke = (method) => {
+      if (method === "GetSourceContent") return { Content: SOURCE, IsALContent: true };
+      if (method === "GetWatchNode") return { Name: "Customer", TypeName: "Table Customer (18)", Summary: "'10000'", HasChildren: true };
+      return undefined;
+    };
+    const site = (routine: string, operation: string, line: number) => ({
+      operation, objectType: "Codeunit", objectId: 50100, objectDisplay: "Codeunit Writer", routine,
+      file: "Writer.Codeunit.al", line, tempState: "known(false)", via: "direct",
+    });
+    const requests: unknown[] = [];
+    const staticWriters: ToolDeps["staticWriters"] = async (request) => {
+      requests.push(request);
+      return {
+        writers: {
+          engine: "al-sem", alsemVersion: "1.5.0", table: { selector: "Customer", name: "Customer" }, routinesScanned: 2,
+          sites: [site("Run", "Modify", 7), site("Never", "Delete", 12)],
+          unknownBucketSites: [], caveats: ["c"],
+        },
+        warnings: [],
+      };
+    };
+    const { tools } = setup(hub, { staticWriters });
+    const start = await tools.get("bcdev_record_writes_start")!.handler({ tableId: 18, sessionId: 321 }) as {
+      staticWriters: { available: boolean; sites: unknown[] };
+    };
+    expect(requests).toEqual([expect.objectContaining({ tableId: 18, includeTemporary: false })]);
+    expect(start.staticWriters).toMatchObject({ available: true, sites: [{ routine: "Run" }, { routine: "Never" }] });
+    expect(() => tools.get("bcdev_record_writes_start")!.outputSchema.parse(start)).not.toThrow();
+    hub.emit("HubConnected");
+    await Bun.sleep(0);
+    emitWrite(hub);
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+    const finishTool = tools.get("bcdev_record_writes_finish")!;
+    const report = await finishTool.handler({}) as {
+      staticCrossCheck: { matched: number; staticNotObserved: Array<{ routine: string }>; observedNotStatic: unknown[] };
+      nextSteps: string[];
+    };
+    expect(report.staticCrossCheck).toMatchObject({ available: true, matched: 1, staticNotObserved: [{ routine: "Never" }], observedNotStatic: [] });
+    expect(report.nextSteps.join(" ")).toContain("staticCrossCheck");
+    expect(() => finishTool.outputSchema.parse(report)).not.toThrow();
+  });
+
+  test("an unavailable static provider warns once at start and never fails the capture", async () => {
+    const hub = new FakeHub();
+    const { tools } = setup(hub, { staticWriters: async () => ({ writers: null, warnings: ["al-sem static writer cross-check unavailable: nope."] }) });
+    const start = await tools.get("bcdev_record_writes_start")!.handler({ tableId: 18 }) as { armed: boolean; staticWriters: { available: boolean; warnings: string[] } };
+    expect(start.armed).toBe(true);
+    expect(start.staticWriters).toMatchObject({ available: false, warnings: [expect.stringContaining("unavailable")] });
+    const report = await tools.get("bcdev_record_writes_finish")!.handler({}) as Record<string, unknown>;
+    expect(report["staticCrossCheck"]).toBeUndefined();
   });
 
   test("default and temporary-inclusive modes send the proven record-write wire enum", async () => {

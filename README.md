@@ -97,7 +97,7 @@ Debugger attach returns as soon as Business Central accepts the request; binding
 | `server` | launch.json / tool param | — | BC server URL, e.g. `http://bcserver` |
 | `serverInstance` | launch.json / tool param | — | Server instance, e.g. `BC` |
 | `BC_DEV_CALLGRAPH_ENGINE` | env var | `auto` | Call-graph engine for `bcdev_test_select`: `auto` (al-sem, else altool), `al-sem` or `altool` |
-| `BC_DEV_ALSEM` | env var | `alsem` on PATH | Path to `alsem.exe` (al-sem); `bcdev_test_select` runs `alsem graph <project>`; `bcdev_test_orchestrate` mode `order` runs `alsem digest`/`query touches` to predict polluters (optional: absent al-sem = one warning). al-sem needs no compile, shows `Codeunit.Run` and trigger paths, and states where its graph is incomplete |
+| `BC_DEV_ALSEM` | env var | `alsem` on PATH | Path to `alsem.exe` (al-sem); `bcdev_test_select` runs `alsem graph <project>`; `bcdev_test_orchestrate` mode `order` runs `alsem digest`/`query touches` to predict polluters (optional: absent al-sem = one warning); `bcdev_record_writes_*` runs `alsem query` for its optional static cross-check. al-sem needs no compile, shows `Codeunit.Run` and trigger paths, and states where its graph is incomplete |
 | `BC_DEV_ALTOOL` | env var | `altool` on PATH | Path to `altool.exe` (AL extension `bin` folder); the fallback engine, via its `graph` command |
 | `BC_DEV_API_PORT` | env var | `7048` | On-prem Automation API port used by the `bcdev_app_*` tools |
 | `port` | launch.json / tool param | `7049` | Developer service port |
@@ -195,6 +195,20 @@ table. Any missing source/span, unsupported receiver, watch failure, unknown run
 unexpected break, lifecycle failure, early session detach, or truncation keeps the report
 fail-closed. Exact groups collected before a detach remain available, but the tool does not claim
 that no later writes were missed.
+
+**Static cross-check (optional, needs [al-sem](https://github.com/SShadowS/al-sem)).** When `alsem`
+is found (`BC_DEV_ALSEM` or PATH), start also returns `staticWriters`: the write sites
+(`Insert`/`Modify`/`ModifyAll`/`Delete`/`DeleteAll`/`Rename`, temporary records excluded unless
+`includeTemporary`) al-sem believes can write the table, from `alsem query touches` +
+`alsem query effects`, plus its "unknown bucket" (writes with an unresolved table, such as
+`RecordRef`). The table is selected as `<app.json id>/table/<tableId>`, then by table name (the
+project's own source object, and at finish the runtime name the debugger reported; base-app tables
+need their symbols in `.alpackages`). Finish adds `staticCrossCheck`: statically possible writers
+that were never observed, and observed writers that are not in al-sem's set (flagged when they sit
+in its unknown bucket). Without `alsem`, or with an unknown al-sem schema major, start carries one
+warning and nothing else changes. Limits to keep in mind: al-sem #28 (two call sites on one line
+collapse to one site) and #9 (`Rename` is not modelled as a write), and dependencies without shipped
+source never appear in the static set. "Never observed" only means not exercised by this workload.
 
 ## BC native MCP passthrough
 

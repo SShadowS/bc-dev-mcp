@@ -56,6 +56,10 @@ and returns a truncated, incomplete report. Missing source/span, an unsupported 
 failure, unknown runtime table identity, or debugger failure also keeps the result fail-closed.
 If the session detaches before `bcdev_record_writes_finish`, retained exact groups remain useful
 but `complete` is false because later writes cannot be ruled out.
+If `alsem` is installed, start returns `staticWriters` (al-sem's possible write sites) and finish adds
+`staticCrossCheck`: `staticNotObserved` (possible but never ran) and `observedNotStatic` (ran, but
+al-sem does not list it; `inUnknownBucket` marks RecordRef-style writes). Mind its caveats (al-sem
+#28 same-line call sites, #9 Rename) and that "never observed" only reflects this workload.
 Finish always clears the shared debugger slot; manual debugging and record-write triage cannot run
 at the same time.
 

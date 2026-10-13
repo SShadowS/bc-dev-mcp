@@ -135,15 +135,19 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       return ["Call bcdev_record_writes_finish to retrieve the retained report and clear the debugger slot."];
     case "bcdev_record_writes_finish": {
       const summary = result["summary"] as Record<string, unknown> | undefined;
+      const cross = result["staticCrossCheck"] as { staticNotObserved?: unknown[]; observedNotStatic?: unknown[] } | undefined;
+      const crossStep = cross && ((cross.staticNotObserved?.length ?? 0) > 0 || (cross.observedNotStatic?.length ?? 0) > 0)
+        ? ["Review staticCrossCheck: statically possible writers that never ran (exercise them or rule them out) and observed writers al-sem does not list (check the caveats and the unknown bucket)."]
+        : [];
       if (result["truncated"] === true) {
         return ["Narrow the target workload or deliberately raise maxObservedWrites, then rerun the capture."];
       }
       if (result["complete"] !== true) {
-        return ["Review unresolved groups and warnings before treating the capture window as exhaustive, then rerun with trusted deployed source if needed."];
+        return ["Review unresolved groups and warnings before treating the capture window as exhaustive, then rerun with trusted deployed source if needed.", ...crossStep];
       }
       return Number(summary?.["matchedWrites"] ?? 0) > 0
-        ? ["Review the grouped writer stacks and occurrence counts."]
-        : [];
+        ? ["Review the grouped writer stacks and occurrence counts.", ...crossStep]
+        : crossStep;
     }
     case "bcdev_profile_status":
       if (result["reachable"] !== true) {
