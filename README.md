@@ -5,7 +5,34 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 [![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-670%20passing-green)]()
+[![Tests](https://img.shields.io/badge/tests-991%20passing-green)]()
+
+## Why bc-dev-mcp
+
+Microsoft's AL tooling makes agents good at **writing** AL: the `altool launchmcpserver` server
+compiles, builds, publishes, searches symbols and manages translations. bc-dev-mcp makes them good
+at **checking** it: is the change tested, why does a test fail, what does this code do at runtime,
+where is the time going. Use both: `al` to write, bc-dev-mcp to verify.
+
+What you gain over Microsoft's MCP servers (checked against AL Language 30.0, `altool` 30.0.43,
+2026-10-14: the `al` server's 16 tools, the profiling proxy's 4 and the snapshot proxy's 4):
+
+| You want to… | Microsoft's MCP | bc-dev-mcp |
+|---|---|---|
+| Debug from any MCP client (Claude Code, Codex, Cursor, …) | No debugger tool. BC's cloud native MCP has `debugging` tools, but only for a session a debugger has already attached to and paused, and only in the cloud | Attach (next session, user or session ID), breakpoints, break on error or record write, step, variables, watch, eval, abort; on-prem, docker and SaaS |
+| Debug a failing test | No | `bcdev_debug_run_tests`: breakpoints fire inside the test run |
+| Find and run tests | `al_run_tests`: one codeunit ID, pass/fail counts and failure details | Discovery from source (incl. `TransactionModel`), multi-codeunit plans, per-method results and durations, parsed AL call stacks mapped to your files |
+| Know whether the change is tested | No coverage over MCP (the `altool runtests` CLI has it) | Procedure coverage mapped to source and crossed with your Git diff: which changed procedures the tests did and did not reach |
+| Run only the tests that matter | No | `bcdev_test_select`: diff → ranked tests via whole-program call graph + coverage history, with `bcdev_test_run`-ready shards |
+| Catch flaky and order-dependent tests | No | Repeat runs with pass/fail diffs; `mode: "order"` finds victims and bisects each to its polluter |
+| Find who writes a record | No | Record-write triage: capture every write to one table, grouped by writer stack, cross-checked against static writers |
+| Understand a slow session | Profiling proxy returns `.alcpuprofile` files; analysis is left to the agent | Sampling or exact instrumentation capture, a ranked AL hotspot summary in the response, al-sem's static performance findings on each hotspot, hand-off to al-perf |
+| See what code *can* do before it runs | No | al-sem enrichments: risk of uncovered changes (commits, writes, UI), effects of the routine at a breakpoint, predicted test-order polluters |
+| Clean up apps without host access | `al_publish` only | List, publish, uninstall, unpublish over HTTP; reports apps BC uninstalled with it |
+| Rely on the output | None of the 24 tools publishes an `outputSchema` | Every tool has an `outputSchema` and `structuredContent`, stable error codes with `nextSteps`, usage skills served over MCP, MCP 2026-07-28 |
+
+Microsoft's own extras are worth keeping: symbol search, page inspection, translations, object IDs,
+and the snapshot-debugging capture proxy.
 
 ## Overview
 
@@ -24,7 +51,8 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 |---------|-------------|
 | **Agent-grade responses** | Every success returns schema-validated `structuredContent` plus contextual `nextSteps`; failures use stable, redacted JSON error bodies |
 | **Structured test runs** | Run-level pass/fail/abort counts, per-method duration, parsed AL call stacks, and local source mappings while retaining raw server output |
-| **Test orchestration** | Repeat one test selection, diff adjacent passed/failed sets, retain every run, and classify stable, flaky, inconsistent, or incomplete methods |
+| **Diff-scoped test selection** | Turn a Git diff into a ranked test selection from a whole-program call graph (al-sem, or Microsoft's `altool graph`) plus coverage history, with ready-to-run shards |
+| **Test orchestration** | Repeat one test selection, diff adjacent passed/failed sets, retain every run, and classify stable, flaky, inconsistent, or incomplete methods; `mode: "order"` finds order-dependent tests and bisects each to its polluter |
 | **Code coverage** | `procedure` mode, mapped back to local source files (`line` mode exists but is unproven against real BC) |
 | **Coverage gap analysis** | Cross a Git diff with exact procedure coverage to report which changed procedures the selected tests did and did not exercise |
 | **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
@@ -36,6 +64,8 @@ MCP server for Business Central AL development: run tests (with code coverage) a
 | **Debug-a-test** | Test run bound to the debug session — breakpoints fire during test execution |
 | **Config auto-discovery** | Server/instance/tenant read from the AL project's `.vscode/launch.json` |
 | **Preflight diagnostics** | `bcdev_status` distinguishes unreachable / bad credentials / unsupported dev API |
+| **Static insight from al-sem** | Risk of uncovered changes, effects of the routine at a breakpoint, predicted test-order polluters, static writer sets and hotspot explanations; al-sem is fetched automatically (pinned, SHA-256-verified) when it is not installed |
+| **Skills over MCP** | Ships its own usage skills to the agent (`skills/list`, `skills/get`) |
 | **Sampling CPU profiling** | Capture a `.alcpuprofile` (V8 format) of a live session and get a ranked AL self-time hotspot summary; hand off to al-perf for deep analysis |
 
 ## Prerequisites
