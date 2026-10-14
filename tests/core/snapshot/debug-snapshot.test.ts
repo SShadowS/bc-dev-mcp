@@ -103,7 +103,8 @@ describe("projectSnapshot (Cronus29 page 50152 capture)", () => {
     const d = structuredClone(doc); d.methods = [];
     const p = projectSnapshot(d, armed, readSource);
     expect(p.points).toEqual([]);
-    expect(p.warnings.join(" ")).toContain("holds no method contexts");
+    expect(p.warnings.join(" ")).toContain("holds no method contexts: no execution was recorded");
+    expect(p.warnings.join(" ")).not.toContain("the session bound");
     expect(p.warnings.join(" ")).not.toContain("none at an armed line");
     const withMethods = structuredClone(doc); withMethods.methods = withMethods.methods.map((m: Record<string, unknown>) => ({ ...m, exception: null, lines: [] }));
     expect(projectSnapshot(withMethods, [], readSource).warnings.join(" ")).toContain("none at an armed line");

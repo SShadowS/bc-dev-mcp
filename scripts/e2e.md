@@ -502,7 +502,7 @@ Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` 
   <!-- 2026-10-14, al-sem v1.7.1 release (alsem-windows-x64.exe 30598384 bytes, sha256 fba4bf66...a046, signer CN=Sleight of Hand). dist: download + select 1630 ms, cached 441 ms; bc-dev-mcp.exe: 2098 ms fresh, 304 ms cached; one "downloading"/"verified and cached" stderr pair per fresh cache. Project: copy of tests/fixtures/test-selection-acceptance with a comment planted in AccCashRoundingSubscriber. -->
 - [x] Live: `bcdev_status` carries `alsem` (`source`/`version`/`path`) against a reachable BC. Unit-tested
   (tests/mcp/tools.test.ts); not seen live on 2026-10-14 because Cronus28 and Cronus29 were both unreachable.
-  <!-- 2026-10-15 Cronus29 (BC 29.0.56030.0), built server over stdio: alsem {source "cache", version "1.7.1", path %LOCALAPPDATA%c-dev-mcplsem.7.1lsem.exe, reason "alsem 1.6.0 on PATH is older than the pinned 1.7.1"}, plus converter {source "cache", version "0.2.0"}; the cached binary is the one the 2026-10-14 select run downloaded -->
+  <!-- 2026-10-15 Cronus29 (BC 29.0.56030.0), built server over stdio: alsem {source "cache", version "1.7.1", path %LOCALAPPDATA%\bc-dev-mcp\alsem\1.7.1\alsem.exe, reason "alsem 1.6.0 on PATH is older than the pinned 1.7.1"}, plus converter {source "cache", version "0.2.0"}; the cached binary is the one the 2026-10-14 select run downloaded -->
 
 ## Known server behaviours
 

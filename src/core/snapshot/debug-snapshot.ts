@@ -87,7 +87,7 @@ export function projectSnapshot(doc: unknown, armed: ArmedSnappoint[] | null, re
   }
   // WIRE: a Background snapshot binds the TaskScheduler session but the archive holds source only (no .mdc);
   // BC drops the context at session end (live Cronus29 2026-10-15).
-  if (d.methods.length === 0) warnings.push("The recording holds no method contexts: the session bound but no execution was recorded (seen for Background sessions on BC29).");
+  if (d.methods.length === 0) warnings.push("The recording holds no method contexts: no execution was recorded (seen for Background sessions on BC29, which bind but record source only).");
   else if (ordered.length === 0) warnings.push("The recording has method contexts but none at an armed line or a throw.");
   return { points, omittedPoints: ordered.length - points.length, methodCount: d.methods.length, classification: armed === null ? "partial" : "complete", warnings: [...new Set(warnings)] };
 }

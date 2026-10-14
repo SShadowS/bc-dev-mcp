@@ -538,6 +538,9 @@ describe("BC native MCP gateway: on-prem target", () => {
       expect(e.code).toBe("UNSUPPORTED_SERVER");
       expect(e.message).toContain("McpServicesEnabled");
       expect(e.message).toContain("http://cronus29:7048/BC/mcp/");
+      // agentErrorBody's wrong-port nextSteps (B5) key off details.url — pin the contract.
+      expect(typeof e.details.url).toBe("string");
+      expect(e.details.url).toContain("/mcp");
     }
   });
 });
