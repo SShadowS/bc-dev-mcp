@@ -290,11 +290,13 @@ This passthrough supports cloud Sandbox and Production targets. Live acceptance 
 `launch.json` with `environmentType: "OnPrem"`) and the same tools talk to the server's own MCP
 endpoint, `<server>:<apiPort>/<instance>/mcp/`, with your `BC_DEV_USER` / `BC_DEV_PASSWORD`.
 It is on the API/OData port (`apiPort`, default `BC_DEV_API_PORT` or 7048), not the SOAP port
-7047, and needs `McpServicesEnabled` on the server (a wrong port or disabled service comes back
-as `UNSUPPORTED_SERVER` naming both). `company` is optional on-prem: without it BC uses its default
+7047, and needs `McpServicesEnabled` on the server (a wrong port, e.g. 7047, comes back as
+`UNSUPPORTED_SERVER` naming the port and the setting; a disabled service is expected to fail the
+same way but has not been tested). `company` is optional on-prem: without it BC uses its default
 company. `business` and `runtime` are verified live; `debugging` is accepted but unverified on-prem.
 **Plain `http://` sends Basic credentials unencrypted**: use it only for local or dev containers,
 and HTTPS for anything else.
+
 Its contexts intentionally match the verified BC28 surface and do not include native profiling;
 the existing `bcdev_profile_*` snapshot tools are separate and unchanged.
 
