@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ServerState, type ProfileCapture } from "../../src/mcp/state";
 import { createProfileTools } from "../../src/mcp/tools/profile-tools";
+import { createSnapshotTools } from "../../src/mcp/tools/snapshot-tools";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import type { ToolDeps } from "../../src/mcp/tools/shared";
 import { BcDevError } from "../../src/core/agent-errors";
@@ -251,6 +252,53 @@ describe("profile tools", () => {
     releaseAttach();
     await first;
     expect(state.capture).not.toBeNull();
+  });
+
+  test("M5. poll and finish during attach are PROFILE_ACTIVE phase attaching", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const fetchFn = (async (u: RequestInfo | URL) => {
+      if (u.toString().includes("attach")) { await gate; return new Response('"NextSessionOnTenant"'); }
+      return new Response("{}");
+    }) as unknown as typeof fetch;
+    const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));
+    const first = tools.get("bcdev_profile_start")!.handler({ ...conn });
+    for (const name of ["bcdev_profile_poll", "bcdev_profile_finish"]) {
+      const err = await tools.get(name)!.handler({}).catch((e: unknown) => e) as BcDevError;
+      expect(err).toMatchObject({ code: "PROFILE_ACTIVE", details: { phase: "attaching" } });
+    }
+    release();
+    await first;
+    expect(state.capture?.phase).toBe("armed");
+  });
+
+  test("M6. a snapshot start during a profile finish sees phase finishing", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const fetchFn = (async (u: RequestInfo | URL) => {
+      if (u.toString().includes("attach")) return new Response('"NextSessionOnTenant"');
+      if (u.toString().includes("finish")) { await gate; return new Response(new Uint8Array(0)); }
+      return new Response("{}");
+    }) as unknown as typeof fetch;
+    const d = deps(fetchFn);
+    const tools = new Map(createProfileTools(state, d).map((t) => [t.name, t]));
+    const snap = new Map(createSnapshotTools(state, d).map((t) => [t.name, t]));
+    await tools.get("bcdev_profile_start")!.handler({ ...conn });
+    const fin = tools.get("bcdev_profile_finish")!.handler({});
+    const err = await snap.get("bcdev_snapshot_start")!.handler({ ...conn }).catch((e: unknown) => e) as BcDevError;
+    expect(err).toMatchObject({ code: "PROFILE_ACTIVE", details: { phase: "finishing", capture: "profile" } });
+    release();
+    await fin;
+    expect(state.capture).toBeNull();
+  });
+
+  test("M2. start instrumentation resolves the converter before the attach request", async () => {
+    const order: string[] = [];
+    const fetchFn = (async (u: RequestInfo | URL) => { if (u.toString().includes("attach")) order.push("attach"); return new Response('"NextSessionOnTenant"'); }) as unknown as typeof fetch;
+    const tools = new Map(createProfileTools(state, deps(fetchFn), { resolveEnv: async () => { order.push("resolve"); return { converterPath: "c.exe" } as never; }, run: (async () => ({})) as never }).map((t) => [t.name, t]));
+    const r = (await tools.get("bcdev_profile_start")!.handler({ ...conn, kind: "instrumentation" })) as Record<string, unknown>;
+    expect(order).toEqual(["resolve", "attach"]);
+    expect(r["converterAvailable"]).toBe(true);
   });
 
   test("start rolls back the claimed slot when attach fails", async () => {

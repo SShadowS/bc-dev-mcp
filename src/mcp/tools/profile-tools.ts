@@ -62,6 +62,7 @@ function requireProfile(state: ServerState, params: Record<string, unknown>): Pr
   if (active?.captureKind === "snapshot") throw captureActiveError(active, "profile");
   assertHandle(PROFILE_HANDLE, params, active?.profileId ?? null);
   if (!active) throw new BcDevError("PROFILE_NOT_ACTIVE", "No active profile — call bcdev_profile_start first", "state");
+  if (active.phase === "attaching" || active.phase === "finishing") throw captureActiveError(active, "profile");
   return active;
 }
 
@@ -153,6 +154,9 @@ export function createProfileTools(
         const { config, authorization } = resolve(params, deps);
         const snapshotPort = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
         const kind = (params["kind"] as "sampling" | "instrumentation" | undefined) ?? "sampling";
+        // Resolve (and possibly download) the converter now, never while a capture is armed.
+        const converterAvailable = kind === "instrumentation" ? (await resolveEnv()) !== null : undefined;
+        if (state.capture) throw captureActiveError(state.capture, "profile"); // another start won the slot while we awaited
         const debuggingContext = randomUUID();
         // claim the slot before awaiting — blocks concurrent start (mirrors debug-tools.ts)
         const id = randomUUID();
@@ -177,7 +181,6 @@ export function createProfileTools(
           claim.attachKind = attach.attachKind;
           claim.phase = "armed";
           if (kind === "instrumentation") {
-            const converterAvailable = (await resolveEnv()) !== null;
             return {
               profileId: id,
               debuggingContext,
@@ -185,7 +188,7 @@ export function createProfileTools(
               converterAvailable,
               hint:
                 "Instrumentation records every call — keep exercising the session, poll to Started, exercise a bit more, then finish. " +
-                (converterAvailable ? "" : "WARNING: converter not found (set BC_MDC_CONVERTER or put bc-mdc-converter on PATH — github.com/SShadowS/bc-mdc-converter); finish will save the raw .mdc snapshot for you to open in VS Code."),
+                (converterAvailable ? "" : "WARNING: converter not found (set BC_MDC_CONVERTER, or put bc-mdc-converter >= the pinned version on PATH; otherwise the pinned verified release is downloaded unless BC_MDC_CONVERTER_DOWNLOAD=0 — github.com/SShadowS/bc-mdc-converter); finish will save the raw .mdc snapshot for you to open in VS Code."),
             };
           }
           return {
@@ -256,6 +259,7 @@ export function createProfileTools(
           return { captured: false, released: true, hint: `Released capture ${orphan}; its data was discarded. Call bcdev_profile_start again.` };
         }
         const p = requireProfile(state, params);
+        p.phase = "finishing"; // synchronously, before any await: a concurrent finish/poll/start is refused
         const client = new SnapshotClient(deps.fetchFn, p.config, p.snapshotPort, p.authorization);
         try {
           const fin = await client.finish(p.debuggingContext, p.affinityCookie);
@@ -302,7 +306,7 @@ export function createProfileTools(
               captured: true,
               kind: "instrumentation-raw",
               zipPath,
-              hint: "Raw .mdc snapshot saved. Convert with bc-mdc-converter (set BC_MDC_CONVERTER or put it on PATH — github.com/SShadowS/bc-mdc-converter), or open it in VS Code (AL: Open snapshot -> generate profile).",
+              hint: "Raw .mdc snapshot saved. Convert with bc-mdc-converter (set BC_MDC_CONVERTER, or put it on PATH at the pinned version or newer; BC_MDC_CONVERTER_DOWNLOAD=0 disables the pinned download — github.com/SShadowS/bc-mdc-converter), or open it in VS Code (AL: Open snapshot -> generate profile).",
             };
           }
           const outPath = (params["outPath"] as string | undefined) ?? join(deps.cwd, `${p.debuggingContext}.alcpuprofile`);
