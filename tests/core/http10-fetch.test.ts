@@ -151,6 +151,23 @@ describe("createHttp10Fetch", () => {
     await withTimeout(Promise.all(s.closed));
   });
 
+  test("11a. a complete oversized header block rejects", async () => {
+    const s = await serve((socket) => socket.end(`HTTP/1.1 200 OK\r\nX-Big: ${"a".repeat(2048)}\r\n\r\nok`));
+    await expect(createHttp10Fetch({ maxHeaderBytes: 1024 })(s.url)).rejects.toThrow("headers exceeded");
+  });
+
+  test("11b. skipped 1xx blocks count toward the header cap", async () => {
+    const cont = `HTTP/1.1 100 Continue\r\nX-Pad: ${"p".repeat(380)}\r\n\r\n`;
+    const s = await serve((socket) => socket.end(`${cont}${cont}${cont}HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok`));
+    await expect(createHttp10Fetch({ maxHeaderBytes: 1024 })(s.url)).rejects.toThrow("headers exceeded");
+  });
+
+  test("11c. one small 100 Continue then 200 still resolves under the cap", async () => {
+    const s = await serve((socket) => socket.end("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"));
+    const res = await createHttp10Fetch({ maxHeaderBytes: 1024 })(s.url);
+    expect(await res.text()).toBe("ok");
+  });
+
   test("12. oversized body errors the stream", async () => {
     const s = await serve((socket) => socket.end(`HTTP/1.1 200 OK\r\n\r\n${"x".repeat(64)}`));
     const res = await createHttp10Fetch({ maxBodyBytes: 16 })(s.url);

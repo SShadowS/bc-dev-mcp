@@ -191,6 +191,7 @@ export function createHttp10Fetch(opts: { maxBodyBytes?: number; maxHeaderBytes?
       let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
       let remaining: number | null = null;
       let bodyBytes = 0;
+      let headerBytes = 0; // bytes of 1xx blocks already skipped; they count toward maxHeader
       const fail = (error: unknown): void => {
         signal?.removeEventListener("abort", onAbort);
         socket.destroy();
@@ -234,9 +235,10 @@ export function createHttp10Fetch(opts: { maxBodyBytes?: number; maxHeaderBytes?
           const split = buf.indexOf("\r\n\r\n");
           if (split < 0) {
             headerBuf = buf;
-            if (buf.length > maxHeader) fail(protocol(`Business Central response headers exceeded ${maxHeader} bytes`));
+            if (headerBytes + buf.length > maxHeader) fail(protocol(`Business Central response headers exceeded ${maxHeader} bytes`));
             return;
           }
+          if (headerBytes + split > maxHeader) return fail(protocol(`Business Central response headers exceeded ${maxHeader} bytes`));
           const headLines = buf.subarray(0, split).toString("latin1").split("\r\n");
           const m = /^HTTP\/1\.[01] (\d{3})(?: (.*))?$/.exec(headLines[0] ?? "");
           if (!m) return fail(protocol("Business Central sent a malformed HTTP status line"));
@@ -244,6 +246,7 @@ export function createHttp10Fetch(opts: { maxBodyBytes?: number; maxHeaderBytes?
           const rest = buf.subarray(split + 4);
           if (status === 101) return fail(protocol("Business Central asked to switch protocols"));
           if (status < 200) {
+            headerBytes += split + 4;
             buf = rest; // interim 1xx (100 Continue): skip
             continue;
           }
