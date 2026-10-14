@@ -443,6 +443,21 @@ Fixture and full evidence: `tests/fixtures/test-selection-acceptance/README.md` 
   App compiled + published, bcdev_test_run codeunits 50940..50947 coverageAgainst=HEAD changesDeployed=true: 40/40 passed, coverageComplete true; coverageGaps covered 1 (ApplyDiscount, no risk field, by 9 tests) / uncovered 3, each uncovered carries the same risk as the select. coverageGaps.procedures keeps discovery order (ExportLine, ConfirmExport, FlushReport) - not ranked by risk, unlike uncoverable; the schema promises ranking only for uncoverable. Table change reported as unattributed (complete false). App uninstalled with deleteData + unpublished; bcdev_app_list 170 apps identical before/after. -->
 
 
+### al-sem binary (pinned download, `src/core/alsem-binary.ts`)
+
+- [x] Lookup order, offline: `BC_DEV_ALSEM` as-is; PATH `alsem --version` (`al-sem X.Y.Z`) used only at the
+  pinned major and >= the pin; verified cache; download of the pinned asset (size + SHA-256 from
+  `src/core/alsem-pin.ts`, written by `scripts/pin-alsem.ts` from the release's asset `digest`), part file
+  then atomic rename; mismatch = nothing cached or run; failure retried after 10 min; `BC_DEV_ALSEM_DOWNLOAD=0`
+  and platforms without an asset fall back to bare `alsem`. <!-- 2026-10-14, tests/core/alsem-binary.test.ts -->
+- [x] Live: fresh `BC_DEV_CACHE_DIR`, PATH alsem 1.6.0 (below the pin), built `dist/index.js` over stdio:
+  `bcdev_test_select` on a project with one planted change downloads, verifies and runs the pinned al-sem
+  (engine al-sem); the cached file reports `al-sem 1.7.1` and Authenticode Valid; a second process uses the
+  cache with no download; the same on the compiled exe.
+  <!-- 2026-10-14, al-sem v1.7.1 release (alsem-windows-x64.exe 30598384 bytes, sha256 fba4bf66...a046, signer CN=Sleight of Hand). dist: download + select 1630 ms, cached 441 ms; bc-dev-mcp.exe: 2098 ms fresh, 304 ms cached; one "downloading"/"verified and cached" stderr pair per fresh cache. Project: copy of tests/fixtures/test-selection-acceptance with a comment planted in AccCashRoundingSubscriber. -->
+- [ ] Live: `bcdev_status` carries `alsem` (`source`/`version`/`path`) against a reachable BC. Unit-tested
+  (tests/mcp/tools.test.ts); not seen live on 2026-10-14 because Cronus28 and Cronus29 were both unreachable.
+
 ## Known server behaviours
 
 - AddBreakpoint for an object not deployed on the server succeeds but poisons the debuggee session with "metadata object ... was not found" errors — only set breakpoints in deployed objects (live E2E 2026-07-03).
