@@ -13,6 +13,7 @@ import {
   SdkNativeMcpGateway,
   type NativeMcpConnection,
   type NativeMcpConnectionFactory,
+  type CloudNativeMcpTarget,
   type NativeMcpTarget,
 } from "../../src/core/native-mcp";
 
@@ -68,7 +69,7 @@ class FakeConnection implements NativeMcpConnection {
   }
 }
 
-function target(overrides: Partial<NativeMcpTarget> = {}): NativeMcpTarget {
+function target(overrides: Partial<CloudNativeMcpTarget> = {}): NativeMcpTarget {
   return {
     config: {
       environmentType: "Sandbox",
@@ -442,5 +443,104 @@ describe("BC native MCP gateway", () => {
     });
     expect(connection.terminated).toBe(true);
     expect(connection.closed).toBe(true);
+  });
+});
+
+describe("BC native MCP gateway: on-prem target", () => {
+  const onprem = (overrides: Record<string, unknown> = {}): NativeMcpTarget => ({
+    kind: "onprem",
+    config: {
+      environmentType: "OnPrem",
+      authentication: "UserPassword",
+      server: "http://Cronus29",
+      serverInstance: "BC",
+      tenant: "a b&c",
+      username: "u",
+      password: "p",
+    },
+    apiPort: 7048,
+    authorization: { getAuthorizationHeader: async () => "Basic xyz" },
+    context: "runtime",
+    ...overrides,
+  }) as NativeMcpTarget;
+
+  test("builds the URL from server, apiPort, instance and tenant", async () => {
+    const s = setup();
+    await s.gateway.listTools(onprem());
+    const { url } = s.captured();
+    expect(url.port).toBe("7048");
+    expect(url.hostname).toBe("cronus29");
+    expect(url.pathname).toBe("/BC/mcp/");
+    expect(url.searchParams.get("tenant")).toBe("a b&c");
+
+    const s2 = setup();
+    const t = onprem();
+    (t as { config: { server: string; tenant?: string } }).config = {
+      ...(t as { config: object }).config, server: "https://host", tenant: undefined,
+    } as never;
+    await s2.gateway.listTools(t);
+    expect(s2.captured().url.protocol).toBe("https:");
+    expect(s2.captured().url.searchParams.get("tenant")).toBe("default");
+  });
+
+  test("headers: no cloud routing; Company optional; Dev per context", async () => {
+    const s = setup();
+    await s.gateway.listTools(onprem());
+    let h = s.captured().headers;
+    expect(h.get("Authorization")).toBe("Basic xyz");
+    expect(h.get("TenantId")).toBeNull();
+    expect(h.get("EnvironmentName")).toBeNull();
+    expect(h.get("Company")).toBeNull();
+    expect(h.get("Dev")).toBe("ALRuntime");
+
+    const s2 = setup();
+    await s2.gateway.listTools(onprem({ company: "CRONUS", context: "snapshot" }));
+    h = s2.captured().headers;
+    expect(h.get("Company")).toBe("CRONUS");
+    expect(h.get("Dev")).toBe("Snapshot");
+    expect(h.get("mcp-snapshot-options")).toBe('{"versionNumber":"1.0","sessionId":-1}');
+  });
+
+  test("on-prem uses onPremFetch, cloud the plain fetch", async () => {
+    const seen: { f?: typeof fetch } = {};
+    const plain = (async () => new Response()) as unknown as typeof fetch;
+    const http10 = (async () => new Response()) as unknown as typeof fetch;
+    const gw = new SdkNativeMcpGateway(plain, (_u, _h, f) => { seen.f = f; return new FakeConnection(); }, http10);
+    await gw.listTools(onprem());
+    expect(seen.f).toBe(http10);
+    await gw.listTools(target());
+    expect(seen.f).toBe(plain);
+  });
+
+  test("hard deadline: a connect that never settles times out and closes the connection", async () => {
+    class Hang extends FakeConnection {
+      override async connect(): Promise<void> { await new Promise<void>(() => {}); }
+    }
+    const conn = new Hang();
+    const s = setup(conn);
+    const started = Date.now();
+    const err = await s.gateway.listTools(target({ timeoutMs: 1000 })).catch((e) => e);
+    expect(err.code).toBe("TIMEOUT");
+    expect(err.details.timeoutPhase).toBe("connect");
+    expect(Date.now() - started).toBeLessThan(4000);
+    expect(conn.closed).toBe(true);
+  });
+
+  test("on-prem 401/404/405 map to actionable errors", async () => {
+    const run = async (status: number) => {
+      const c = new FakeConnection();
+      c.connectError = new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, "x", { status });
+      return await setup(c).gateway.listTools(onprem()).catch((e) => e);
+    };
+    const e401 = await run(401);
+    expect(e401.code).toBe("AUTHENTICATION_FAILED");
+    expect(e401.message).toContain("BC_DEV_USER");
+    expect(e401.message).not.toContain("Azure");
+    for (const st of [404, 405]) {
+      const e = await run(st);
+      expect(e.code).toBe("UNSUPPORTED_SERVER");
+      expect(e.message).toContain("McpServicesEnabled");
+      expect(e.message).toContain("http://cronus29:7048/BC/mcp/");
+    }
   });
 });

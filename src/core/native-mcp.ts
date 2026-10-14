@@ -12,7 +12,7 @@ import { z } from "zod";
 import { BcDevError } from "./agent-errors";
 import type { AuthorizationProvider } from "./authorization";
 import { redactAuthorization } from "./redaction";
-import type { CloudConnectionConfig } from "./types";
+import type { CloudConnectionConfig, OnPremConnectionConfig } from "./types";
 
 // WIRE: Business Central cloud exposes its Streamable HTTP MCP endpoint at this fixed URL
 // (Microsoft configure-mcp-server docs; live SaaS BC28 probe 2026-07-27).
@@ -21,21 +21,34 @@ export const DEFAULT_NATIVE_MCP_TIMEOUT_MS = 180_000;
 const NATIVE_MCP_CLEANUP_TIMEOUT_MS = 2_000;
 const NATIVE_MCP_ERROR_DETAIL_LIMIT = 1_000;
 
-export type NativeMcpContext = "business" | "runtime" | "debugging";
+export type NativeMcpContext = "business" | "runtime" | "debugging" | "snapshot"; // "snapshot" is internal (not in public schemas)
 
 export interface NativeDebugIdentity {
   sessionId: number;
   hostId: string;
 }
 
-export interface NativeMcpTarget {
-  config: CloudConnectionConfig;
+interface NativeMcpTargetBase {
   authorization: AuthorizationProvider;
-  company: string;
   context: NativeMcpContext;
   configurationName?: string;
   debugIdentity?: NativeDebugIdentity;
   timeoutMs?: number;
+}
+
+export type CloudNativeMcpTarget = NativeMcpTargetBase & { kind?: "cloud"; config: CloudConnectionConfig; company: string };
+
+export type NativeMcpTarget =
+  | CloudNativeMcpTarget
+  | (NativeMcpTargetBase & { kind: "onprem"; config: OnPremConnectionConfig; apiPort: number; company?: string });
+
+export function nativeMcpUrl(target: NativeMcpTarget): URL {
+  if (target.kind !== "onprem") return new URL(NATIVE_MCP_CLOUD_URL);
+  const base = new URL(target.config.server);
+  // WIRE: BC's on-prem MCP endpoint is <server>:<OData/API port>/<instance>/mcp/ (7048 on Cronus29; 7047 answers 405) (live Cronus29 2026-10-14)
+  const url = new URL(`${base.protocol}//${base.hostname}:${target.apiPort}/${encodeURIComponent(target.config.serverInstance)}/mcp/`);
+  url.searchParams.set("tenant", target.config.tenant ?? "default");
+  return url;
 }
 
 export interface NativeMcpServerIdentity {
@@ -199,16 +212,19 @@ function requestHeaders(
   target: NativeMcpTarget,
   authorization: string,
 ): Headers {
-  const company = nonblankHeader(target.company, "company");
-  const headers = new Headers({
-    Authorization: authorization,
+  const headers = new Headers({ Authorization: authorization });
+  if (target.kind === "onprem") {
+    if (target.company !== undefined && target.company.trim() !== "") {
+      headers.set("Company", nonblankHeader(target.company, "company"));
+    }
+  } else {
     // WIRE: The BC cloud MCP gateway routes an MCP session through TenantId,
     // EnvironmentName, and Company headers (Microsoft configure-mcp-server docs;
     // live SaaS BC28 probe 2026-07-27).
-    TenantId: nonblankHeader(target.config.tenant, "tenant"),
-    EnvironmentName: nonblankHeader(target.config.environmentName, "environmentName"),
-    Company: company,
-  });
+    headers.set("TenantId", nonblankHeader(target.config.tenant, "tenant"));
+    headers.set("EnvironmentName", nonblankHeader(target.config.environmentName, "environmentName"));
+    headers.set("Company", nonblankHeader(target.company, "company"));
+  }
 
   if (target.configurationName !== undefined) {
     if (target.context !== "business") {
@@ -231,6 +247,10 @@ function requestHeaders(
     // WIRE: The native AL runtime catalog is selected by the enum-name header
     // `Dev: ALRuntime` (decompiled BC28 McpDevTools enum; live SaaS 2026-07-27).
     headers.set("Dev", "ALRuntime");
+  } else if (target.context === "snapshot") {
+    // WIRE: BC's Snapshot catalog (run_tests with debuggingContext) is selected by `Dev: Snapshot` + JSON options; sessionId -1 = not bound to a session (live Cronus29 2026-10-14)
+    headers.set("Dev", "Snapshot");
+    headers.set("mcp-snapshot-options", JSON.stringify({ versionNumber: "1.0", sessionId: -1 }));
   } else if (target.context === "debugging") {
     if (!target.debugIdentity) {
       throw new BcDevError(
@@ -253,10 +273,34 @@ function requestHeaders(
   return headers;
 }
 
-function normalizeNativeError(error: unknown): BcDevError {
+function normalizeNativeError(error: unknown, target: NativeMcpTarget): BcDevError {
   if (error instanceof BcDevError) return error;
   if (error instanceof SdkHttpError) {
     const status = error.status;
+    if (target.kind === "onprem") {
+      if (status === 401 || status === 403) {
+        return new BcDevError(
+          "AUTHENTICATION_FAILED",
+          "Business Central native MCP rejected the on-prem credentials (check BC_DEV_USER / BC_DEV_PASSWORD)",
+          "auth",
+          false,
+          { status },
+          { cause: error },
+        );
+      }
+      if (status === 404 || status === 405) {
+        const url = nativeMcpUrl(target);
+        const where = url.origin + url.pathname;
+        return new BcDevError(
+          "UNSUPPORTED_SERVER",
+          `Business Central's MCP endpoint is not available at ${where}: check the API port and that McpServicesEnabled is on`,
+          "server",
+          false,
+          { status, url: where },
+          { cause: error },
+        );
+      }
+    }
     if (status === 401 || status === 403) {
       return new BcDevError(
         "AUTHENTICATION_FAILED",
@@ -391,6 +435,7 @@ export class SdkNativeMcpGateway implements NativeMcpGateway {
   constructor(
     private readonly fetchFn: typeof fetch,
     private readonly connectionFactory: NativeMcpConnectionFactory = sdkConnectionFactory,
+    private readonly onPremFetch: typeof fetch = fetchFn,
   ) {}
 
   async listTools(target: NativeMcpTarget, cursor?: string): Promise<NativeMcpListResponse> {
@@ -433,6 +478,9 @@ export class SdkNativeMcpGateway implements NativeMcpGateway {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       controller.abort(new SdkError(SdkErrorCode.RequestTimeout, "Native MCP operation timed out"));
+      // The SDK replaces requestInit.signal with its own, so closing the connection is what
+      // actually tears down a stalled request.
+      void connection?.close().catch(() => {});
     }, timeoutMs);
     const options: NativeRequestOptions = {
       signal: controller.signal,
@@ -446,13 +494,17 @@ export class SdkNativeMcpGateway implements NativeMcpGateway {
         controller.signal,
       );
       const headers = requestHeaders(target, authorization);
-      connection = this.connectionFactory(new URL(NATIVE_MCP_CLOUD_URL), headers, this.fetchFn);
+      connection = this.connectionFactory(
+        nativeMcpUrl(target),
+        headers,
+        target.kind === "onprem" ? this.onPremFetch : this.fetchFn,
+      );
       phase = "connect";
-      await connection.connect(options);
+      await abortable(connection.connect(options), controller.signal);
       phase = "operation";
       return await operation(connection, options);
     } catch (error) {
-      const normalized = normalizeNativeError(error);
+      const normalized = normalizeNativeError(error, target);
       if (normalized.code === "TIMEOUT") {
         throw new BcDevError(
           normalized.code,

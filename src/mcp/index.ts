@@ -10,6 +10,7 @@ import { createAlSemRiskProvider } from "../core/risk";
 import { createAlSemOrderPredictor } from "../core/test-order-static";
 import { createAlSemStaticWritersProvider } from "../core/alsem-writes";
 import { SdkNativeMcpGateway } from "../core/native-mcp";
+import { createHttp10Fetch } from "../core/http10";
 import { createHttp10Get } from "../core/http10";
 import { alsemVersionOf, createAlSemResolver } from "../core/alsem-binary";
 import { CONVERTER_TOOL, createToolResolver } from "../core/tool-binary";
@@ -51,7 +52,7 @@ const deps = {
   riskDigest: createAlSemRiskProvider(process.env, undefined, alsem.binary),
   orderPredictor: createAlSemOrderPredictor(process.env, undefined, alsem.binary),
   staticWriters: createAlSemStaticWritersProvider(process.env, undefined, alsem.binary),
-  nativeMcpGateway: new SdkNativeMcpGateway(fetch),
+  nativeMcpGateway: new SdkNativeMcpGateway(fetch, undefined, createHttp10Fetch()),
 };
 
 // serveStdio answers both a 2025-era `initialize` and a 2026-07-28 `server/discover` opening.
