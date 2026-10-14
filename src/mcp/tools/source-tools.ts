@@ -8,6 +8,7 @@ import {
   MAX_PACKAGE_SELECTOR_LENGTH,
 } from "../../core/package-download";
 import { fetchSourceContent, type SourceContentResult } from "../../core/source-content";
+import { downloadSymbols } from "../../core/symbols-download";
 import type { ServerState } from "../state";
 import { connectionShape, resolve, type ToolDefinition, type ToolDeps } from "./shared";
 
@@ -130,6 +131,73 @@ export function createSourceTools(state: ServerState, deps: ToolDeps): ToolDefin
             maxBytes: params["maxBytes"] as number | undefined,
           },
         );
+      },
+    },
+    {
+      name: "bcdev_symbols_download",
+      title: "Download all symbols app.json needs",
+      description:
+        "Fill <project>/.alpackages with every symbol package the project's app.json needs: platform System, the Application concept, declared dependencies, and all their dependencies. Downloads only what is missing at a satisfying version (sequential, one request each) and reports each package as downloaded/replaced/unchanged/skipped/failed. dryRun lists the app.json references and their local-cache status without a connection.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+      schema: {
+        ...connectionShape,
+        force: z.boolean().optional().describe(
+          "Re-request every package even when .alpackages already satisfies it (default false); byte-identical results report unchanged",
+        ),
+        dryRun: z.boolean().optional().describe(
+          "No network and no credentials: list the app.json references (not their dependencies) as skipped (cached at a satisfying version) or missing (default false)",
+        ),
+        timeoutMs: z.number().int().min(1).max(MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS).optional().describe(
+          `Per-package request timeout in milliseconds (default ${DEFAULT_PACKAGE_DOWNLOAD_TIMEOUT_MS}; maximum ${MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS})`,
+        ),
+        maxBytes: z.number().int().min(1).max(MAX_PACKAGE_DOWNLOAD_BYTES).optional().describe(
+          `Per-package maximum compressed download size in bytes (default ${DEFAULT_PACKAGE_DOWNLOAD_BYTES}; maximum ${MAX_PACKAGE_DOWNLOAD_BYTES})`,
+        ),
+      },
+      outputSchema: z.object({
+        packageDir: z.string().describe("Absolute <project>/.alpackages path"),
+        summary: z.object({
+          downloaded: z.number().int().describe("Packages newly written"),
+          replaced: z.number().int().describe("Packages that overwrote a different file of the same canonical name"),
+          unchanged: z.number().int().describe("Forced re-downloads that were byte-identical to the local file"),
+          skipped: z.number().int().describe("References already satisfied by .alpackages; not requested"),
+          missing: z.number().int().describe("dryRun only: references .alpackages does not satisfy"),
+          failed: z.number().int().describe("Packages the server could not supply; see packages[].error"),
+        }).describe("Count of packages per status"),
+        packages: z.array(z.object({
+          publisher: z.string().describe("Requested publisher"),
+          appName: z.string().describe("Requested package name"),
+          appId: z.string().optional().describe("Requested app ID; absent for the Application concept"),
+          minVersion: z.string().describe("Requested minimum version"),
+          source: z.enum(["platform", "application", "dependency", "transitive"])
+            .describe("app.json platform/application/dependencies entry, or a dependency of another package"),
+          requiredBy: z.string().describe("\"app.json\" or the <publisher>/<appName> of the package that depends on it"),
+          status: z.enum(["downloaded", "replaced", "unchanged", "skipped", "missing", "failed"]).describe("Outcome for this package"),
+          resolvedVersion: z.string().optional().describe("Version downloaded or found in .alpackages"),
+          packagePath: z.string().optional().describe("Absolute path of the downloaded or cached .app"),
+          error: z.object({
+            code: z.string().describe("Error code (NOT_FOUND, TIMEOUT, SERVER_REJECTED, PROTOCOL_ERROR)"),
+            message: z.string().describe("Error message"),
+          }).optional().describe("failed only: why the package was not downloaded; its dependencies were not explored"),
+          warning: z.string().optional().describe("Nonfatal local cleanup warning; the package is installed"),
+        })).describe("One entry per package, in request order (app.json references first)"),
+      }),
+      handler: async (params) => {
+        const options = { force: params["force"] as boolean | undefined, dryRun: params["dryRun"] as boolean | undefined };
+        if (options.dryRun) {
+          return downloadSymbols((params["project"] as string | undefined) ?? deps.cwd, options, null);
+        }
+        const { config, authorization, project } = resolve(params, deps);
+        return downloadSymbols(project, options, (selector) =>
+          downloadPackage(config, authorization, project, selector, deps.fetchFn, {
+            timeoutMs: params["timeoutMs"] as number | undefined,
+            maxBytes: params["maxBytes"] as number | undefined,
+          }));
       },
     },
   ];

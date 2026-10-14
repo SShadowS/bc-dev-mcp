@@ -27,6 +27,14 @@ writeFileSync(join(project, "T.Codeunit.al"), 'codeunit 50100 "T"\n{\n    Subtyp
 const appPath = join(project, "Probe.app");
 writeFileSync(appPath, buildAppPackage({ publisher: "Probe", name: "Probe", appId: APP_ID, version: "1.0.0.0" }));
 const missing = join(project, "does-not-exist");
+// bcdev_symbols_download only reaches the server when app.json references something.
+const symbolsProject = mkdtempSync(join(tmpdir(), "bcmcp-failure-classes-symbols-"));
+mkdirSync(join(symbolsProject, ".vscode"));
+writeFileSync(
+  join(symbolsProject, ".vscode", "launch.json"),
+  JSON.stringify({ configurations: [{ type: "al", request: "launch", server: "http://localhost", serverInstance: "BC" }] }),
+);
+writeFileSync(join(symbolsProject, "app.json"), JSON.stringify({ platform: "28.0.0.0" }));
 
 /** Raw transport failures as fetch (undici) and the SignalR client raise them, not pre-classified errors. */
 const disconnected = () => Promise.reject(new TypeError("fetch failed"));
@@ -145,6 +153,7 @@ const table: FailureTable = {
   bcdev_snapshot_run_tests: sessionScoped,
   bcdev_source: connected({ objectType: 5, objectId: 50100 }),
   bcdev_package_download: connected({ publisher: "p", appName: "a", version: "1.0.0.0" }),
+  bcdev_symbols_download: connected({ project: symbolsProject }),
   bcdev_app_list: connected(),
   bcdev_app_publish: {
     ...connected({ appPath }),

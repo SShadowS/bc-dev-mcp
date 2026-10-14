@@ -17,6 +17,30 @@ export interface AppPackageFixture {
   symbols?: Record<string, unknown>;
   /** Trailing NUL bytes after the JSON, as in Microsoft's BC29 "Agent Samples Tests" package. */
   nulPadding?: number;
+  /** NavxManifest.xml <Dependency> elements. */
+  dependencies?: Array<{ id: string; name: string; publisher: string; minVersion: string }>;
+  propagateDependencies?: boolean;
+}
+
+function xmlAttr(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** NavxManifest.xml in the shape BC29 packages carry (live Cronus29 2026-10-15). */
+export function buildNavxManifest(fixture: AppPackageFixture): string {
+  const propagate = fixture.propagateDependencies ? ' PropagateDependencies="True"' : "";
+  const deps = (fixture.dependencies ?? [])
+    .map((d) => `    <Dependency Id="${d.id}" Name="${xmlAttr(d.name)}" Publisher="${xmlAttr(d.publisher)}" MinVersion="${d.minVersion}" CompatibilityId="0.0.0.0" />`)
+    .join("\n");
+  return `<Package xmlns="http://schemas.microsoft.com/navx/2015/manifest">
+  <App Id="${fixture.appId}" Name="${xmlAttr(fixture.name)}" Publisher="${xmlAttr(fixture.publisher)}" Brief="" Version="${fixture.version}" CompatibilityId="0.0.0.0"${propagate} />
+  <Dependencies>
+${deps}
+  </Dependencies>
+  <InternalsVisibleTo>
+    <Module Id="00000000-0000-0000-0000-0000000000ff" Name="Not A Dependency" Publisher="Microsoft" />
+  </InternalsVisibleTo>
+</Package>`;
 }
 
 function buildZip(entries: ZipEntry[], method: 0 | 8): Buffer {
@@ -82,7 +106,7 @@ export function buildAppPackage(fixture: AppPackageFixture): Buffer {
   };
   const prefix = fixture.bom === false ? "" : "\uFEFF";
   const zip = buildStoredZip([
-    { name: "NavxManifest.xml", content: Buffer.from("<Package />") },
+    { name: "NavxManifest.xml", content: Buffer.from(buildNavxManifest(fixture)) },
     { name: "SymbolReference.json", content: Buffer.from(`${prefix}${JSON.stringify(symbols)}${"\u0000".repeat(fixture.nulPadding ?? 0)}`) },
   ]);
   return fixture.preamble === false

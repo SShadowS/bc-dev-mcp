@@ -111,5 +111,14 @@ describe("withAgentResponses", () => {
     expect((await downloaded.handler({}) as { nextSteps: string[] }).nextSteps.join(" ")).toContain(
       ".alpackages",
     );
+
+    const symbols = (summary: Record<string, number>, dryRun?: boolean) => withAgentResponses(tool({
+      name: "bcdev_symbols_download",
+      handler: async () => ({ summary }),
+    })).handler(dryRun ? { dryRun } : {}) as Promise<{ nextSteps: string[] }>;
+    expect((await symbols({ failed: 1 })).nextSteps.join(" ")).toContain("NOT_FOUND also covers servers without dev/packages");
+    expect((await symbols({ failed: 0 })).nextSteps.join(" ")).toContain("Rerun the AL compile");
+    expect((await symbols({ missing: 2 }, true)).nextSteps.join(" ")).toContain("without dryRun");
+    expect((await symbols({ missing: 0 }, true)).nextSteps).toEqual([]);
   });
 });

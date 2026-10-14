@@ -105,6 +105,7 @@ describe("tools", () => {
       "bcdev_snapshot_status",
       "bcdev_source",
       "bcdev_status",
+      "bcdev_symbols_download",
       "bcdev_test_discover",
       "bcdev_test_orchestrate",
       "bcdev_test_run",
@@ -970,6 +971,37 @@ describe("tools", () => {
     expect(JSON.stringify(tool.schema["maxBytes"])).toContain("536870912");
     expect(() => tool.outputSchema.parse(result)).not.toThrow();
     expect(() => tool.outputSchema.parse({ ...result, warning: "stale backup remains" })).not.toThrow();
+  });
+
+  test("bcdev_symbols_download fills .alpackages from app.json; dryRun needs no connection", async () => {
+    const SYSTEM_ID = "8874ed3a-0643-4247-9ced-7a7002f7135d";
+    const urls: string[] = [];
+    const packageFetch = (async (input: RequestInfo | URL) => {
+      urls.push(input.toString());
+      return new Response(Uint8Array.from(buildAppPackage({
+        publisher: "Microsoft", name: "System", appId: SYSTEM_ID, version: "29.0.56030.0",
+      })));
+    }) as unknown as typeof fetch;
+    const { tools, deps } = setup(hub, packageFetch);
+    writeFileSync(join(deps.cwd, "app.json"), JSON.stringify({ platform: "28.0.0.0" }));
+    const tool = tools.get("bcdev_symbols_download")!;
+    expect(tool.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+
+    const result = await tool.handler({ timeoutMs: 1_000, maxBytes: 1_000_000 }) as Record<string, unknown>;
+    expect(result["summary"]).toMatchObject({ downloaded: 1, failed: 0 });
+    expect(result["nextSteps"]).toEqual([expect.stringContaining("Rerun the AL compile")]);
+    expect(urls).toHaveLength(1);
+    expect(() => tool.outputSchema.parse(result)).not.toThrow();
+
+    // dryRun: no launch.json, no credentials, no request.
+    const bare = mkdtempSync(join(tmpdir(), "bcmcp-tools-"));
+    writeFileSync(join(bare, "app.json"), JSON.stringify({ platform: "28.0.0.0", application: "28.0.0.0" }));
+    const dry = setup(hub, packageFetch, undefined, { env: {} });
+    const listed = await dry.tools.get("bcdev_symbols_download")!.handler({ project: bare, dryRun: true }) as Record<string, unknown>;
+    expect(urls).toHaveLength(1);
+    expect(listed["summary"]).toMatchObject({ missing: 2 });
+    expect(listed["nextSteps"]).toEqual([expect.stringContaining("without dryRun")]);
+    expect(() => tool.outputSchema.parse(listed)).not.toThrow();
   });
 
   test("profiling next steps reflect unreachable, unsupported, and empty-capture results", async () => {

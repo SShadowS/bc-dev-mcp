@@ -105,6 +105,17 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       return [
         "Use the validated package in .alpackages, then rerun the AL compile, source mapping, or coverage operation that required its symbols.",
       ];
+    case "bcdev_symbols_download": {
+      const summary = result["summary"] as Record<string, number> | undefined;
+      if (params["dryRun"] === true) {
+        return Number(summary?.["missing"] ?? 0) > 0
+          ? ["Call bcdev_symbols_download without dryRun to fetch the missing packages and their dependencies."]
+          : [];
+      }
+      return Number(summary?.["failed"] ?? 0) > 0
+        ? ["Install/publish the failed packages on the server or fix their app.json version, then call bcdev_symbols_download again; NOT_FOUND also covers servers without dev/packages."]
+        : ["Rerun the AL compile, al-sem, or coverage operation that needed the symbols."];
+    }
     case "bcdev_native_list": {
       const catalog = result["catalog"] as Record<string, unknown> | undefined;
       return Array.isArray(catalog?.["tools"]) && catalog.tools.length > 0

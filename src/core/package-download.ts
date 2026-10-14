@@ -79,7 +79,7 @@ function nonblank(value: unknown, field: "publisher" | "appName"): string {
   return trimmed;
 }
 
-function parseVersion(value: unknown, field = "version"): {
+export function parseVersion(value: unknown, field = "version"): {
   text: string;
   parts: readonly [number, number, number, number];
 } {
@@ -147,11 +147,11 @@ export function packageDownloadUrl(c: ConnectionConfig, selector: PackageSelecto
   return packageUrl(c, normalizeSelector(selector));
 }
 
-function sameText(left: string, right: string): boolean {
+export function sameText(left: string, right: string): boolean {
   return upperInvariantUtf16(left) === upperInvariantUtf16(right);
 }
 
-function compareVersion(
+export function compareVersion(
   left: readonly [number, number, number, number],
   right: readonly [number, number, number, number],
 ): number {
@@ -304,7 +304,7 @@ function filesystemError(message: string, path: string, cause: unknown): BcDevEr
   return new BcDevError("CONFIGURATION_ERROR", message, "configuration", false, { path }, { cause });
 }
 
-async function requireAlProject(project: string): Promise<string> {
+export async function requireAlProject(project: string): Promise<string> {
   const root = resolve(project);
   let rootStat;
   try {
@@ -339,6 +339,27 @@ async function requireAlProject(project: string): Promise<string> {
     );
   }
   return root;
+}
+
+/** false when .alpackages does not exist; throws unless it is a direct directory (no file, symlink, junction). */
+export async function packageDirExists(packageDir: string): Promise<boolean> {
+  let packageDirStat;
+  try {
+    packageDirStat = await lstat(packageDir);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw filesystemError("Unable to inspect the AL package directory", packageDir, error);
+  }
+  if (!packageDirStat.isDirectory() || packageDirStat.isSymbolicLink()) {
+    throw new BcDevError(
+      "CONFIGURATION_ERROR",
+      "AL package directory must be a direct directory, not a file, symlink, or junction",
+      "configuration",
+      false,
+      { path: packageDir },
+    );
+  }
+  return true;
 }
 
 async function existingFile(path: string): Promise<Buffer | null> {
@@ -422,21 +443,7 @@ async function installPackage(
   } catch (error) {
     throw filesystemError("Unable to create the AL package directory", packageDir, error);
   }
-  let packageDirStat;
-  try {
-    packageDirStat = await lstat(packageDir);
-  } catch (error) {
-    throw filesystemError("Unable to inspect the AL package directory", packageDir, error);
-  }
-  if (!packageDirStat.isDirectory() || packageDirStat.isSymbolicLink()) {
-    throw new BcDevError(
-      "CONFIGURATION_ERROR",
-      "AL package directory must be a direct directory, not a file, symlink, or junction",
-      "configuration",
-      false,
-      { path: packageDir },
-    );
-  }
+  await packageDirExists(packageDir);
 
   const packagePath = join(packageDir, filename);
   return withInstallLock(packagePath, async () => {
