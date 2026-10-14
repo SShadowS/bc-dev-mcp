@@ -128,7 +128,10 @@ export function createSnapshotTools(
       return { decodeStatus: "failed", failedStage: "save", error: `could not save the archive: ${e instanceof Error ? e.message.slice(0, 200) : "error"}` };
     }
     const binary = await resolveConverter();
-    if (!binary || !(await supports(binary, "snapshot-json"))) return { decodeStatus: "raw", zipPath, warnings: [RAW_WARNING] };
+    if (!binary || !(await supports(binary, "snapshot-json"))) {
+      const why = binary ? undefined : (await deps.converter?.resolve())?.reason; // resolver's reason text only
+      return { decodeStatus: "raw", zipPath, warnings: [why ? `${RAW_WARNING} (${why})` : RAW_WARNING] };
+    }
     const conv = await runJson(binary, zipPath);
     if (!conv.ok) return { decodeStatus: "failed", failedStage: "convert", zipPath, error: conv.error };
     const readSource = (entry: string) => {
@@ -175,7 +178,7 @@ export function createSnapshotTools(
         snappoints: z.array(snappointShape).max(20).optional().describe("Lines to record (0-20). None = record only what throws"),
         clientType: z.enum(["WebClient", "WebServiceClient", "Background", "ClientService"]).optional().describe("Session type to bind (default WebClient; the others are experimental, WebServiceClient records nothing usable)"),
         userId: z.string().optional().describe("Bind the next session of this user only (user name; an unknown user is rejected)"),
-        sessionId: z.number().int().optional().describe("Bind this running NST session now (clientType and userId are then ignored); default -1 = next matching session"),
+        sessionId: z.number().int().refine((v) => v === -1 || v >= 1, "must be -1 or >= 1").optional().describe("Bind this running NST session now (clientType and userId are then ignored); default -1 = next matching session"),
         verbosity: z.enum(["snappoint", "full"]).optional().describe("snappoint (default) records the armed lines and errors; full records every method context (heavier)"),
       },
       outputSchema: z.looseObject({
@@ -190,6 +193,10 @@ export function createSnapshotTools(
         const { config, authorization, project } = resolve(params, deps);
         const snapshotPort = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
         const verbosity = (params["verbosity"] as "snappoint" | "full" | undefined) ?? "snappoint";
+        const sid = params["sessionId"] as number | undefined;
+        if (sid !== undefined && sid !== -1 && !(Number.isInteger(sid) && sid >= 1)) {
+          throw new BcDevError("INVALID_ARGUMENT", "sessionId must be -1 (next matching session) or an integer >= 1; Business Central rejects 0", "validation");
+        }
         const snappoints = await arm((params["snappoints"] as SnappointInput[] | undefined) ?? [], project);
         await resolveConverter(); // any converter download happens now, never while a capture is armed
         const client = new SnapshotClient(deps.fetchFn, config, snapshotPort, authorization);
@@ -231,10 +238,10 @@ export function createSnapshotTools(
           release(token);
           if (e instanceof SnapshotHttpError || e instanceof BcDevError) throw mapError(e);
           throw new BcDevError(
-            "SERVER_REJECTED",
+            "TIMEOUT",
             "attach sent but not answered; finish it as an orphan with bcdev_snapshot_finish { debuggingContext }",
-            "server",
-            true,
+            "network",
+            false,
             { debuggingContext, attachUncertain: true },
           );
         }
@@ -309,6 +316,9 @@ export function createSnapshotTools(
         if (orphan !== undefined && params["snapshotId"] !== undefined) {
           throw new BcDevError("INVALID_ARGUMENT", "Pass either snapshotId or debuggingContext, not both", "validation");
         }
+        if (orphan !== undefined && state.capture?.captureKind === "profile" && orphan === state.capture.debuggingContext) {
+          throw captureActiveError(state.capture, "snapshot");
+        }
         if (orphan !== undefined && orphan === state.capture?.debuggingContext) {
           throw new BcDevError("INVALID_ARGUMENT", "debuggingContext belongs to the active capture; finish it by its handle (or with no arguments)", "validation");
         }
@@ -332,6 +342,7 @@ export function createSnapshotTools(
 
         const c = requireSnapshot(params);
         if (c.phase !== "armed" && c.phase !== "uncertain") throw captureActiveError(c, "snapshot");
+        if (outProblem) throw new BcDevError("INVALID_ARGUMENT", outProblem, "validation"); // before any server call: the capture stays armed
         const previous = c.phase;
         c.phase = "finishing"; // synchronously, before any await: a concurrent finish/status is refused
         let fin: FinishResult;
@@ -353,10 +364,9 @@ export function createSnapshotTools(
             throw e;
           }
           if (mine) c.phase = "uncertain";
-          throw new BcDevError("SERVER_REJECTED", "finish not answered; call bcdev_snapshot_finish again", "server", true, { snapshotId: c.snapshotId, phase: "uncertain" });
+          throw new BcDevError("TIMEOUT", "finish not answered; call bcdev_snapshot_finish again", "network", true, { snapshotId: c.snapshotId, phase: "uncertain" });
         }
         release(c.token);
-        if (outProblem) throw new BcDevError("INVALID_ARGUMENT", `${outProblem} (the capture was finished and released; its recording was discarded)`, "validation", false, { released: true });
         return decode(fin, c.snappoints, params);
       },
     },

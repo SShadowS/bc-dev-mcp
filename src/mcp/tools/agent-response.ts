@@ -186,7 +186,7 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
         ? [AL_PERF_HINT, "Instrumentation self-time is deterministic call-time, not statistical."]
         : [AL_PERF_HINT];
     case "bcdev_snapshot_start":
-      return ["Trigger the scenario now (open the page, call the web service, start the job; business-central-mcp can drive a WebClient session), then call bcdev_snapshot_status until ready, then bcdev_snapshot_finish."];
+      return ["Trigger the scenario now (open the page, start the job; business-central-mcp can drive a WebClient session), then call bcdev_snapshot_status until ready, then bcdev_snapshot_finish."];
     case "bcdev_snapshot_status":
       switch (result["status"]) {
         case "Initialized":

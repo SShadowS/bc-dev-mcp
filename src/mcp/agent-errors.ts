@@ -128,6 +128,13 @@ function toolRecoverySteps(
           `To discard the active one and start over, call ${String(endTool)}, then ${String(startTool)}.`,
         ];
   }
+  if (tool.startsWith("bcdev_snapshot_")) {
+    if (code === "TIMEOUT" && details["attachUncertain"] === true) {
+      return [`Call bcdev_snapshot_finish { debuggingContext: '${String(details["debuggingContext"])}' } to recover or release the capture.`];
+    }
+    if (code === "TIMEOUT" && details["phase"] === "uncertain") return ["Call bcdev_snapshot_finish again (same snapshotId)."];
+    if (code === "SERVER_REJECTED" && details["lostContext"] === true) return ["The capture ended on the server; call bcdev_snapshot_start to arm a new one."];
+  }
   if (tool === "bcdev_app_publish" && code === "SERVER_REJECTED") {
     return ["If Business Central refused to replace an existing copy published at Global scope, call bcdev_app_list, then bcdev_app_uninstall and bcdev_app_unpublish for that appId, and retry bcdev_app_publish."];
   }
