@@ -7,6 +7,7 @@ import type { NativeMcpCallResponse } from "../../src/core/native-mcp";
 import type { ConnectionConfig } from "../../src/core/types";
 import { agentErrorBody } from "../../src/mcp/agent-errors";
 import { ServerState, type SnapshotCapture } from "../../src/mcp/state";
+import { withAgentResponses } from "../../src/mcp/tools/agent-response";
 import { createSnapshotTools } from "../../src/mcp/tools/snapshot-tools";
 import type { ToolDeps } from "../../src/mcp/tools/shared";
 import { FakeNativeMcpGateway } from "../fakes/fake-native-mcp";
@@ -77,7 +78,7 @@ function setup(env: Record<string, string> = {}) {
     expect(e).toBeInstanceOf(BcDevError);
     return e as BcDevError;
   };
-  return { state, gateway, call, fail };
+  return { state, gateway, call, fail, tools };
 }
 
 const RUN = { codeunits: [{ id: 50131 }] };
@@ -130,6 +131,19 @@ describe("bcdev_snapshot_run_tests", () => {
     const b = await s.call(TOOL, RUN);
     expect(b["attached"]).toBe(false);
     expect(b["warnings"]).toEqual(["this test run was not attached to the capture"]);
+  });
+
+  test("3b. nextSteps distinguish not attached (false) from unreported (null)", async () => {
+    const s = setup();
+    const wrapped = withAgentResponses(s.tools.get(TOOL)!);
+    const steps = async (snap: unknown) => {
+      const { snapshotDebugging: _, ...rest } = OBSERVED;
+      s.gateway.onCall = () => text(JSON.stringify(snap === undefined ? rest : { ...OBSERVED, snapshotDebugging: snap }));
+      return ((await wrapped.handler(RUN)) as { nextSteps: string[] }).nextSteps.join(" ");
+    };
+    expect(await steps({ attached: false })).toContain("This run was not attached");
+    expect(await steps(undefined)).toContain("BC did not report whether this run was attached");
+    expect(await steps(undefined)).not.toContain("was not attached");
   });
 
   test("4. unreadable results -> PROTOCOL_ERROR with a fixed message, no body echo", async () => {

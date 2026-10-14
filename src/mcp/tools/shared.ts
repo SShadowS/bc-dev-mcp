@@ -358,7 +358,7 @@ export function resolveApiPort(params: Record<string, unknown>, deps: ToolDeps):
   return port;
 }
 
-export const codeunitsShape =z
+export const codeunitsShape = z
   .array(
     z.object({
       id: z.number().describe("Test codeunit object ID (from bcdev_test_discover)"),

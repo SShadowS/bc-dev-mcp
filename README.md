@@ -284,7 +284,7 @@ still be running the tests even though the local singleton slot has been release
 is non-retryable and tells the caller to confirm the server-side run finished before retrying or
 starting any other test run.
 
-This passthrough supports cloud Sandbox and Production targets. Live acceptance is Sandbox-only.
+Cloud: Sandbox and Production (live acceptance Sandbox-only). On-prem: see below (verified live on BC 29, one server).
 
 **On-prem and docker.** Pass the on-prem connection (`server`, `serverInstance`, `tenant`, or a
 `launch.json` with `environmentType: "OnPrem"`) and the same tools talk to the server's own MCP

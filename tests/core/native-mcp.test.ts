@@ -346,6 +346,7 @@ describe("BC native MCP gateway", () => {
   test("times out a hanging request through the installed SDK path", async () => {
     const methods: string[] = [];
     const fetchFn = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.signal?.aborted) throw new DOMException("aborted", "AbortError");
       const method = init?.method ?? "GET";
       const body = typeof init?.body === "string"
         ? JSON.parse(init.body) as Record<string, unknown>

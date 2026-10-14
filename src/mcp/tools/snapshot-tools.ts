@@ -88,7 +88,7 @@ const RUN_UNREADABLE = "bc-dev-mcp could not read the run_tests result";
 const MAX_METHODS = 500;
 const MAX_MESSAGE = 2000;
 
-/** Never echoes the body into an error: it can hold application data. */
+/** Invalid or mismatched results never echo the body (it can hold application data); BC's own isError text is returned redacted and cut to 300 chars. */
 function parseRunResult(result: Record<string, unknown>): Record<string, unknown> {
   const content = Array.isArray(result["content"]) ? (result["content"] as Array<{ type?: unknown; text?: unknown }>) : [];
   const block = content.find((b) => b?.type === "text");

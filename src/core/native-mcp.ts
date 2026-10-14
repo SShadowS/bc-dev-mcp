@@ -480,9 +480,9 @@ export class SdkNativeMcpGateway implements NativeMcpGateway {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       controller.abort(new SdkError(SdkErrorCode.RequestTimeout, "Native MCP operation timed out"));
-      // The SDK replaces requestInit.signal with its own, so closing the connection is what
-      // actually tears down a stalled request.
-      void connection?.close().catch(() => {});
+      // Abort only. The in-flight request rejects via the `signal` option and connect via
+      // abortable(); the finally block then sends the session DELETE (bounded) and closes.
+      // Closing here would abort the transport's own signal and suppress that DELETE.
     }, timeoutMs);
     const options: NativeRequestOptions = {
       signal: controller.signal,

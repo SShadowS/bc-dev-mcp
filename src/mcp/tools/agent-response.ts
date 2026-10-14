@@ -190,7 +190,9 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
     case "bcdev_snapshot_run_tests":
       return [
         "Call bcdev_snapshot_finish to collect the captured points (the failing test's exception and variables).",
-        ...(result["attached"] === true ? [] : ["This run was not attached; finish may not contain it."]),
+        ...(result["attached"] === true ? [] : [result["attached"] === false
+          ? "This run was not attached; finish may not contain it."
+          : "BC did not report whether this run was attached; finish may not contain it."]),
       ];
     case "bcdev_snapshot_status":
       switch (result["status"]) {
