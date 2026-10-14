@@ -75,7 +75,7 @@ live E2E) — changing them will break against real BC:
 - **Payload casing:** debugger payloads arrive dual-cased (PascalCase + camelCase); `Break` arg0 is PascalCase-only. Always run incoming payloads through `normalizeKeys`. `LocalNode` `typeName`/`summary` can be `null` on synthetic nodes → coerced to `""`.
 - **`AddBreakpoint`** fails ("tenant '' not found") until the session has paused once — attach with `breakOnError`, register breakpoints at the first break.
 - **App publish** (dev endpoint) needs `multipart/form-data` (`-F`), not raw octet-stream (415 otherwise).
-- **Coverage payload** is procedure-level; `line` mode is unproven — validate before trusting.
+- **Coverage payload** is procedure-level only: legacy `Initialize` modes Line/Procedure/All return identical payloads (BC28/BC29); line data needs the Dev API 8.0 `InitializeCoverage`/`CoverageChunk` protocol, not implemented. `coberturaFile` exports procedure coverage as Cobertura.
 - **Automation API** (app lifecycle) is on-prem port **7048** (`BC_DEV_API_PORT` / `apiPort` override), `/<instance>/api/microsoft/automation/v2.0/companies(<id>)/extensions`. Bodyless bound-action POSTs need `Content-Length: 0` (HTTP.sys 411 otherwise). **`uninstall` silently cascades to installed dependents** — report them by diffing a list before and after; there is no API to predict or prevent it. `publishedAs` has a leading space. Larger HTTP/1.1 (chunked) responses on 7048 never send their tail and each stalled request holds one of ~5 per-user API slots until the service restarts — on-prem Automation GETs therefore go over HTTP/1.0 (src/core/http10.ts). isInstalled is not filterable.
 
 ## Testing against a live server

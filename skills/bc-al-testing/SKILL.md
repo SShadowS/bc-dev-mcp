@@ -77,9 +77,14 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
 - **Orchestration does not collect coverage.** Use `bcdev_test_run` separately for procedure
   coverage or `coverageAgainst`; repeated coverage is deliberately not merged into a stability
   result.
-- **Coverage:** pass `coverage: "procedure"` (validated against real BC). `"line"` is
-  unproven — do not trust it without independent verification. Covered procedures map
-  back to local source files when the object IDs exist in the project.
+- **Coverage:** pass `coverage: "procedure"`. There is no line coverage: Business Central sends
+  line data only over the Dev API 8.0 coverage-export protocol, which BC28/BC29 (Dev API 7.0) do
+  not offer. Covered procedures map back to local source files when the object IDs exist in the
+  project.
+- **Cobertura for CI:** `coberturaFile: "coverage.cobertura.xml"` (relative to the project) implies
+  procedure coverage and writes the `altool runtests --coverage-format cobertura` layout: one class
+  per AL file, one method per procedure, hits = tests that reached it (0 when none). Test codeunits
+  and triggers are omitted. Check `coverageReport.complete` and `warnings` before trusting hits 0.
 - **Changed-procedure gaps:** `coverageAgainst` resolves the ref's merge base with `HEAD` and
   compares it with the working tree, including committed branch changes, staged/unstaged edits,
   and nonignored untracked `.al` files. Each current executable procedure intersecting changed

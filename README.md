@@ -22,7 +22,7 @@ What you gain over Microsoft's MCP servers (checked against AL Language 30.0, `a
 | Debug from any MCP client (Claude Code, Codex, Cursor, …) | No debugger tool. BC's cloud native MCP has `debugging` tools, but only for a session a debugger has already attached to and paused, and only in the cloud | Attach (next session, user or session ID), breakpoints, break on error or record write, step, variables, watch, eval, abort; on-prem, docker and SaaS |
 | Debug a failing test | No | `bcdev_debug_run_tests`: breakpoints fire inside the test run |
 | Find and run tests | `al_run_tests`: one codeunit ID, pass/fail counts and failure details | Discovery from source (incl. `TransactionModel`), multi-codeunit plans, per-method results and durations, parsed AL call stacks mapped to your files |
-| Know whether the change is tested | No coverage over MCP (the `altool runtests` CLI has it) | Procedure coverage mapped to source and crossed with your Git diff: which changed procedures the tests did and did not reach |
+| Know whether the change is tested | No coverage over MCP (the `altool runtests` CLI has it) | Procedure coverage mapped to source and crossed with your Git diff: which changed procedures the tests did and did not reach; Cobertura XML export for CI |
 | Run only the tests that matter | No | `bcdev_test_select`: diff → ranked tests via whole-program call graph + coverage history, with `bcdev_test_run`-ready shards |
 | Catch flaky and order-dependent tests | No | Repeat runs with pass/fail diffs; `mode: "order"` finds victims and bisects each to its polluter |
 | Find who writes a record | No | Record-write triage: capture every write to one table, grouped by writer stack, cross-checked against static writers |
@@ -53,7 +53,7 @@ and the snapshot-debugging capture proxy.
 | **Structured test runs** | Run-level pass/fail/abort counts, per-method duration, parsed AL call stacks, and local source mappings while retaining raw server output |
 | **Diff-scoped test selection** | Turn a Git diff into a ranked test selection from a whole-program call graph (al-sem, or Microsoft's `altool graph`) plus coverage history, with ready-to-run shards |
 | **Test orchestration** | Repeat one test selection, diff adjacent passed/failed sets, retain every run, and classify stable, flaky, inconsistent, or incomplete methods; `mode: "order"` finds order-dependent tests and bisects each to its polluter |
-| **Code coverage** | `procedure` mode, mapped back to local source files (`line` mode exists but is unproven against real BC) |
+| **Code coverage** | `procedure` mode, mapped to local source; Cobertura XML export for CI (`coberturaFile`). No line coverage: BC sends line data only over Dev API 8.0 |
 | **Coverage gap analysis** | Cross a Git diff with exact procedure coverage to report which changed procedures the selected tests did and did not exercise |
 | **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
 | **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break on all or unhandled errors only, record-write breaks (optionally skipping temp records), stack + variables + watch, stepping, abort/release at a break |
@@ -182,7 +182,7 @@ src/core/  (pure library — typed returns, injected deps)
 |------|---------|
 | `bcdev_status` | Preflight: reachability, auth, dev API version, feature gates |
 | `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files |
-| `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, optional coverage, and Git-aware changed-procedure gaps |
+| `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, optional coverage (Cobertura export via `coberturaFile`), and Git-aware changed-procedure gaps |
 | `bcdev_test_select` | Before a run: turn a Git diff into a ranked test selection (call graph + coverage history), uncoverable procedures, `bcdev_test_run`-ready shards, and a fallbackToAll flag |
 | `bcdev_test_orchestrate` | Repeat one selection 2–20 times, retain every run, diff adjacent pass/fail sets, and flag flaky/incomplete methods; `mode: "order"` finds order-dependent victims, bisects each to its polluter, and attributes its table writes |
 | `bcdev_debug_attach` | Arm next-session/user-filtered attach or target an existing NST session; optionally set breakpoints |
