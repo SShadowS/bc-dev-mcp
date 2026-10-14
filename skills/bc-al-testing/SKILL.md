@@ -12,7 +12,9 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
    Call this first whenever anything else fails.
 2. `bcdev_test_discover` — pure filesystem scan of the AL project for test codeunits
    (`Subtype = Test`) and their `[Test]` methods. No server involved. Use the returned
-   `codeunitId` values in the next step.
+   `codeunitId` values in the next step. For tests that live in a dependency or Microsoft
+   test app, pass `alpackages: true` (every `.app` in `.alpackages`; fetch one first with
+   `bcdev_package_download`) or `appFile: "<path>.app"`; those show up under `packages`.
 3. `bcdev_test_run { codeunits: [{ id: <codeunitId> }] }` — runs on the server, returns
    a run `summary` plus per-method `passed | failed | skipped`, duration, and failure output.
    Restrict with `methods: ["Name"]`; pick the company with `company`.

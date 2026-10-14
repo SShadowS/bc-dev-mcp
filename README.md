@@ -106,7 +106,7 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 ## Quick Start
 
 1. `bcdev_status` — verify reachability, auth, and that test running is supported.
-2. `bcdev_test_discover` — list test codeunits and `[Test]` methods from local `.al` files.
+2. `bcdev_test_discover` — list test codeunits and `[Test]` methods from local `.al` files, a compiled `.app` (`appFile`), or every package in `.alpackages` (`alpackages: true`).
 3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results. Add `coverageAgainst: "origin/main"` for changed-procedure analysis. After publishing the current changed objects to the target, also pass `changesDeployed: true` to permit `covered`/`uncovered` classifications; without that explicit assertion, changed procedures remain `unknown`.
 4. `bcdev_test_orchestrate { codeunits: [{ id: 50100 }], runs: 3 }` — repeat the same selection, retain every run, diff adjacent pass/fail sets, and flag flaky methods.
 5. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
@@ -181,7 +181,7 @@ src/core/  (pure library — typed returns, injected deps)
 | Tool | Purpose |
 |------|---------|
 | `bcdev_status` | Preflight: reachability, auth, dev API version, feature gates |
-| `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files |
+| `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files, a `.app` (`appFile`) or `.alpackages` (`alpackages: true`) |
 | `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, optional coverage (Cobertura export via `coberturaFile`), and Git-aware changed-procedure gaps |
 | `bcdev_test_select` | Before a run: turn a Git diff into a ranked test selection (call graph + coverage history), uncoverable procedures, `bcdev_test_run`-ready shards, and a fallbackToAll flag |
 | `bcdev_test_orchestrate` | Repeat one selection 2–20 times, retain every run, diff adjacent pass/fail sets, and flag flaky/incomplete methods; `mode: "order"` finds order-dependent victims, bisects each to its polluter, and attributes its table writes |
