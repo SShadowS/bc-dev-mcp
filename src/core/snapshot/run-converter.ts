@@ -30,7 +30,12 @@ export function runSnapshotJsonWith(opts: { timeoutMs: number; jsonBytes: number
       if (res.code !== 0) return { ok: false, error: `bc-mdc-converter failed (exit ${res.code}): ${firstLine(res.stderr)}` };
       const size = (await stat(out)).size;
       if (size > opts.jsonBytes) return { ok: false, error: `bc-mdc-converter output is ${size} bytes, over the ${opts.jsonBytes}-byte limit` };
-      return { ok: true, json: JSON.parse(await readFile(out, "utf8")) };
+      const text = await readFile(out, "utf8");
+      try {
+        return { ok: true, json: JSON.parse(text) };
+      } catch {
+        return { ok: false, error: "bc-mdc-converter output is not valid JSON" }; // fixed text: V8 parse errors can quote the output
+      }
     } catch (e) {
       return { ok: false, error: `bc-mdc-converter output unreadable: ${e instanceof Error ? e.message.slice(0, 200) : "error"}` };
     } finally {

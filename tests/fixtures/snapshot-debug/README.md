@@ -11,4 +11,4 @@ The bundled source `Page%50152.al` is not stored here; the test builds it as an 
 served as the finish body in `tests/mcp/snapshot-tools.test.ts`.
 
 `fake-converter.ts`: stand-in for bc-mdc-converter in `tests/core/snapshot/run-converter.test.ts`
-(`FAKE_MODE` = ok | fail | sleep | big).
+(`FAKE_MODE` = ok | fail | sleep | big | invalid).

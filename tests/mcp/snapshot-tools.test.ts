@@ -17,7 +17,7 @@ const conn = { server: "http://bc", serverInstance: "BC", tenant: "default" };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 type Route = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
-interface Fake { fetchFn: typeof fetch; calls: Array<{ op: string; url: URL; body: unknown }>; routes: Record<string, Route> }
+interface Fake { fetchFn: typeof fetch; calls: Array<{ op: string; url: URL; body: unknown; cookie: string | null }>; routes: Record<string, Route> }
 
 function fakeServer(): Fake {
   const calls: Fake["calls"] = [];
@@ -30,7 +30,7 @@ function fakeServer(): Fake {
   const fetchFn = (async (u: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(u.toString());
     const op = url.pathname.split("/").pop()!;
-    calls.push({ op, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    calls.push({ op, url, body: init?.body ? JSON.parse(String(init.body)) : undefined, cookie: new Headers(init?.headers).get("cookie") });
     const route = routes[op];
     if (!route) throw new Error(`unexpected ${url}`);
     return route(url, init);
@@ -55,7 +55,7 @@ interface Setup {
   fail: (name: string, params?: Record<string, unknown>) => Promise<BcDevError>;
 }
 
-function setup(seams: Partial<Parameters<typeof createSnapshotTools>[2]> = {}): Setup {
+function setup(seams: Partial<Parameters<typeof createSnapshotTools>[2]> = {}, env: Record<string, string> = {}): Setup {
   const state = new ServerState();
   const fake = fakeServer();
   const cwd = project();
@@ -66,7 +66,7 @@ function setup(seams: Partial<Parameters<typeof createSnapshotTools>[2]> = {}): 
     authorizationFactory: createAuthorizationProviderFactory(),
     http10Get: async () => { throw new Error("http10Get not expected"); },
     fetchFn: fake.fetchFn,
-    env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
+    env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p", ...env },
     cwd,
     gitChanges: async () => { throw new Error("no git"); },
     callGraph: async () => ({ nodes: [], edges: [] }),
@@ -208,7 +208,8 @@ describe("snapshot tools", () => {
     expect(s.state.capture).toBeNull();
   });
 
-  test("7c. finish with no answer: uncertain, start refused, a retry finishes", async () => {
+  test("7c. finish with no answer: uncertain, start refused, a retry finishes with the same context and cookie", async () => {
+    s.fake.routes["attach"] = () => new Response('"NextSessionOnTenant"', { headers: { "set-cookie": "ApplicationGatewayAffinity=node-7; Path=/" } });
     await s.call("bcdev_snapshot_start", SNAP);
     s.fake.routes["finish"] = () => { throw new TypeError("fetch failed"); };
     const e = await s.fail("bcdev_snapshot_finish");
@@ -219,6 +220,27 @@ describe("snapshot tools", () => {
     s.fake.routes["finish"] = () => new Response(ZIP);
     expect((await s.call("bcdev_snapshot_finish"))["decodeStatus"]).toBe("decoded");
     expect(s.state.capture).toBeNull();
+    const [first, retry] = s.fake.calls.filter((c) => c.op === "finish");
+    expect(retry!.url.searchParams.get("debuggingcontext")).toBe(first!.url.searchParams.get("debuggingcontext"));
+    expect(first!.cookie).toBe("ApplicationGatewayAffinity=node-7");
+    expect(retry!.cookie).toBe(first!.cookie);
+    expect(retry!.url.searchParams.get("applicationgatewayaffinity")).toBe("node-7");
+  });
+
+  test("converter without deps.converter: BC_MDC_CONVERTER is used; with it unset and nothing on PATH the result is raw", async () => {
+    const exe = join(mkdtempSync(join(tmpdir(), "bcsnap-conv-")), "bc-mdc-converter.exe");
+    writeFileSync(exe, "");
+    const seen: string[] = [];
+    const runJson: SnapshotJsonRunner = async (binary) => { seen.push(binary); return { ok: true, json: structuredClone(SNAPSHOT_JSON) }; };
+    const t = setup({ resolveConverter: undefined, runJson }, { BC_MDC_CONVERTER: exe });
+    await t.call("bcdev_snapshot_start", SNAP);
+    expect((await t.call("bcdev_snapshot_finish"))["decodeStatus"]).toBe("decoded");
+    expect(seen).toEqual([exe]);
+
+    const none = setup({ resolveConverter: undefined, runJson }, { PATH: mkdtempSync(join(tmpdir(), "bcsnap-path-")) });
+    await none.call("bcdev_snapshot_start", SNAP);
+    expect((await none.call("bcdev_snapshot_finish"))["decodeStatus"]).toBe("raw");
+    expect(seen).toHaveLength(1);
   });
 
   test("7d. finish 401 and 500 put the slot back to armed with its handle; a retry works", async () => {

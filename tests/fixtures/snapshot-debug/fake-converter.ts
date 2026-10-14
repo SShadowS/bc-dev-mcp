@@ -13,6 +13,9 @@ switch (process.env["FAKE_MODE"]) {
   case "sleep":
     await new Promise((r) => setTimeout(r, 5000));
     break;
+  case "invalid":
+    writeFileSync(out, '{"value": "SECRET-MARKER-42", oops');
+    break;
   case "big":
     writeFileSync(out, JSON.stringify({ pad: "x".repeat(2048) }));
     break;

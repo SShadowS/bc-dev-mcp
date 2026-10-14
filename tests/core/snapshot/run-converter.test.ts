@@ -42,6 +42,15 @@ describe("runSnapshotJson", () => {
     expect(Date.now() - t0).toBeLessThan(4000);
   });
 
+  test("invalid JSON output: fixed message, never any of the output", async () => {
+    process.env["FAKE_MODE"] = "invalid";
+    const z = zip();
+    const r = await run()(process.execPath, z);
+    expect(r).toEqual({ ok: false, error: "bc-mdc-converter output is not valid JSON" });
+    expect(JSON.stringify(r)).not.toContain("SECRET-MARKER-42");
+    expect(existsSync(tempJsonOf(z))).toBe(false);
+  });
+
   test("JSON output above the limit fails and the temp file is still deleted", async () => {
     process.env["FAKE_MODE"] = "big";
     const z = zip();

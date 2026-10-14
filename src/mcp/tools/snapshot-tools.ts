@@ -7,7 +7,7 @@ import { z } from "zod";
 import { BcDevError } from "../../core/agent-errors";
 import { AlObjectIndex } from "../../core/al-objects";
 import { redactAuthorization } from "../../core/redaction";
-import { converterSupports } from "../../core/snapshot/converter";
+import { converterSupports, resolveConverter as findLocalConverter } from "../../core/snapshot/converter";
 import { projectSnapshot } from "../../core/snapshot/debug-snapshot";
 import { SNAPSHOT_LIMITS } from "../../core/snapshot/limits";
 import { runSnapshotJson, type SnapshotJsonRunner } from "../../core/snapshot/run-converter";
@@ -85,7 +85,8 @@ export function createSnapshotTools(
 ): ToolDefinition[] {
   const runJson = seams.runJson ?? runSnapshotJson;
   const supports = seams.supports ?? converterSupports;
-  const resolveConverter = seams.resolveConverter ?? (async () => (deps.converter ? deps.converter.binary() : null));
+  // Without the shared resolver: BC_MDC_CONVERTER / PATH only, never a download (as profile-tools).
+  const resolveConverter = seams.resolveConverter ?? (async () => (deps.converter ? deps.converter.binary() : (findLocalConverter({ env: deps.env })?.converterPath ?? null)));
   const saveDir = seams.saveDir ?? join(tmpdir(), "bc-dev-mcp-snapshots");
   const zipBytes = seams.zipBytes ?? SNAPSHOT_LIMITS.zipBytes;
 
@@ -139,8 +140,9 @@ export function createSnapshotTools(
     };
     try {
       return { decodeStatus: "decoded", zipPath, ...projectSnapshot(conv.json, armed, readSource) };
-    } catch (e) {
-      return { decodeStatus: "failed", failedStage: "project", zipPath, error: `snapshot-json could not be read: ${e instanceof Error ? e.message.slice(0, 200) : "error"}` };
+    } catch {
+      // fixed text: a runtime error message could quote document content
+      return { decodeStatus: "failed", failedStage: "project", zipPath, error: "snapshot-json is not a readable bc-mdc-snapshot schemaVersion 1 document" };
     }
   };
 
