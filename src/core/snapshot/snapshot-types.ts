@@ -60,6 +60,12 @@ export interface DebugAttachParams {
 // SourceBreakpointLocationWrapper[] { Id: ApplicationObjectIdWrapper, Lines: LineWrapper[] } with a 0-based line and
 // column 0 (esp-decomp SnapshotDebuggerAttachInitializeRequestHandler Position.Create(line, 0, linesStartAt1)).
 // Live Cronus29 2026-10-14: page 50152 line 35 -> Line 34 captured that line.
+// WIRE: LineWrapper.Condition is sent, but BC29 (runtime 18.0, snapshot API 5.0) ignored it: "1 = 2" and a false
+// "PageLocalText <> ''" still recorded the snappoint (live Cronus29 2026-10-14, scripts/e2e.md "Snapshot debug capture").
+// WIRE: SessionId > 0 binds that running NST session at once (attachKind "UserSession", status Started before the
+// trigger); UserId takes a user name (resolved by BC; an unknown name is HTTP 400 "The user GUID '<name>' is not valid").
+// ClientType WebServiceClient binds an OData call, then BC drops the context with that session (status/finish 404);
+// Background was not exercised (live Cronus29 2026-10-14).
 export function buildDebugAttachBody(p: DebugAttachParams): Record<string, unknown> {
   const body: Record<string, unknown> = {
     DebuggingContext: p.debuggingContext,

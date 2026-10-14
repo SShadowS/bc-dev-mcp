@@ -45,9 +45,9 @@ src/core/            # pure library — typed returns, injected deps, never prin
   types.ts, urls.ts
 src/mcp/             # thin frontend
   server.ts              # buildServer: registerTool/registerResource wiring (testable over InMemoryTransport)
-  tools/                 # the 29 bcdev_* tool definitions (zod schemas + metadata + handlers)
+  tools/                 # the 32 bcdev_* tool definitions (zod schemas + metadata + handlers); ToolDeps.converter = shared bc-mdc-converter resolver (pinned download)
   skills.generated.ts    # GENERATED from skills/ by scripts/embed-skills.ts — do not edit
-  state.ts               # single-slot debug/profile/record-write state + their opaque handles, event queue, run lock
+  state.ts               # single-slot debug/capture (profile | snapshot)/record-write state + their opaque handles, event queue, run lock
   index.ts               # stdio entry: builds deps, calls buildServer, connects transport
 ```
 

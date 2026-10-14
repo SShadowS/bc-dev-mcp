@@ -67,6 +67,7 @@ and the snapshot-debugging capture proxy.
 | **Static insight from al-sem** | Risk of uncovered changes, effects of the routine at a breakpoint, predicted test-order polluters, static writer sets and hotspot explanations; al-sem is fetched automatically (pinned, SHA-256-verified) when it is not installed |
 | **Skills over MCP** | Ships its own usage skills to the agent (`skills/list`, `skills/get`) |
 | **Sampling CPU profiling** | Capture a `.alcpuprofile` (V8 format) of a live session and get a ranked AL self-time hotspot summary; hand off to al-perf for deep analysis |
+| **Snapshot debug capture** | Record variables at chosen AL lines and at any error in a session you cannot pause (a user's browser session, an exact NST session), then get decoded points with call stack and source window; the zip replays in VS Code |
 
 ## Prerequisites
 
@@ -129,7 +130,9 @@ Debugger attach returns as soon as Business Central accepts the request; binding
 | `BC_DEV_CALLGRAPH_ENGINE` | env var | `auto` | Call-graph engine for `bcdev_test_select`: `auto` (al-sem, else altool), `al-sem` or `altool` |
 | `BC_DEV_ALSEM` | env var | see below | Path to `alsem.exe` (al-sem), used as-is. Unset: `alsem` on PATH if it is at least the pinned version, else the pinned al-sem release binary, downloaded once into the cache and checked against its SHA-256 before it runs (`bcdev_status` reports which one: `alsem.source`). `bcdev_test_select` runs `alsem graph <project>`; `bcdev_test_orchestrate` mode `order` runs `alsem digest`/`query touches` to predict polluters (optional: absent al-sem = one warning); `bcdev_record_writes_*` runs `alsem query` for its optional static cross-check; `bcdev_profile_finish` runs `alsem analyze` for hotspot explanations (optional); `bcdev_debug_wait { effects: true }` runs `alsem query effects` + `alsem prove` (without alsem that enrichment reports `status: unavailable` instead of failing). al-sem needs no compile, shows `Codeunit.Run` and trigger paths, and states where its graph is incomplete |
 | `BC_DEV_ALSEM_DOWNLOAD` | env var | on | `0` = never download al-sem (offline or locked-down hosts); al-sem then comes only from `BC_DEV_ALSEM` or PATH. The download uses Node's `fetch`, which ignores `HTTPS_PROXY`: behind a proxy, set `BC_DEV_ALSEM` |
-| `BC_DEV_CACHE_DIR` | env var | `%LOCALAPPDATA%c-dev-mcp` / `~/.cache/bc-dev-mcp` | Where the downloaded al-sem lives (`alsem/<version>/`) |
+| `BC_DEV_CACHE_DIR` | env var | `%LOCALAPPDATA%\bc-dev-mcp` / `~/.cache/bc-dev-mcp` | Where the downloaded al-sem and bc-mdc-converter live (`alsem/<version>/`, `bc-mdc-converter/<version>/`) |
+| `BC_MDC_CONVERTER` | env var | see below | Path to the [bc-mdc-converter](https://github.com/SShadowS/bc-mdc-converter) binary, used as-is. Unset: `bc-mdc-converter` on PATH if it is at least the pinned version, else the pinned release binary, downloaded once into the cache and checked against its SHA-256 (`bcdev_status` reports which one: `converter.source`). `bcdev_snapshot_finish` decodes recordings with it; `bcdev_profile_finish` converts instrumentation captures |
+| `BC_MDC_CONVERTER_DOWNLOAD` | env var | on | `0` = never download bc-mdc-converter; without one, `bcdev_snapshot_finish` returns `decodeStatus: "raw"` with the saved zip |
 | `BC_DEV_ALTOOL` | env var | `altool` on PATH | Path to `altool.exe` (AL extension `bin` folder); the fallback engine, via its `graph` command |
 | `BC_DEV_API_PORT` | env var | `7048` | On-prem Automation API port used by the `bcdev_app_*` tools |
 | `port` | launch.json / tool param | `7049` | Developer service port |
@@ -158,7 +161,7 @@ Azure access tokens are acquired with `az account get-access-token`, cached only
 MCP client (agent)
   |
   v  (stdio)
-src/mcp/server.ts ── tools/ (29 bcdev_* tools) ── state.ts (debug/test/profile ownership)
+src/mcp/server.ts ── tools/ (32 bcdev_* tools) ── state.ts (debug/test/profile ownership)
   |
   v
 src/core/  (pure library — typed returns, injected deps)
@@ -205,6 +208,9 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_profile_start` | Arm a CPU profiler (`kind: "sampling"` or `"instrumentation"`); binds the next matching session (trigger it after) |
 | `bcdev_profile_poll` | Poll the active capture; `ready` once the session was recorded (Started) |
 | `bcdev_profile_finish` | Finish, write the `.alcpuprofile`, return a ranked AL self-time hotspot summary. With `project` (or a server cwd holding `app.json`) and al-sem installed, hotspots in the workspace app also carry al-sem's static performance findings (title, confidence, evidence call chain, suggested fix); without `alsem` they are returned unchanged with one warning |
+| `bcdev_snapshot_start` | Arm a snapshot debugging capture with up to 20 snappoints (file + 1-based line); binds the next matching session, a user's next session, or a running `sessionId` (trigger it after) |
+| `bcdev_snapshot_status` | Status of the active snapshot capture; `ready` once a session is recording (Started) |
+| `bcdev_snapshot_finish` | Finish, save the recording zip and return decoded points (exceptions first, then snappoint hits) with variables, call stack and source window; with `debuggingContext` it recovers a capture another process left armed |
 
 ## Record-write triage
 
@@ -337,6 +343,32 @@ instead of failing the call.
 
 Validated end-to-end against a live BC28 in `scripts/e2e-profile-results-2026-07-04.md`.
 
+## Snapshot capture
+
+Use `bcdev_snapshot_*` when you cannot attach the interactive debugger and pause: a user's browser
+session, or a session that must keep running. It shares the snapshot-debugger port (7083) and the
+one-capture-per-tenant slot with profiling.
+
+1. `bcdev_snapshot_start` with `snappoints` (`file` + 1-based `line`; none = record only what throws)
+   and optionally `userId`, `sessionId` or `verbosity: "full"`.
+2. **Trigger the scenario** (open the page in a browser or with
+   [`business-central-mcp`](https://github.com/SShadowS/business-central-mcp)).
+3. `bcdev_snapshot_status` until `ready`, then `bcdev_snapshot_finish`. Points come back exceptions
+   first, then snappoint hits; a snappoint's values are taken **before** that line runs.
+
+Zips are saved to `%TEMP%\bc-dev-mcp-snapshots` (`<os temp>/bc-dev-mcp-snapshots`) unless you pass
+`outPath`; bc-dev-mcp never deletes them, and they open in VS Code for replay. Decoding needs
+bc-mdc-converter (see `BC_MDC_CONVERTER`), which is downloaded on first use when missing.
+
+**Data disclosure:** captured variables can hold customer data, credentials and source code. They
+are returned to the agent as-is, and the saved zip holds everything, including what the response
+left out (`verbosity: "full"` also bundles the source of every object the session touched).
+
+Verified live against BC29 (`scripts/e2e.md` "Snapshot debug capture"): `clientType` WebClient
+(default), `userId` and `sessionId` bind; WebServiceClient records nothing usable (the capture is
+dropped when the API call's session ends); Background is unverified. BC29 ignores snappoint
+`condition`s, so filter the points yourself. Test runs cannot be captured on this path.
+
 ## Skills
 
 The server ships its own operational manual as [Agent Skills](https://agentskills.io) over MCP
@@ -459,7 +491,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 |------|---------|
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
-| `src/mcp/tools/` | The 29 bcdev_* tool definitions (zod schemas + metadata + handlers) |
+| `src/mcp/tools/` | The 32 bcdev_* tool definitions (zod schemas + metadata + handlers) |
 | `src/mcp/state.ts` | Single-slot debug/profile/record-write state and their opaque handles (`debugSessionId`, `profileId`, `recordingId`), event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/test-orchestration.ts` | Pure repeat-run identity, stability classification, and adjacent pass/fail diff analysis |
@@ -487,7 +519,7 @@ Ordered by intent, not commitment:
 7. **Break-on-record-write triage** — **shipped.** Arm bounded write triage for one numeric table ID and automatically collect grouped exact writer stacks.
 8. **BC native MCP passthrough** — **shipped.** Dynamically list and invoke BC28 cloud business-action, AL-runtime, and active-debugger native tools through one agent-facing bridge while retaining complete upstream results.
 9. **On-demand source & symbols** — **shipped.** Read a deployed server object with `bcdev_source`, or download one validated installed dependency package into `.alpackages` with `bcdev_package_download`.
-10. **Snapshot debugging capture** — **deferred, deliberately.** Record a session that cannot be paused (a background job, a web-service call under a client timeout) at breakpoint locations and hand the resulting `.zip` to VS Code for replay. The capture half is a day's work and reuses the shipped snapshot transport, feature gate, and breakpoint mapping. The replay half is not: the recording is FlatBuffers-serialized `.mdc` against a schema that lives in an undecompiled assembly, behind a ~2,400-line navigator, and VS Code already replays it. That makes the artifact opaque to the agent that captured it, which is the wrong shape for this surface. Where the question is "what actually ran", instrumentation capture already returns an agent-readable every-call trace.
+10. **Snapshot debugging capture** (`bcdev_snapshot_*`) — **shipped.** Record a session that cannot be paused at snappoints and errors; bc-mdc-converter decodes the recording into agent-readable points (variables, call stack, source window), and the zip still replays in VS Code. Validated live against BC29 (`scripts/e2e.md`).
 
 ## Development
 

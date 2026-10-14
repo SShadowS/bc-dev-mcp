@@ -69,6 +69,16 @@ source line join as one observed site, al-sem #9 Rename) and that "never observe
 Finish always clears the shared debugger slot; manual debugging and record-write triage cannot run
 at the same time.
 
+## When you cannot pause the session: snapshots
+
+When you cannot attach interactively (a user's browser session, a session that must keep running),
+use `bcdev_snapshot_*`: `bcdev_snapshot_start { snappoints: [{ file, line }] }`, trigger the
+scenario, `bcdev_snapshot_status` until `ready`, then `bcdev_snapshot_finish` for decoded points
+(exceptions first, then snappoint hits) with variables, stack and a source window. Values at a
+snappoint are taken **before** that line runs. Bind with `userId` or a running `sessionId` when
+needed; WebServiceClient captures record nothing usable, and BC29 ignores snappoint `condition`s
+(filter the points yourself). It shares the one capture slot with `bcdev_profile_*`.
+
 ## Facts that save you time
 
 - **Choose one targeting mode.** Omit both selectors for the next client of `breakOnNext` type;

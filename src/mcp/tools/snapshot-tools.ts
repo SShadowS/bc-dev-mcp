@@ -28,7 +28,7 @@ const snappointShape = z.object({
     .describe("Object type, for an object outside the workspace (reported back unverified)"),
   objectId: z.number().int().optional().describe("Object id 1..2147483647, with objectType"),
   line: z.number().int().describe("1-based source line, as shown in an editor"),
-  condition: z.string().optional().describe("Optional AL condition; the line is recorded only when it evaluates true"),
+  condition: z.string().optional().describe("Optional AL condition, passed to Business Central; BC29 was seen to ignore it and record every hit, so filter the points yourself"),
 });
 
 const DISCLOSURE =
@@ -164,8 +164,8 @@ export function createSnapshotTools(
       title: "Start snapshot debugging capture",
       description:
         "Arm a snapshot debugging capture on the BC server: the next matching session records the variables at each snappoint (an AL line, 1-based) and at any error it throws, without pausing it. " +
-        "After this, TRIGGER the scenario (open the page, call the web service, start the job), call bcdev_snapshot_status until ready, then bcdev_snapshot_finish to get decoded points. " +
-        "clientType WebClient is verified; WebServiceClient, Background and ClientService are experimental until verified live. Test runs cannot be captured this way (Business Central's own snapshot MCP is needed for that). " +
+        "After this, TRIGGER the scenario (open the page in a browser or business-central-mcp), call bcdev_snapshot_status until ready, then bcdev_snapshot_finish to get decoded points. " +
+        "clientType WebClient is verified (also with userId or a running sessionId). WebServiceClient is experimental and records nothing usable: it binds an API/OData call, but Business Central drops the capture when that short session ends, so status/finish report it lost. Background and ClientService are experimental and unverified. Test runs cannot be captured this way (Business Central's own snapshot MCP is needed for that). " +
         "One capture (profile or snapshot) at a time per tenant. " +
         DISCLOSURE,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
@@ -173,8 +173,8 @@ export function createSnapshotTools(
         ...connectionShape,
         snapshotPort: z.number().optional().describe("Snapshot-debugger port (default 7083; separate from the dev port)"),
         snappoints: z.array(snappointShape).max(20).optional().describe("Lines to record (0-20). None = record only what throws"),
-        clientType: z.enum(["WebClient", "WebServiceClient", "Background", "ClientService"]).optional().describe("Session type to bind (default WebClient; the others are experimental)"),
-        userId: z.string().optional().describe("Bind the next session of this user only"),
+        clientType: z.enum(["WebClient", "WebServiceClient", "Background", "ClientService"]).optional().describe("Session type to bind (default WebClient; the others are experimental, WebServiceClient records nothing usable)"),
+        userId: z.string().optional().describe("Bind the next session of this user only (user name; an unknown user is rejected)"),
         sessionId: z.number().int().optional().describe("Bind this running NST session now (clientType and userId are then ignored); default -1 = next matching session"),
         verbosity: z.enum(["snappoint", "full"]).optional().describe("snappoint (default) records the armed lines and errors; full records every method context (heavier)"),
       },
