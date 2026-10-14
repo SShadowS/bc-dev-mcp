@@ -443,7 +443,7 @@ export async function mapBreakpoints(
  * active one" (backward compatible); given, it must match or the call fails NOT_FOUND.
  */
 export interface HandleKind {
-  field: "debugSessionId" | "profileId" | "recordingId";
+  field: "debugSessionId" | "profileId" | "recordingId" | "snapshotId";
   label: string;
   startTool: string;
   endTool: string;
@@ -460,6 +460,12 @@ export const PROFILE_HANDLE: HandleKind = {
   label: "profile capture",
   startTool: "bcdev_profile_start",
   endTool: "bcdev_profile_finish",
+};
+export const SNAPSHOT_HANDLE: HandleKind = {
+  field: "snapshotId",
+  label: "snapshot capture",
+  startTool: "bcdev_snapshot_start",
+  endTool: "bcdev_snapshot_finish",
 };
 export const RECORDING_HANDLE: HandleKind = {
   field: "recordingId",

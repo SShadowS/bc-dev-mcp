@@ -5,13 +5,14 @@ import { BcDevError } from "../core/agent-errors";
 import type { DebuggerClient } from "../core/hubs/debugger-hub";
 import type { StaticWritersResult } from "../core/alsem-writes";
 import type { RecordWriteCollector } from "../core/record-write-triage";
+import type { ArmedSnappoint } from "../core/snapshot/snappoints";
 import type { BreakpointSpec, ConnectionConfig, DebuggerEvent, RunTestsResult } from "../core/types";
 
 const QUEUE_CAP = 100;
 
-export interface ProfileHandle {
-  /** Opaque client-facing handle (MCP 2026-07-28 statelessness): returned by bcdev_profile_start. */
-  profileId: string;
+export type CapturePhase = "attaching" | "armed" | "finishing" | "uncertain";
+
+interface CaptureBase {
   debuggingContext: string;
   affinityCookie: string | null;
   attachKind: string;
@@ -19,7 +20,45 @@ export interface ProfileHandle {
   config: ConnectionConfig;
   authorization: AuthorizationProvider;
   startedAt: string;
-  kind: "sampling" | "instrumentation";
+  /** Identity of this claim: a finishing call clears the slot only if it still holds its own token. */
+  token: symbol;
+  phase: CapturePhase;
+}
+
+export interface ProfileCapture extends CaptureBase {
+  captureKind: "profile";
+  /** Opaque client-facing handle (MCP 2026-07-28 statelessness): returned by bcdev_profile_start. */
+  profileId: string;
+  profileKind: "sampling" | "instrumentation";
+}
+
+export interface SnapshotCapture extends CaptureBase {
+  captureKind: "snapshot";
+  /** Opaque client-facing handle returned by bcdev_snapshot_start. */
+  snapshotId: string;
+  snappoints: ArmedSnappoint[];
+  verbosity: "snappoint" | "full";
+}
+
+/** The tenant allows one snapshot-debugger capture at a time, profile or snapshot. */
+export type CaptureState = ProfileCapture | SnapshotCapture;
+
+/** PROFILE_ACTIVE for a start/poll/finish that collides with the capture already holding the slot. */
+export function captureActiveError(active: CaptureState, starting: "profile" | "snapshot"): BcDevError {
+  const owner = active.captureKind;
+  const ownerFinishTool = owner === "profile" ? "bcdev_profile_finish" : "bcdev_snapshot_finish";
+  return new BcDevError(
+    "PROFILE_ACTIVE",
+    `A ${owner} capture is already active — call ${ownerFinishTool} before using the ${starting} tools`,
+    "state",
+    false,
+    {
+      capture: owner,
+      ownerFinishTool,
+      phase: active.phase,
+      ...(active.captureKind === "profile" ? { profileId: active.profileId } : { snapshotId: active.snapshotId }),
+    },
+  );
 }
 
 export class DebugSession {
@@ -142,7 +181,7 @@ export class ServerState {
     result: StaticWritersResult;
   } | null = null;
   testRunActive = false;
-  profile: ProfileHandle | null = null;
+  capture: CaptureState | null = null;
   private debugSlot: { owner: "manual" | "recordWrites"; token: symbol } | null = null;
 
   get debugOwner(): "manual" | "recordWrites" | null {

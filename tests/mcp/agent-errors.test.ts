@@ -78,6 +78,15 @@ describe("agent errors", () => {
     expect(agentErrorBody("bcdev_profile_start", local).nextSteps.join(" ")).not.toContain("debuggingContext");
   });
 
+  test("PROFILE_ACTIVE names the owning finish tool; SNAPSHOT_NOT_ACTIVE points at start", () => {
+    const snap = new BcDevError("PROFILE_ACTIVE", "x", "state", false, { capture: "snapshot", ownerFinishTool: "bcdev_snapshot_finish", phase: "armed" });
+    expect(agentErrorBody("bcdev_profile_start", snap).nextSteps.join(" ")).toContain("bcdev_snapshot_finish");
+    const busy = new BcDevError("PROFILE_ACTIVE", "x", "state", false, { capture: "snapshot", ownerFinishTool: "bcdev_snapshot_finish", phase: "attaching" });
+    expect(agentErrorBody("bcdev_profile_start", busy).nextSteps.join(" ")).toContain("Wait");
+    const none = new BcDevError("SNAPSHOT_NOT_ACTIVE", "x", "state");
+    expect(agentErrorBody("bcdev_snapshot_finish", none).nextSteps.join(" ")).toContain("bcdev_snapshot_start");
+  });
+
   test("serializes a redacted machine-readable error with recovery steps", () => {
     const body = agentErrorBody(
       "bcdev_debug_wait",

@@ -3,7 +3,7 @@ import { deflateRawSync } from "node:zlib";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ServerState } from "../../src/mcp/state";
+import { ServerState, type ProfileCapture } from "../../src/mcp/state";
 import { createProfileTools } from "../../src/mcp/tools/profile-tools";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import type { ToolDeps } from "../../src/mcp/tools/shared";
@@ -69,10 +69,23 @@ describe("profile tools", () => {
     const r = (await tools.get("bcdev_profile_start")!.handler({ ...conn })) as Record<string, unknown>;
     expect(r["attachKind"]).toBe("NextSessionOnTenant");
     expect(typeof r["debuggingContext"]).toBe("string");
-    expect(state.profile).not.toBeNull();
+    expect(state.capture).not.toBeNull();
     const error = await tools.get("bcdev_profile_start")!.handler({ ...conn }).catch((caught) => caught);
     expect(error).toBeInstanceOf(BcDevError);
     expect(error).toMatchObject({ code: "PROFILE_ACTIVE", category: "state" });
+  });
+
+  test("a snapshot capture blocks profile start and names the snapshot finish tool", async () => {
+    state.capture = {
+      captureKind: "snapshot", snapshotId: "s1", snappoints: [], verbosity: "snappoint", debuggingContext: "c", affinityCookie: null,
+      attachKind: "NextSessionOnTenant", snapshotPort: 7083, config: { server: "http://bc", serverInstance: "BC", tenant: "default" } as never,
+      authorization: {} as never, startedAt: "t", token: Symbol(), phase: "armed",
+    };
+    const tools = new Map(createProfileTools(state, deps((async () => new Response("{}")) as never)).map((t) => [t.name, t]));
+    const err = await tools.get("bcdev_profile_start")!.handler({ ...conn }).catch((e: unknown) => e) as BcDevError;
+    expect(err.code).toBe("PROFILE_ACTIVE");
+    expect(err.details).toMatchObject({ capture: "snapshot", ownerFinishTool: "bcdev_snapshot_finish" });
+    expect((await tools.get("bcdev_profile_poll")!.handler({}).catch((e: unknown) => e) as BcDevError).code).toBe("PROFILE_ACTIVE");
   });
 
   test("a capture held elsewhere is PROFILE_ACTIVE heldElsewhere, and finish with its debuggingContext releases it", async () => {
@@ -86,7 +99,7 @@ describe("profile tools", () => {
     const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));
     const error = await tools.get("bcdev_profile_start")!.handler({ ...conn }).catch((caught) => caught);
     expect(error).toMatchObject({ code: "PROFILE_ACTIVE", category: "state", details: { heldElsewhere: true } });
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
     const r = (await tools.get("bcdev_profile_finish")!.handler({ ...conn, debuggingContext: "orphan-ctx" })) as Record<string, unknown>;
     expect(r).toMatchObject({ captured: false, released: true });
     expect(urls.at(-1)).toContain("finish");
@@ -120,7 +133,7 @@ describe("profile tools", () => {
     const summary = f["summary"] as { hotspots: Array<{ function: string }> };
     expect(summary.hotspots[0]!.function).toBe("OnRun");
     expect(JSON.parse(readFileSync(outPath, "utf8")).nodes).toHaveLength(1);
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
     expect(f["nextSteps"]).toBeUndefined(); // added only by the MCP response decorator
   });
 
@@ -175,7 +188,7 @@ describe("profile tools", () => {
     const error = await tools.get("bcdev_profile_finish")!.handler({}).catch((caught) => caught);
     expect(error).toMatchObject({ code: "PROTOCOL_ERROR", category: "protocol", retryable: false });
     expect((error as Error).cause).toMatchObject({ message: expect.stringContaining("output limit") });
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 
   test("finish on empty body reports captured:false", async () => {
@@ -184,7 +197,7 @@ describe("profile tools", () => {
     await tools.get("bcdev_profile_start")!.handler({ ...conn });
     const f = (await tools.get("bcdev_profile_finish")!.handler({})) as Record<string, unknown>;
     expect(f["captured"]).toBe(false);
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 
   test("finish with a non-Sampling ETag reports captured:false, kind:recording", async () => {
@@ -199,7 +212,7 @@ describe("profile tools", () => {
     const f = (await tools.get("bcdev_profile_finish")!.handler({})) as Record<string, unknown>;
     expect(f["captured"]).toBe(false);
     expect(f["kind"]).toBe("recording");
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 
   test("finish with a zip missing the expected member reports captured:false", async () => {
@@ -215,7 +228,7 @@ describe("profile tools", () => {
     const f = (await tools.get("bcdev_profile_finish")!.handler({})) as Record<string, unknown>;
     expect(f["captured"]).toBe(false);
     expect(f["hint"]).toContain("without the expected");
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 
   test("poll/finish without an active profile throw", async () => {
@@ -237,14 +250,14 @@ describe("profile tools", () => {
     await expect(tools.get("bcdev_profile_start")!.handler({ ...conn })).rejects.toThrow(/already active/);
     releaseAttach();
     await first;
-    expect(state.profile).not.toBeNull();
+    expect(state.capture).not.toBeNull();
   });
 
   test("start rolls back the claimed slot when attach fails", async () => {
     const fetchFn = (async (u: RequestInfo | URL) => u.toString().includes("attach") ? new Response("nope", { status: 500 }) : new Response("{}")) as unknown as typeof fetch;
     const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));
     await expect(tools.get("bcdev_profile_start")!.handler({ ...conn })).rejects.toThrow(/attach HTTP 500/);
-    expect(state.profile).toBeNull(); // slot rolled back so a retry can start
+    expect(state.capture).toBeNull(); // slot rolled back so a retry can start
   });
 
   test("finish clears the profile even when finish throws", async () => {
@@ -257,7 +270,7 @@ describe("profile tools", () => {
     const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));
     await tools.get("bcdev_profile_start")!.handler({ ...conn });
     await expect(tools.get("bcdev_profile_finish")!.handler({})).rejects.toThrow(/finish HTTP 500/);
-    expect(state.profile).toBeNull(); // finally-clears even on error
+    expect(state.capture).toBeNull(); // finally-clears even on error
   });
 
   // --- kind: instrumentation ------------------------------------------------
@@ -275,7 +288,7 @@ describe("profile tools", () => {
     );
     const r = (await tools.get("bcdev_profile_start")!.handler({ ...conn, kind: "instrumentation" })) as Record<string, unknown>;
     expect(r["converterAvailable"]).toBe(true);
-    expect(state.profile!.kind).toBe("instrumentation");
+    expect((state.capture as ProfileCapture).profileKind).toBe("instrumentation");
   });
 
   test("start kind:instrumentation reports converterAvailable:false and warns in the hint", async () => {
@@ -293,7 +306,7 @@ describe("profile tools", () => {
     const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));
     const r = (await tools.get("bcdev_profile_start")!.handler({ ...conn })) as Record<string, unknown>;
     expect(r["converterAvailable"]).toBeUndefined();
-    expect(state.profile!.kind).toBe("sampling");
+    expect((state.capture as ProfileCapture).profileKind).toBe("sampling");
   });
 
   test("finish instrumentation: converts the mdc zip, summarizes, clears state", async () => {
@@ -323,7 +336,7 @@ describe("profile tools", () => {
     expect(f["kind"]).toBe("instrumentation");
     expect((f["summary"] as { hotspots: unknown[] }).hotspots.length).toBeGreaterThan(0);
     expect(typeof f["zipPath"]).toBe("string");
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 
   test("finish instrumentation: raw fallback when converter unavailable", async () => {
@@ -342,7 +355,7 @@ describe("profile tools", () => {
     expect(f["captured"]).toBe(true);
     expect(f["kind"]).toBe("instrumentation-raw");
     expect(typeof f["zipPath"]).toBe("string");
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 
   test("finish instrumentation: raw fallback when converter run fails (non-zero exit)", async () => {
@@ -363,7 +376,7 @@ describe("profile tools", () => {
     expect(f["hint"]).toContain("conversion failed");
     expect(f["hint"]).toContain("boom");
     expect(typeof f["zipPath"]).toBe("string");
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 
   test("finish instrumentation: zip without a .mdc member reports captured:false", async () => {
@@ -381,7 +394,7 @@ describe("profile tools", () => {
     const f = (await tools.get("bcdev_profile_finish")!.handler({})) as Record<string, unknown>;
     expect(f["captured"]).toBe(false);
     expect(f["hint"]).toContain("no .mdc members");
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 
   test("finish instrumentation on empty body reports the instrumentation-specific hint", async () => {
@@ -394,7 +407,7 @@ describe("profile tools", () => {
     const f = (await tools.get("bcdev_profile_finish")!.handler({})) as Record<string, unknown>;
     expect(f["captured"]).toBe(false);
     expect(f["hint"]).toContain("Full verbosity");
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 
   test("sampling path unchanged: finish still extracts .alcpuprofile via the ETag:Sampling branch", async () => {
@@ -415,6 +428,6 @@ describe("profile tools", () => {
     expect(f["captured"]).toBe(true);
     expect(f["kind"]).toBe("sampling");
     expect(f["zipPath"]).toBeUndefined();
-    expect(state.profile).toBeNull();
+    expect(state.capture).toBeNull();
   });
 });

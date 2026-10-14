@@ -77,10 +77,15 @@ function recoverySteps(
     case "RECORD_WRITE_TRIAGE_NOT_ACTIVE": return ["Call bcdev_record_writes_start before checking or finishing record-write triage."];
     case "TEST_RUN_ACTIVE": return ["Wait for the active test run to finish, then retry."];
     case "PROFILE_NOT_ACTIVE": return ["Call bcdev_profile_start before polling or finishing a profile."];
-    case "PROFILE_ACTIVE":
-      return details["heldElsewhere"] === true
-        ? ["Another client or an earlier bc-dev-mcp process holds this tenant's capture. Call bcdev_profile_finish with its debuggingContext (returned by the bcdev_profile_start that armed it) to release it, then start again."]
-        : ["Call bcdev_profile_finish before starting another profile capture."];
+    case "SNAPSHOT_NOT_ACTIVE": return ["Call bcdev_snapshot_start before checking or finishing a snapshot capture."];
+    case "PROFILE_ACTIVE": {
+      const owner = typeof details["ownerFinishTool"] === "string" ? details["ownerFinishTool"] : "bcdev_profile_finish";
+      if (details["heldElsewhere"] === true) {
+        return [`Another client or an earlier bc-dev-mcp process holds this tenant's capture. Call ${owner} with its debuggingContext to release it, then start again.`];
+      }
+      if (details["phase"] === "attaching" || details["phase"] === "finishing") return ["Wait for the capture call in progress to return, then retry."];
+      return [`Call ${owner} before starting another capture.`];
+    }
     case "SQL_INSIGHT_NOT_ENABLED": return ["Detach, then call bcdev_debug_attach with sqlInsight: true before retrying SQL inspection."];
     case "TOOL_DISABLED": return ["Use an enabled tool, or enable the requested tool before retrying."];
     case "GIT_ERROR": return ["Verify the AL project Git repository and coverageAgainst ref, then retry bcdev_test_run."];

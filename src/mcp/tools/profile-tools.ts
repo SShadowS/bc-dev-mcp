@@ -9,7 +9,7 @@ import { createAlSemAnalyze, explainHotspots } from "../../core/hotspot-explain"
 import { extractEntry, listEntryNames, MAX_TEXT_ENTRY_BYTES } from "../../core/snapshot/zip";
 import { convertMdcZip, resolveConverter, type ConverterEnv, type SpawnRunner } from "../../core/snapshot/converter";
 import { DEFAULT_SNAPSHOT_PORT } from "../../core/urls";
-import type { ServerState } from "../state";
+import { captureActiveError, type ProfileCapture, type ServerState } from "../state";
 import {
   assertHandle,
   connectionShape,
@@ -57,10 +57,12 @@ const hotspotAnalysisSchema = z.object({
   notes: z.array(z.string()),
 });
 
-function requireProfile(state: ServerState, params: Record<string, unknown>) {
-  assertHandle(PROFILE_HANDLE, params, state.profile?.profileId ?? null);
-  if (!state.profile) throw new BcDevError("PROFILE_NOT_ACTIVE", "No active profile — call bcdev_profile_start first", "state");
-  return state.profile;
+function requireProfile(state: ServerState, params: Record<string, unknown>): ProfileCapture {
+  const active = state.capture;
+  if (active?.captureKind === "snapshot") throw captureActiveError(active, "profile");
+  assertHandle(PROFILE_HANDLE, params, active?.profileId ?? null);
+  if (!active) throw new BcDevError("PROFILE_NOT_ACTIVE", "No active profile — call bcdev_profile_start first", "state");
+  return active;
 }
 
 // A malformed or oversized archive is server-returned data, not a bug in this server. Type it
@@ -147,22 +149,15 @@ export function createProfileTools(
         converterAvailable: z.boolean().optional(),
       }),
       handler: async (params) => {
-        if (state.profile) {
-          throw new BcDevError(
-            "PROFILE_ACTIVE",
-            "Profile capture already active — call bcdev_profile_finish first",
-            "state",
-            false,
-            { profileId: state.profile.profileId },
-          );
-        }
+        if (state.capture) throw captureActiveError(state.capture, "profile");
         const { config, authorization } = resolve(params, deps);
         const snapshotPort = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
         const kind = (params["kind"] as "sampling" | "instrumentation" | undefined) ?? "sampling";
         const debuggingContext = randomUUID();
         // claim the slot before awaiting — blocks concurrent start (mirrors debug-tools.ts)
         const id = randomUUID();
-        state.profile = { profileId: id, debuggingContext, affinityCookie: null, attachKind: "", snapshotPort, config, authorization, startedAt: new Date().toISOString(), kind };
+        const claim: ProfileCapture = { captureKind: "profile", profileId: id, debuggingContext, affinityCookie: null, attachKind: "", snapshotPort, config, authorization, startedAt: new Date().toISOString(), profileKind: kind, token: Symbol("profile"), phase: "attaching" };
+        state.capture = claim;
         const client = new SnapshotClient(deps.fetchFn, config, snapshotPort, authorization);
         try {
           const clientType = (params["clientType"] as never) ?? "WebClient";
@@ -178,8 +173,9 @@ export function createProfileTools(
                   samplingIntervalMs: (params["samplingIntervalMs"] as 50 | 100 | 150 | undefined) ?? 100,
                   sessionId,
                 });
-          state.profile.affinityCookie = attach.affinityCookie;
-          state.profile.attachKind = attach.attachKind;
+          claim.affinityCookie = attach.affinityCookie;
+          claim.attachKind = attach.attachKind;
+          claim.phase = "armed";
           if (kind === "instrumentation") {
             const converterAvailable = (await resolveEnv()) !== null;
             return {
@@ -199,12 +195,12 @@ export function createProfileTools(
             hint: "Sampler armed. Now trigger the session to profile (WebClient action via a browser or business-central-mcp), then call bcdev_profile_poll until Started, then bcdev_profile_finish.",
           };
         } catch (err) {
-          state.profile = null; // roll back the claimed slot on attach failure
+          if (state.capture?.token === claim.token) state.capture = null; // roll back the claimed slot on attach failure
           // WIRE: a capture armed by another client (or a crashed process) holds the tenant: attach
           // returns HTTP 400 "A snapshot debugging session has already started on this tenant"
           // (live Cronus29 2026-10-13); finish with that capture's debuggingContext releases it.
           if (err instanceof SnapshotHttpError && err.heldElsewhere) {
-            throw new BcDevError("PROFILE_ACTIVE", `${err.message} (held by another client or an earlier process)`, "state", false, { heldElsewhere: true });
+            throw new BcDevError("PROFILE_ACTIVE", `${err.message} (held by another client or an earlier process)`, "state", false, { heldElsewhere: true, capture: "profile", ownerFinishTool: "bcdev_profile_finish" });
           }
           throw err;
         }
@@ -253,7 +249,7 @@ export function createProfileTools(
       }),
       handler: async (params) => {
         const orphan = params["debuggingContext"] as string | undefined;
-        if (orphan !== undefined && orphan !== state.profile?.debuggingContext) {
+        if (orphan !== undefined && orphan !== state.capture?.debuggingContext) {
           const { config, authorization } = resolve(params, deps);
           const port = (params["snapshotPort"] as number | undefined) ?? DEFAULT_SNAPSHOT_PORT;
           await new SnapshotClient(deps.fetchFn, config, port, authorization).finish(orphan, null);
@@ -267,12 +263,12 @@ export function createProfileTools(
             return {
               captured: false,
               hint:
-                p.kind === "instrumentation"
+                p.profileKind === "instrumentation"
                   ? "Nothing recorded — drive the session (Full verbosity) past Started before finish."
                   : "Nothing recorded — was a WebClient session actually triggered between start and finish?",
             };
           }
-          if (p.kind === "sampling") {
+          if (p.profileKind === "sampling") {
             if (fin.etag !== "Sampling") {
               return { captured: false, kind: "recording", hint: `Got a ${fin.etag ?? "recording"} archive, not a sampling profile. Snapshot recording (.mdc) replay is a VS Code concern.` };
             }
@@ -328,7 +324,7 @@ export function createProfileTools(
             ...(await explain(summary, params)),
           };
         } finally {
-          state.profile = null;
+          if (state.capture?.token === p.token) state.capture = null;
         }
       },
     },
