@@ -99,6 +99,15 @@ describe("projectSnapshot (Cronus29 page 50152 capture)", () => {
     const p = projectSnapshot(d, null, (e) => (e === "Codeunit%50130.al" ? SOURCE.join("\n") : null));
     expect(p.points[0]!.source?.entry).toBe("Codeunit%50130.al");
   });
+  test("no method contexts at all (Background on BC29: source only) -> 'no execution was recorded', not the armed-line warning", () => {
+    const d = structuredClone(doc); d.methods = [];
+    const p = projectSnapshot(d, armed, readSource);
+    expect(p.points).toEqual([]);
+    expect(p.warnings.join(" ")).toContain("holds no method contexts");
+    expect(p.warnings.join(" ")).not.toContain("none at an armed line");
+    const withMethods = structuredClone(doc); withMethods.methods = withMethods.methods.map((m: Record<string, unknown>) => ({ ...m, exception: null, lines: [] }));
+    expect(projectSnapshot(withMethods, [], readSource).warnings.join(" ")).toContain("none at an armed line");
+  });
   test("rejects a document that is not bc-mdc-snapshot schema 1", () => {
     expect(() => projectSnapshot({ format: "x" }, armed, readSource)).toThrow();
   });

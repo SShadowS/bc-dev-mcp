@@ -221,7 +221,7 @@ export function createSnapshotTools(
       description:
         "Arm a snapshot debugging capture on the BC server: the next matching session records the variables at each snappoint (an AL line, 1-based) and at any error it throws, without pausing it. " +
         "After this, TRIGGER the scenario (open the page in a browser or business-central-mcp), call bcdev_snapshot_status until ready, then bcdev_snapshot_finish to get decoded points. " +
-        "clientType WebClient is verified (also with userId or a running sessionId). WebServiceClient is experimental and records nothing usable: it binds an API/OData call, but Business Central drops the capture when that short session ends, so status/finish report it lost. Background and ClientService are experimental and unverified. To capture an AL test run, call bcdev_snapshot_run_tests after start (verified on-prem). " +
+        "clientType WebClient is verified (also with userId or a running sessionId). WebServiceClient is experimental and records nothing usable: it binds an API/OData call, but Business Central drops the capture when that short session ends, so status/finish report it lost. Background is experimental and records nothing usable on BC29: it binds a TaskScheduler/job session, but the archive holds only source while it runs and BC drops the capture when it ends. ClientService is experimental and unverified. To capture an AL test run, call bcdev_snapshot_run_tests after start (verified on-prem). " +
         "One capture (profile or snapshot) at a time per tenant. " +
         DISCLOSURE,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
@@ -229,7 +229,7 @@ export function createSnapshotTools(
         ...connectionShape,
         snapshotPort: z.number().optional().describe("Snapshot-debugger port (default 7083; separate from the dev port)"),
         snappoints: z.array(snappointShape).max(20).optional().describe("Lines to record (0-20). None = record only what throws"),
-        clientType: z.enum(["WebClient", "WebServiceClient", "Background", "ClientService"]).optional().describe("Session type to bind (default WebClient; the others are experimental, WebServiceClient records nothing usable)"),
+        clientType: z.enum(["WebClient", "WebServiceClient", "Background", "ClientService"]).optional().describe("Session type to bind (default WebClient; the others are experimental, WebServiceClient and Background record nothing usable)"),
         userId: z.string().optional().describe("Bind the next session of this user only (user name; an unknown user is rejected)"),
         sessionId: z.number().int().refine((v) => v === -1 || v >= 1, "must be -1 or >= 1").optional().describe("Bind this running NST session now (clientType and userId are then ignored); default -1 = next matching session"),
         verbosity: z.enum(["snappoint", "full"]).optional().describe("snappoint (default) records the armed lines and errors; full records every method context (heavier)"),

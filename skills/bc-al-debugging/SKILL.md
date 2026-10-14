@@ -76,7 +76,7 @@ use `bcdev_snapshot_*`: `bcdev_snapshot_start { snappoints: [{ file, line }] }`,
 scenario, `bcdev_snapshot_status` until `ready`, then `bcdev_snapshot_finish` for decoded points
 (exceptions first, then snappoint hits) with variables, stack and a source window. Values at a
 snappoint are taken **before** that line runs. Bind with `userId` or a running `sessionId` when
-needed; WebServiceClient captures record nothing usable, and BC29 ignores snappoint `condition`s
+needed; WebServiceClient and Background captures record nothing usable, and BC29 ignores snappoint `condition`s
 (filter the points yourself). It shares the one capture slot with `bcdev_profile_*`.
 
 To snapshot a failing AL **test** (on-prem): `bcdev_snapshot_start`, then
