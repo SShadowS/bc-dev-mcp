@@ -134,7 +134,7 @@ Debugger attach returns as soon as Business Central accepts the request; binding
 | `BC_MDC_CONVERTER` | env var | see below | Path to the [bc-mdc-converter](https://github.com/SShadowS/bc-mdc-converter) binary, used as-is. Unset: `bc-mdc-converter` on PATH if it is at least the pinned version, else the pinned release binary, downloaded once into the cache and checked against its SHA-256 (`bcdev_status` reports which one: `converter.source`). `bcdev_snapshot_finish` decodes recordings with it; `bcdev_profile_finish` converts instrumentation captures |
 | `BC_MDC_CONVERTER_DOWNLOAD` | env var | on | `0` = never download bc-mdc-converter; without one, `bcdev_snapshot_finish` returns `decodeStatus: "raw"` with the saved zip |
 | `BC_DEV_ALTOOL` | env var | `altool` on PATH | Path to `altool.exe` (AL extension `bin` folder); the fallback engine, via its `graph` command |
-| `BC_DEV_API_PORT` | env var | `7048` | On-prem Automation API port used by the `bcdev_app_*` tools |
+| `BC_DEV_API_PORT` | env var | `7048` | On-prem API/OData port: the Automation API used by the `bcdev_app_*` tools and BC's MCP endpoint used on-prem by `bcdev_native_*` and `bcdev_snapshot_run_tests` (tool param `apiPort` overrides) |
 | `port` | launch.json / tool param | `7049` | Developer service port |
 | `tenant` | launch.json / tool param | `default` | Tenant (hub negotiate requires one) |
 | `project` | tool param | server cwd | AL project dir for launch.json and `.al` scanning |
@@ -161,7 +161,7 @@ Azure access tokens are acquired with `az account get-access-token`, cached only
 MCP client (agent)
   |
   v  (stdio)
-src/mcp/server.ts ── tools/ (32 bcdev_* tools) ── state.ts (debug/test/profile/snapshot ownership)
+src/mcp/server.ts ── tools/ (33 bcdev_* tools) ── state.ts (debug/test/profile/snapshot ownership)
   |
   v
 src/core/  (pure library — typed returns, injected deps)
@@ -211,6 +211,7 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_snapshot_start` | Arm a snapshot debugging capture with up to 20 snappoints (file + 1-based line); binds the next matching session, a user's next session, or a running `sessionId` (trigger it after) |
 | `bcdev_snapshot_status` | Status of the active snapshot capture; `ready` once a session is recording (Started) |
 | `bcdev_snapshot_finish` | Finish, save the recording zip and return decoded points (exceptions first, then snappoint hits) with variables, call stack and source window; with `debuggingContext` it recovers a capture another process left armed |
+| `bcdev_snapshot_run_tests` | Run AL test codeunits (optionally only some methods) attached to the armed capture, through BC's native snapshot `run_tests`; returns per-method results, then `bcdev_snapshot_finish` collects the recording (on-prem only) |
 
 ## Record-write triage
 
@@ -258,7 +259,7 @@ source never appear in the static set. "Never observed" only means not exercised
 
 `bcdev_native_list` and `bcdev_native_call` connect to Business Central's cloud MCP gateway with
 the same launch configuration and Azure CLI identity used by the other SaaS tools. Each operation
-requires an exact `company` and one explicit context:
+requires one explicit context and, on cloud, an exact `company` (on-prem: see below):
 
 - `business` lists the dynamic `bc_actions_*` catalog. Pass `configurationName` only when selecting
   a named Business Central MCP configuration.
@@ -284,6 +285,16 @@ is non-retryable and tells the caller to confirm the server-side run finished be
 starting any other test run.
 
 This passthrough supports cloud Sandbox and Production targets. Live acceptance is Sandbox-only.
+
+**On-prem and docker.** Pass the on-prem connection (`server`, `serverInstance`, `tenant`, or a
+`launch.json` with `environmentType: "OnPrem"`) and the same tools talk to the server's own MCP
+endpoint, `<server>:<apiPort>/<instance>/mcp/`, with your `BC_DEV_USER` / `BC_DEV_PASSWORD`.
+It is on the API/OData port (`apiPort`, default `BC_DEV_API_PORT` or 7048), not the SOAP port
+7047, and needs `McpServicesEnabled` on the server (a wrong port or disabled service comes back
+as `UNSUPPORTED_SERVER` naming both). `company` is optional on-prem: without it BC uses its default
+company. `business` and `runtime` are verified live; `debugging` is accepted but unverified on-prem.
+**Plain `http://` sends Basic credentials unencrypted**: use it only for local or dev containers,
+and HTTPS for anything else.
 Its contexts intentionally match the verified BC28 surface and do not include native profiling;
 the existing `bcdev_profile_*` snapshot tools are separate and unchanged.
 
@@ -355,6 +366,11 @@ one-capture-per-tenant slot with profiling.
    [`business-central-mcp`](https://github.com/SShadowS/business-central-mcp)).
 3. `bcdev_snapshot_status` until `ready`, then `bcdev_snapshot_finish`. Points come back exceptions
    first, then snappoint hits; a snappoint's values are taken **before** that line runs.
+
+To capture an AL **test run** (on-prem), replace step 2 with `bcdev_snapshot_run_tests { codeunits:
+[{ id, methods? }] }`: it runs the tests attached to the armed capture and returns per-method results
+(a failing test is an ordinary result), then call `bcdev_snapshot_finish` directly. The failing
+test's exception point carries the variables at the moment it threw.
 
 Zips are saved to `%TEMP%\bc-dev-mcp-snapshots` (`<os temp>/bc-dev-mcp-snapshots`) unless you pass
 `outPath`; bc-dev-mcp never deletes them, and they open in VS Code for replay. Decoding needs
@@ -491,7 +507,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 |------|---------|
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
-| `src/mcp/tools/` | The 32 bcdev_* tool definitions (zod schemas + metadata + handlers) |
+| `src/mcp/tools/` | The 33 bcdev_* tool definitions (zod schemas + metadata + handlers) |
 | `src/mcp/state.ts` | Single-slot debug/profile/record-write state and their opaque handles (`debugSessionId`, `profileId`, `snapshotId`, `recordingId`), event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/test-orchestration.ts` | Pure repeat-run identity, stability classification, and adjacent pass/fail diff analysis |

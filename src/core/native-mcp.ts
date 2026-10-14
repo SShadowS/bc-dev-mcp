@@ -214,6 +214,8 @@ function requestHeaders(
 ): Headers {
   const headers = new Headers({ Authorization: authorization });
   if (target.kind === "onprem") {
+    // WIRE: on-prem Company is optional: initialize, tools/list and tools/call (run_tests, runtime and Snapshot
+    // contexts) all succeed without it and use BC's default company (live Cronus29 BC 29.0.56030.0, 2026-10-15).
     if (target.company !== undefined && target.company.trim() !== "") {
       headers.set("Company", nonblankHeader(target.company, "company"));
     }

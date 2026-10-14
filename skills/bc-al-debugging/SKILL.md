@@ -79,6 +79,13 @@ snappoint are taken **before** that line runs. Bind with `userId` or a running `
 needed; WebServiceClient captures record nothing usable, and BC29 ignores snappoint `condition`s
 (filter the points yourself). It shares the one capture slot with `bcdev_profile_*`.
 
+To snapshot a failing AL **test** (on-prem): `bcdev_snapshot_start`, then
+`bcdev_snapshot_run_tests { codeunits: [{ id, methods? }] }` instead of triggering anything; it
+returns per-method results (a Failed test is a result, not a tool error) and `attached: true`.
+Then `bcdev_snapshot_finish`: the failing test's exception point holds the variables when it threw,
+the passing tests' runs add their snappoint hits. Finish and status are refused while the run is
+in progress (`PROFILE_ACTIVE`, phase `testing`): wait for run_tests to return.
+
 ## Facts that save you time
 
 - **Choose one targeting mode.** Omit both selectors for the next client of `breakOnNext` type;
