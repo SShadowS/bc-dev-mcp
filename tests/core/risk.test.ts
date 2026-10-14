@@ -22,6 +22,20 @@ describe("alsem digest risk", () => {
     expect(findRisk(entries, subject("Double", 28))).toBeUndefined();
   });
 
+  test("a temp-only write (al-sem 1.7.0 tempState known(true)) is not a write", () => {
+    const write = (tempState: string) => ({ type: "DB_INSERT", detail: { resourceDisplay: "Risk Order", tempState } });
+    const doc = { kind: "digest", schemaVersion: "1.4.0", payload: { entries: [{
+      routine: { stableId: "a:Codeunit:50990#x", display: "Fill", anchor: { file: "ws:src/RiskOps.Codeunit.al", line: 0 } },
+      effects: [write("known(true)")],
+    }, {
+      routine: { stableId: "a:Codeunit:50990#y", display: "Mixed", anchor: { file: "ws:src/RiskOps.Codeunit.al", line: 9 } },
+      effects: [write("known(true)"), write("unknown")],
+    }] } };
+    const [fill, mixed] = parseAlSemDigest(JSON.stringify(doc));
+    expect(fill!.risk).toMatchObject({ level: "none", writes: [] });
+    expect(mixed!.risk).toMatchObject({ level: "writes", writes: ["Risk Order"] });
+  });
+
   test("the object type takes part in the join (table 50990 is not codeunit 50990)", () => {
     expect(findRisk(entries, subject("PostOrder", 3, 1))).toBeUndefined();
   });

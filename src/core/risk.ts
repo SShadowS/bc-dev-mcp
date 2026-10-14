@@ -63,6 +63,7 @@ function summarize(effects: Record<string, unknown>[], unresolved: number): Rout
   for (const e of effects) {
     if (!WRITE_EFFECTS.has(String(e["type"]))) continue;
     const detail = asRecord(e["detail"]);
+    if (detail["tempState"] === "known(true)") continue; // temp-only write (al-sem >= 1.7.0, #65)
     const table = detail["resourceDisplay"] ?? detail["resourceId"];
     writes.add(typeof table === "string" && table !== "" ? table : "unknown table");
   }

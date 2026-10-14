@@ -61,8 +61,8 @@ export const STATIC_PREDICTION_NOTE =
   + "AutoCommit/None methods' writes outlive the method. A victim is any later method whose call cone touches the table "
   + "(read or write). Not seen: Rename writes (al-sem #9), session state (SingleInstance globals, NumberSequence.Next, "
   + "files) and the codeunit's OnRun (it runs before every method, isolation included, so it is never order-dependent). "
-  + "Writes to temporary records count as writes (false positives; al-sem#65). "
-  + "table null = al-sem could not resolve the table; digest does not load dependencies, so every base-app table (e.g. Customer) is null (al-sem#66): a weak hint.";
+  + "Writes to temporary records are dropped and dependency tables (e.g. Customer) resolve from al-sem 1.7.0; "
+  + "with an older al-sem they count as writes and stay null. table null = al-sem could not resolve the table: a weak hint.";
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Json) : {});
@@ -122,6 +122,7 @@ export function digestWrites(payload: Json): DigestWrites {
       if (type === "COMMIT" && arr(effect["guarantees"]).includes("WRITE_COMMITTED_BEFORE_RETURN")) explicitCommit.add(key);
       if (type !== "DB_INSERT" && type !== "DB_MODIFY" && type !== "DB_DELETE") continue;
       const detail = obj(effect["detail"]);
+      if (detail["tempState"] === "known(true)") continue; // temp-only write (al-sem >= 1.7.0, #65)
       const id = str(detail["resourceId"]);
       const table = id ? { id, name: str(detail["resourceDisplay"]) ?? null } : null;
       const tables = writes.get(key) ?? new Map();

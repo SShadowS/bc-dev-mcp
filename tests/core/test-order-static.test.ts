@@ -75,6 +75,13 @@ describe("static order-pollution prediction (recorded al-sem output, demos/order
     expect(pairs[0]!.reason).toContain("could not resolve");
   });
 
+  test("temp-only writes (al-sem 1.7.0 tempState known(true)) are not polluting writes", () => {
+    const routine = { stableId: `a:Codeunit:${CU}#x`, display: "FillBuffer" };
+    const effect = (tempState: string) => ({ type: "DB_INSERT", detail: { resourceId: "a/table/18", tempState } });
+    expect(digestWrites({ entries: [{ routine, coverage: { status: "complete" }, effects: [effect("known(true)")] }] }).writes.size).toBe(0);
+    expect(digestWrites({ entries: [{ routine, coverage: { status: "complete" }, effects: [effect("known(false)")] }] }).writes.size).toBe(1);
+  });
+
   test("isolation: no pair across codeunits, none upward, none from AutoRollback", async () => {
     const digest = digestWrites(payload(fixture("digest.json"), "digest"));
     const touches = new Map([[FLAG, touchingRoutines(payload(fixture("touches-50160.json"), "query.touches"))]]);
