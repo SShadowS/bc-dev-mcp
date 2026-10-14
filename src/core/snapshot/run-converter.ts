@@ -18,7 +18,7 @@ export function runSnapshotJsonWith(opts: { timeoutMs: number; jsonBytes: number
     const out = join(tmpdir(), `bc-dev-mcp-snapshot-${randomUUID()}.json`);
     try {
       const res = await new Promise<{ code: number | null; stderr: string; timedOut: boolean }>((resolve) => {
-        const child = spawn(binary, [...(opts.argsPrefix ?? []), zipPath, out, "--format", "snapshot-json"], { stdio: ["ignore", "ignore", "pipe"], windowsHide: true, env: process.env });
+        const child = spawn(binary, [...(opts.argsPrefix ?? []), zipPath, out, "--format", "snapshot-json"], { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
         let stderr = "";
         let timedOut = false;
         const timer = setTimeout(() => { timedOut = true; child.kill(); }, opts.timeoutMs);

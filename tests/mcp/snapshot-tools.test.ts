@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFil
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { BcDevError } from "../../src/core/agent-errors";
+import { agentErrorBody } from "../../src/mcp/agent-errors";
 import { createAuthorizationProviderFactory } from "../../src/core/authorization";
 import { ServerState, type ProfileCapture } from "../../src/mcp/state";
 import { createSnapshotTools } from "../../src/mcp/tools/snapshot-tools";
@@ -161,25 +162,25 @@ describe("snapshot tools", () => {
     expect(t.state.capture).toBeNull();
   });
 
-  test("6. outPath: existing without overwrite is INVALID_ARGUMENT after releasing; missing folder INVALID_ARGUMENT; overwrite writes", async () => {
+  test("6. outPath: a bad path on an owned capture is INVALID_ARGUMENT before any finish request and keeps it armed; a retry with a good path succeeds", async () => {
     const existing = join(s.cwd, "taken.zip");
     writeFileSync(existing, "old");
-    await s.call("bcdev_snapshot_start", SNAP);
+    const start = await s.call("bcdev_snapshot_start", SNAP);
     const e = await s.fail("bcdev_snapshot_finish", { outPath: existing });
     expect(e.code).toBe("INVALID_ARGUMENT");
-    expect(e.details).toMatchObject({ released: true });
-    expect(finishes(s)).toBe(1);
-    expect(s.state.capture).toBeNull();
+    expect(finishes(s)).toBe(0);
+    expect(s.state.capture).toMatchObject({ phase: "armed", snapshotId: start["snapshotId"] });
     expect(readFileSync(existing, "utf8")).toBe("old");
 
-    await s.call("bcdev_snapshot_start", SNAP);
     expect((await s.fail("bcdev_snapshot_finish", { outPath: join(s.cwd, "no-such-dir", "x.zip") })).code).toBe("INVALID_ARGUMENT");
-    expect(s.state.capture).toBeNull();
+    expect(finishes(s)).toBe(0);
+    expect(s.state.capture?.phase).toBe("armed");
 
-    await s.call("bcdev_snapshot_start", SNAP);
     const fin = await s.call("bcdev_snapshot_finish", { outPath: existing, overwrite: true });
     expect(fin["zipPath"]).toBe(existing);
     expect(Buffer.compare(readFileSync(existing), ZIP)).toBe(0);
+    expect(finishes(s)).toBe(1);
+    expect(s.state.capture).toBeNull();
   });
 
   test("7a. status and finish during attach are PROFILE_ACTIVE phase attaching", async () => {
@@ -213,7 +214,8 @@ describe("snapshot tools", () => {
     await s.call("bcdev_snapshot_start", SNAP);
     s.fake.routes["finish"] = () => { throw new TypeError("fetch failed"); };
     const e = await s.fail("bcdev_snapshot_finish");
-    expect(e).toMatchObject({ code: "SERVER_REJECTED", retryable: true });
+    expect(e).toMatchObject({ code: "TIMEOUT", retryable: true, details: { phase: "uncertain" } });
+    expect(agentErrorBody("bcdev_snapshot_finish", e).nextSteps[0]).toContain("bcdev_snapshot_finish again (same snapshotId)");
     expect(s.state.capture?.phase).toBe("uncertain");
     expect((await s.fail("bcdev_snapshot_start", SNAP)).code).toBe("PROFILE_ACTIVE");
     expect(await s.call("bcdev_snapshot_status")).toMatchObject({ status: "Started" });
@@ -260,6 +262,7 @@ describe("snapshot tools", () => {
     s.fake.routes["finish"] = () => new Response("", { status: 404 });
     const e = await s.fail("bcdev_snapshot_finish");
     expect(e).toMatchObject({ code: "SERVER_REJECTED", retryable: false, details: { lostContext: true } });
+    expect(agentErrorBody("bcdev_snapshot_finish", e).nextSteps[0]).toBe("The capture ended on the server; call bcdev_snapshot_start to arm a new one.");
     expect(s.state.capture).toBeNull();
 
     await s.call("bcdev_snapshot_start", SNAP);
@@ -279,9 +282,10 @@ describe("snapshot tools", () => {
   test("8b. attach with no answer releases the slot and returns the debuggingContext for orphan recovery", async () => {
     s.fake.routes["attach"] = () => { throw new TypeError("fetch failed"); };
     const e = await s.fail("bcdev_snapshot_start", SNAP);
-    expect(e).toMatchObject({ code: "SERVER_REJECTED", retryable: true, details: { attachUncertain: true } });
+    expect(e).toMatchObject({ code: "TIMEOUT", retryable: false, details: { attachUncertain: true } });
     const sent = s.fake.calls.find((c) => c.op === "attach")!.url.searchParams.get("debuggingcontext");
     expect(e.details["debuggingContext"]).toBe(sent);
+    expect(agentErrorBody("bcdev_snapshot_start", e).nextSteps[0]).toContain(`bcdev_snapshot_finish { debuggingContext: '${sent}' }`);
     expect(s.state.capture).toBeNull();
   });
 
@@ -337,5 +341,43 @@ describe("snapshot tools", () => {
     const e = await s.fail("bcdev_snapshot_start", { snappoints: [{ file: "src/TriggerDemoPage.Page.al", line: 99 }] });
     expect(e.code).toBe("INVALID_ARGUMENT");
     expect(s.fake.calls).toHaveLength(0);
+  });
+
+  test("M11. sessionId 0 and negatives other than -1 are INVALID_ARGUMENT before anything is sent; -1 and >= 1 pass", async () => {
+    for (const sessionId of [0, -2]) expect((await s.fail("bcdev_snapshot_start", { sessionId })).code).toBe("INVALID_ARGUMENT");
+    expect(s.fake.calls).toHaveLength(0);
+    await s.call("bcdev_snapshot_start", { sessionId: 7 });
+    expect((s.fake.calls.find((c) => c.op === "attach")!.body as Record<string, unknown>)["SessionId"]).toBe(7);
+  });
+
+  test("M7. an orphan debuggingContext equal to the active profile's context names bcdev_profile_finish", async () => {
+    s.state.capture = {
+      captureKind: "profile", profileId: "p1", profileKind: "sampling", debuggingContext: "ctx-p", affinityCookie: null, attachKind: "x",
+      snapshotPort: 7083, config: conn as never, authorization: {} as never, startedAt: "t", token: Symbol(), phase: "armed",
+    } satisfies ProfileCapture;
+    const e = await s.fail("bcdev_snapshot_finish", { debuggingContext: "ctx-p" });
+    expect(e.code).toBe("PROFILE_ACTIVE");
+    expect(e.details).toMatchObject({ capture: "profile", ownerFinishTool: "bcdev_profile_finish" });
+    expect(s.fake.calls).toHaveLength(0);
+  });
+
+  test("M8. the raw warning carries the resolver's reason when the converter is unavailable", async () => {
+    const converter = { binary: async () => null, resolve: async () => ({ source: "unavailable" as const, path: null, reason: "download disabled (BC_MDC_CONVERTER_DOWNLOAD=0)" }) };
+    const t = setup({ resolveConverter: async () => null });
+    const state = new ServerState();
+    const tools = new Map(createSnapshotTools(state, { ...({ hubFactory: null, authorizationFactory: createAuthorizationProviderFactory(), fetchFn: t.fake.fetchFn, env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" }, cwd: t.cwd, converter } as unknown as ToolDeps) }, {
+      runJson: async () => ({ ok: true, json: {} }), saveDir: t.saveDir, resolveConverter: async () => null,
+    }).map((x) => [x.name, x]));
+    await tools.get("bcdev_snapshot_start")!.handler({ ...conn, ...SNAP });
+    const fin = (await tools.get("bcdev_snapshot_finish")!.handler({ ...conn })) as Record<string, unknown>;
+    expect(fin["decodeStatus"]).toBe("raw");
+    expect((fin["warnings"] as string[])[0]).toContain("download disabled");
+  });
+
+  test("M4. an attach that times out is TIMEOUT attachUncertain (not a generic error)", async () => {
+    s.fake.routes["attach"] = () => { throw new DOMException("The operation timed out.", "TimeoutError"); };
+    const e = await s.fail("bcdev_snapshot_start", SNAP);
+    expect(e).toMatchObject({ code: "TIMEOUT", details: { attachUncertain: true } });
+    expect(s.state.capture).toBeNull();
   });
 });

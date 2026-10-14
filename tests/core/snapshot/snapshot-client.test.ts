@@ -232,4 +232,16 @@ describe("SnapshotClient", () => {
       });
     }
   });
+
+  test("M4. a request that never answers is aborted by the timeout (finish has its own, longer one)", async () => {
+    const hang = ((_u: RequestInfo | URL, init?: RequestInit) =>
+      new Promise((_, reject) => init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason)))) as unknown as typeof fetch;
+    const c = new SnapshotClient(hang, cfg as never, 7083, auth, { requestMs: 20, finishMs: 80 });
+    for (const op of [() => c.metadata(), () => c.status("ctx", null), () => c.attachSampling({ debuggingContext: "ctx", clientType: "WebClient", samplingIntervalMs: 100, sessionId: -1 } as never)]) {
+      expect(await op().catch((e: Error) => e.name)).toBe("TimeoutError");
+    }
+    const t0 = Date.now();
+    expect(await c.finish("ctx", null).catch((e: Error) => e.name)).toBe("TimeoutError");
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(60);
+  });
 });

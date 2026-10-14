@@ -38,6 +38,10 @@ export interface FinishResult {
 
 const AFFINITY = "ApplicationGatewayAffinity";
 
+/** An unanswered request must not hold the capture slot forever; finish may stream a large archive. */
+export const SNAPSHOT_REQUEST_TIMEOUT_MS = 60_000;
+export const SNAPSHOT_FINISH_TIMEOUT_MS = 300_000;
+
 export class SnapshotHttpError extends Error {
   constructor(public readonly operation: string, public readonly status: number, public readonly bodySnippet: string) {
     super(`${operation} HTTP ${status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
@@ -59,7 +63,12 @@ export class SnapshotClient {
     private config: ConnectionConfig,
     private snapshotPort: number,
     private authorization: AuthorizationProvider,
+    private timeouts: { requestMs: number; finishMs: number } = { requestMs: SNAPSHOT_REQUEST_TIMEOUT_MS, finishMs: SNAPSHOT_FINISH_TIMEOUT_MS },
   ) {}
+
+  private signal(finish = false): AbortSignal {
+    return AbortSignal.timeout(finish ? this.timeouts.finishMs : this.timeouts.requestMs);
+  }
 
   private async headers(affinityCookie: string | null, json: boolean): Promise<Record<string, string>> {
     const h: Record<string, string> = { Authorization: await this.authorization.getAuthorizationHeader() };
@@ -83,6 +92,7 @@ export class SnapshotClient {
   async metadata(): Promise<SnapshotMetadata> {
     const res = await this.fetchFn(snapshotUrl(this.config, "snapshotendpointmetadata", this.snapshotPort), {
       headers: { Authorization: await this.authorization.getAuthorizationHeader() },
+      signal: this.signal(),
     });
     if (!res.ok) throw await this.responseError("snapshot metadata", res);
     return (await res.json()) as SnapshotMetadata;
@@ -94,6 +104,7 @@ export class SnapshotClient {
       method: "POST",
       headers: await this.headers(null, true),
       body: JSON.stringify(buildSamplingAttachBody(p)),
+      signal: this.signal(),
     });
     if (!res.ok) throw await this.responseError("snapshot attach", res);
     const affinityCookie = this.readAffinityCookie(res);
@@ -107,6 +118,7 @@ export class SnapshotClient {
       method: "POST",
       headers: await this.headers(null, true),
       body: JSON.stringify(buildDebugAttachBody(p)),
+      signal: this.signal(),
     });
     if (!res.ok) throw await this.responseError("snapshot attach", res);
     const affinityCookie = this.readAffinityCookie(res);
@@ -120,6 +132,7 @@ export class SnapshotClient {
       method: "POST",
       headers: await this.headers(null, true),
       body: JSON.stringify(buildInstrumentationAttachBody(p)),
+      signal: this.signal(),
     });
     if (!res.ok) throw await this.responseError("snapshot attach", res);
     const affinityCookie = this.readAffinityCookie(res);
@@ -141,6 +154,7 @@ export class SnapshotClient {
       method: "POST",
       headers: await this.headers(affinityCookie, true),
       body: JSON.stringify({ DebuggingContext: debuggingContext }),
+      signal: this.signal(),
     });
     if (!res.ok) throw await this.responseError("snapshot status", res);
     const text = await res.text();
@@ -162,6 +176,7 @@ export class SnapshotClient {
       method: "POST",
       headers: await this.headers(affinityCookie, true),
       body: JSON.stringify({ DebuggingContext: debuggingContext }),
+      signal: this.signal(true),
     });
     if (!res.ok) throw await this.responseError("snapshot finish", res);
     const tooBig = () => new SnapshotHttpError("snapshot finish", res.status, `response exceeds the ${maxBytes}-byte limit`);

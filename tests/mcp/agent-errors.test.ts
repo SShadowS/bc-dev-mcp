@@ -87,6 +87,15 @@ describe("agent errors", () => {
     expect(agentErrorBody("bcdev_snapshot_finish", none).nextSteps.join(" ")).toContain("bcdev_snapshot_start");
   });
 
+  test("snapshot error states get specific recovery steps", () => {
+    const attach = new BcDevError("TIMEOUT", "x", "network", false, { debuggingContext: "ctx-1", attachUncertain: true });
+    expect(agentErrorBody("bcdev_snapshot_start", attach).nextSteps[0]).toBe("Call bcdev_snapshot_finish { debuggingContext: 'ctx-1' } to recover or release the capture.");
+    const fin = new BcDevError("TIMEOUT", "x", "network", true, { snapshotId: "s", phase: "uncertain" });
+    expect(agentErrorBody("bcdev_snapshot_finish", fin).nextSteps[0]).toBe("Call bcdev_snapshot_finish again (same snapshotId).");
+    const lost = new BcDevError("SERVER_REJECTED", "x", "server", false, { lostContext: true });
+    expect(agentErrorBody("bcdev_snapshot_status", lost).nextSteps[0]).toBe("The capture ended on the server; call bcdev_snapshot_start to arm a new one.");
+  });
+
   test("serializes a redacted machine-readable error with recovery steps", () => {
     const body = agentErrorBody(
       "bcdev_debug_wait",
