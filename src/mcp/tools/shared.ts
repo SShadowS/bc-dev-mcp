@@ -285,6 +285,15 @@ export const runTestsOutputSchema = z.looseObject({
     mergeBase: z.string().nullable().describe("Merge-base stamp from coverageAgainst, or null when none was given"),
     warnings: z.array(z.string()).describe("Stamp, completeness, name-resolution or write warnings"),
   }).optional().describe("Coverage-map artefact summary when coverageMapFile was requested"),
+  coverageReport: z.object({
+    file: z.string().describe("Absolute path of the Cobertura XML file"),
+    written: z.boolean().describe("false when the file could not be written; the reason is in warnings and test results are unaffected"),
+    format: z.literal("cobertura").describe("Report format"),
+    procedures: z.number().describe("Project procedures in the report (one Cobertura method each)"),
+    covered: z.number().describe("Reported procedures reached by at least one test"),
+    complete: z.boolean().describe("false when the run aborted, a coverage payload was missing or source discovery was incomplete; hits 0 then proves nothing"),
+    warnings: z.array(z.string()).describe("Completeness, omitted-procedure, other-app or write warnings"),
+  }).optional().describe("Cobertura export summary when coberturaFile was requested"),
 });
 
 export const variableNodeSchema = z.looseObject({

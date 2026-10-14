@@ -32,9 +32,12 @@ export interface ConnectionOverrides {
   password?: string;
 }
 
-export type CoverageMode = "none" | "line" | "procedure";
-// WIRE: CoverageMode enum order from lmt-decomp .../TestRunning/CoverageMode.cs
-export const COVERAGE_MODE_WIRE: Record<CoverageMode, number> = { none: 0, line: 1, procedure: 2 };
+export type CoverageMode = "none" | "procedure";
+// WIRE: CoverageMode enum order from lmt-decomp .../TestRunning/CoverageMode.cs (None=0, Line=1,
+// Procedure=2, All=3). Legacy Initialize modes 1/2/3 return byte-identical procedure-only payloads
+// (no line numbers, no hit counts) and InitializeCoverage ("Method does not exist") is absent on
+// Dev API 7.0 (live Cronus29 2026-10-15; BC28 2026-07-03), so only none/procedure are offered.
+export const COVERAGE_MODE_WIRE: Record<CoverageMode, number> = { none: 0, procedure: 2 };
 
 export type TestStatus = "passed" | "failed" | "skipped";
 // WIRE: TestResultStatus enum order from lmt-decomp .../TestRunning/TestResultStatus.cs
@@ -109,6 +112,15 @@ export interface RunTestsResult {
     tests: number;
     complete: boolean;
     mergeBase: string | null;
+    warnings: string[];
+  };
+  coverageReport?: {
+    file: string;
+    written: boolean;
+    format: "cobertura";
+    procedures: number;
+    covered: number;
+    complete: boolean;
     warnings: string[];
   };
 }

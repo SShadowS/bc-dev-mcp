@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -55,7 +56,7 @@ function setup(
     ...overrides,
   };
   const tools = new Map(createTools(state, deps).map((t) => [t.name, t]));
-  return { state, tools };
+  return { state, tools, deps };
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
@@ -355,9 +356,74 @@ describe("tools", () => {
     const { tools } = setup(hub);
     await expect(tools.get("bcdev_test_run")!.handler({
       codeunits: [{ id: 50100 }],
-      coverage: "line",
+      coverage: "none",
       coverageMapFile: "coverage-map.json",
     })).rejects.toThrow(/coverageMapFile requires coverage: 'procedure'/);
+  });
+
+  test("coverage 'line' is no longer an accepted mode", () => {
+    const { tools } = setup(hub);
+    const schema = z.object(tools.get("bcdev_test_run")!.schema);
+    expect(schema.safeParse({ codeunits: [{ id: 50100 }], coverage: "line" }).success).toBe(false);
+    expect(schema.safeParse({ codeunits: [{ id: 50100 }], coverage: "procedure" }).success).toBe(true);
+  });
+
+  test("coberturaFile implies procedure coverage and writes project-relative Cobertura XML", async () => {
+    const { tools, deps } = setup(hub);
+    mkdirSync(join(deps.cwd, "src"));
+    writeFileSync(join(deps.cwd, "src", "Calc.Codeunit.al"),
+      'codeunit 50110 "Calc"\n{\n    procedure Calc()\n    begin\n    end;\n\n    procedure Unused()\n    begin\n    end;\n}\n');
+    const calcId = calculateProcedureMethodId("Calc", { navTypeKind: 0, symbolKind: 2 }, [], 16).methodId!;
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => {
+        hub.emit("TestCompleted", 50100, "A", 0, "", 5);
+        hub.emit("TestRunCompleted", {
+          Tests: [{ ApplicationObjectId: 50100, MethodId: 1, CoveredProcedures: [
+            { ObjectType: 5, ObjectId: 50110, MethodId: calcId }, { ObjectType: 1, ObjectId: 18, MethodId: 4 },
+          ] }],
+        });
+      });
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }], coberturaFile: "coverage.cobertura.xml" }) as {
+      coverageReport: { file: string; written: boolean; format: string; procedures: number; covered: number; complete: boolean; warnings: string[] };
+    };
+    expect(hub.invoked("Initialize")[0]?.args[2]).toBe(2);
+    expect(result.coverageReport).toMatchObject({ written: true, format: "cobertura", procedures: 2, covered: 1, complete: true });
+    expect(result.coverageReport.warnings.join(" ")).toContain("1 covered procedure(s)");
+    expect(() => tools.get("bcdev_test_run")!.outputSchema.parse(result)).not.toThrow();
+    const xml = readFileSync(result.coverageReport.file, "utf8");
+    expect(xml).toContain('filename="src/Calc.Codeunit.al"');
+    expect(xml).toContain(`<method name="Calc" signature="${calcId}" line-rate="1"`);
+    expect(xml).not.toContain('"T.Codeunit"');
+  });
+
+  test("coberturaFile rejects coverage 'none' before RunTests and releases the lock", async () => {
+    const { state, tools } = setup(hub);
+    const error = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }], coverage: "none", coberturaFile: "c.xml",
+    }).catch((caught: Error) => caught);
+    expect(error).toMatchObject({ code: "INVALID_ARGUMENT", message: expect.stringContaining("coberturaFile requires coverage: 'procedure'") });
+    expect(state.testRunActive).toBe(false);
+    expect(hub.invoked("RunTests")).toHaveLength(0);
+  });
+
+  test("an unwritable coberturaFile is nonfatal and guides a rerun", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => {
+        hub.emit("TestCompleted", 50100, "A", 0, "", 5);
+        hub.emit("TestRunCompleted", { Tests: [{ ApplicationObjectId: 50100, MethodId: 1, CoveredProcedures: [] }] });
+      });
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({
+      codeunits: [{ id: 50100 }], coberturaFile: join("no-such-dir", "c.xml"),
+    }) as { results: unknown[]; coverageReport: { written: boolean; warnings: string[] }; nextSteps: string[] };
+    expect(result.results).toHaveLength(1);
+    expect(result.coverageReport.written).toBe(false);
+    expect(result.coverageReport.warnings.length).toBeGreaterThan(0);
+    expect(result.nextSteps.join(" ")).toContain("coberturaFile path is writable");
   });
 
   test("coverageAgainst reports uncovered changed procedures and gives rerun guidance", async () => {
@@ -539,7 +605,7 @@ describe("tools", () => {
         return { baseRef, mergeBase: "d".repeat(40), head: "workingTree", nonAlFiles: [], unresolvedAlFiles: [], files: [] };
       },
     });
-    for (const coverage of ["none", "line"] as const) {
+    for (const coverage of ["none"] as const) {
       const error = await tools.get("bcdev_test_run")!.handler({
         codeunits: [{ id: 50100 }],
         coverageAgainst: "origin/main",

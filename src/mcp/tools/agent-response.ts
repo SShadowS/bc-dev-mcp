@@ -54,6 +54,9 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
           Number(gaps?.summary?.["unattributedChanges"] ?? 0) === 0) {
         steps.push("Review coverageGaps warnings and resolve incomplete discovery or an aborted run before using the result as a gate.");
       }
+      if ((result["coverageReport"] as { written?: boolean } | undefined)?.written === false) {
+        steps.push("Check the coberturaFile path is writable (its directory must exist), then rerun bcdev_test_run.");
+      }
       return steps;
     }
     case "bcdev_test_orchestrate": {

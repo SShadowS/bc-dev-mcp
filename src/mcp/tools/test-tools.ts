@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { writeFile } from "node:fs/promises";
 import { relative as relativePath, resolve as resolvePath } from "node:path";
 import { AL_OBJECT_TYPE, AlObjectIndex, discoverTestRunners, discoverTests } from "../../core/al-objects";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
@@ -7,6 +8,7 @@ import type { CoverageEntry, CoverageMode, RunTestsResult } from "../../core/typ
 import { enrichTestRun, mapTestRunSources, testRunNeedsSourceMapping } from "../../core/agent-results";
 import { AlProcedureDiscoveryCache, discoverAlProcedureIdentities, discoverTestMethodIdentities } from "../../core/al-procedures";
 import { analyzeCoverageGaps } from "../../core/coverage-gaps";
+import { buildCobertura } from "../../core/cobertura";
 import { buildCoverageMap, readCoverageMap, writeCoverageMap, type TestMethodName } from "../../core/coverage-map";
 import { annotateRisk, sortByRisk } from "../../core/risk";
 import { selectTests } from "../../core/test-selection";
@@ -144,6 +146,45 @@ async function testMethodNames(project: string, coverage: CoverageEntry[], deps:
   } catch {
     return [];
   }
+}
+
+async function prepareCobertura(project: string, deps: ToolDeps) {
+  const index = await cachedObjectIndex(project, deps);
+  const root = resolvePath(project);
+  const discovered = await discoverAlProcedureIdentities(
+    project,
+    index.all().map((ref) => relativePath(root, ref.file)),
+    procedureDiscoveryCache(deps),
+  );
+  const excluded = new Set((await discoverTests(project)).map((t) => `${AL_OBJECT_TYPE.codeunit}|${t.codeunitId}`));
+  const triggers = discovered.unsupportedExecutables.filter((t) => !excluded.has(`${t.objectType}|${t.objectId}`)).length;
+  return { discovered, excluded, triggers };
+}
+
+async function writeCoberturaReport(
+  file: string,
+  result: RunTestsResult,
+  { discovered, excluded, triggers }: Awaited<ReturnType<typeof prepareCobertura>>,
+): Promise<NonNullable<RunTestsResult["coverageReport"]>> {
+  const report = buildCobertura(result.coverage ?? [], discovered.procedures, excluded);
+  const complete = result.coverageComplete === true && result.runAborted !== true && discovered.complete;
+  const warnings: string[] = [];
+  if (!complete) {
+    warnings.push("The run aborted, Business Central omitted a coverage payload, or local procedure discovery was incomplete; uncovered entries (hits 0) prove nothing.");
+  }
+  if (report.unidentified > 0) warnings.push(`${report.unidentified} procedure(s) have no compiler method identity and are omitted from the report.`);
+  if (triggers > 0) warnings.push(`${triggers} trigger(s) are omitted: procedure coverage carries no method identity for triggers.`);
+  if (report.outside > 0) {
+    warnings.push(`${report.outside} covered procedure(s) match no procedure of this project (other apps, or a local identity mismatch) and are not in the report.`);
+  }
+  let written = true;
+  try {
+    await writeFile(file, report.xml, "utf8");
+  } catch (error) {
+    written = false;
+    warnings.push(`Cobertura file could not be written: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return { file, written, format: "cobertura", procedures: report.procedures, covered: report.covered, complete, warnings };
 }
 
 async function mapOrchestrationSources(
@@ -320,7 +361,7 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
     {
       name: "bcdev_test_run",
       title: "Run AL tests",
-      description: "Run AL tests on the BC server. Per-method results and optional procedure coverage; coverageAgainst also reports which Git-changed procedures this run did not exercise.",
+      description: "Run AL tests on the BC server. Per-method results and optional procedure coverage (coberturaFile writes it as Cobertura XML for CI); coverageAgainst also reports which Git-changed procedures this run did not exercise.",
       // destructiveHint:false assumes BC test isolation (TestIsolation=Codeunit) rolls back data changes.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       outputSchema: runTestsOutputSchema,
@@ -329,14 +370,17 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
         codeunits: codeunitsShape,
         company: z.string().optional().describe("BC company name (default: the server's default company)"),
         coverage: z
-          .enum(["none", "line", "procedure"])
+          .enum(["none", "procedure"])
           .optional()
-          .describe("Code coverage: 'procedure' is validated against real BC; 'line' is unproven — prefer 'procedure'. Default 'none'."),
+          .describe("Code coverage. 'procedure' reports which procedures each test reached. Line-level coverage is not available: Business Central sends line data only over the Dev API 8.0 coverage-export protocol, which BC28/BC29 servers (Dev API 7.0) do not offer. Default 'none'."),
         coverageAgainst: z.string().min(1).optional().describe(
           "Git base ref for changed-procedure gap analysis (for example origin/main). Compares its merge-base with HEAD to the current working tree, includes untracked AL files, and requires/implies procedure coverage.",
         ),
         coverageMapFile: z.string().min(1).optional().describe(
           "Write a versioned per-test procedure-coverage map (format bc-dev-mcp.coverage-map v1: test codeunit/method name/methodId -> covered procedure identities, stamped with the coverageAgainst merge base) to this JSON file, relative to the project. Requires/implies procedure coverage; overwrites the file.",
+        ),
+        coberturaFile: z.string().min(1).optional().describe(
+          "Write procedure coverage as Cobertura XML (the layout of altool runtests --coverage-format cobertura) to this file, relative to the project; overwrites it. One class per AL source file with project-relative filename, one method per procedure (hits = number of tests that reached it, 0 when none). Requires/implies procedure coverage. Test codeunits and triggers are omitted.",
         ),
         changesDeployed: z.literal(true).optional().describe(
           "Explicit assertion that the current working-tree versions of changed AL objects are deployed to this server. Required for covered/uncovered classifications because procedure coverage does not carry an app or source hash.",
@@ -349,12 +393,17 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           const coverageAgainst = params["coverageAgainst"] as string | undefined;
           const changesDeployed = params["changesDeployed"] === true;
           const coverageMapFile = params["coverageMapFile"] as string | undefined;
+          const coberturaFile = params["coberturaFile"] as string | undefined;
           const requestedCoverage = params["coverage"] as CoverageMode | undefined;
-          const forcesProcedure = coverageAgainst !== undefined || coverageMapFile !== undefined;
+          const forcedBy = coverageAgainst !== undefined ? "coverageAgainst"
+            : coverageMapFile !== undefined ? "coverageMapFile"
+            : coberturaFile !== undefined ? "coberturaFile"
+            : undefined;
+          const forcesProcedure = forcedBy !== undefined;
           if (forcesProcedure && requestedCoverage !== undefined && requestedCoverage !== "procedure") {
             throw new BcDevError(
               "INVALID_ARGUMENT",
-              `${coverageAgainst !== undefined ? "coverageAgainst" : "coverageMapFile"} requires coverage: 'procedure' (or omit coverage to select procedure coverage automatically)`,
+              `${forcedBy} requires coverage: 'procedure' (or omit coverage to select procedure coverage automatically)`,
               "validation",
             );
           }
@@ -378,6 +427,8 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
                       procedureDiscoveryCache(deps),
                     ),
               }));
+          // Discover before the run so a missing app.json/runtime fails fast (CONFIGURATION_ERROR).
+          const coberturaPreparation = coberturaFile === undefined ? null : await prepareCobertura(project, deps);
           await requireTestRunningSupport(config, authorization, deps);
           const plannedGroups = params["codeunits"] as Array<{ id: number; methods?: string[] }>;
           // total is known only when every group names its methods
@@ -462,6 +513,9 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
               warnings.push(error instanceof Error ? error.message : String(error));
             }
             result.coverageMap = { file, written, tests: map.tests.length, complete: map.complete, mergeBase: map.mergeBase, warnings };
+          }
+          if (coberturaFile !== undefined && coberturaPreparation) {
+            result.coverageReport = await writeCoberturaReport(resolvePath(project, coberturaFile), result, coberturaPreparation);
           }
           return result;
         } finally {
