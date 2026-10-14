@@ -7,7 +7,7 @@ export interface StackFrame { object: { type: string | null; id: number | null; 
 export interface SourceWindow { entry: string; startLine: number; endLine: number; highlightLine: number; lines: string[] }
 export interface SnapshotPoint {
   reasons: Array<"snappoint" | "exception" | "recorded">; object: StackFrame["object"]; method: string; line: number | null;
-  entry: string; contextIndex: number | null; timestamp: string; stack: StackFrame[]; variables: Variables; source?: SourceWindow; message?: string;
+  entry: string; contextIndex: number | null; timestamp: string; stack: StackFrame[]; variables: Variables; source?: SourceWindow; message?: string; omittedVariables?: number;
 }
 export interface Projection { points: SnapshotPoint[]; omittedPoints: number; methodCount: number; classification: "complete" | "partial"; warnings: string[] }
 
@@ -64,8 +64,10 @@ export function projectSnapshot(doc: unknown, armed: ArmedSnappoint[] | null, re
   for (const p of points) {
     if (!Array.isArray(p.variables)) continue;
     if (budget <= 0) { p.variables = { unavailable: "variable budget used" }; continue; }
+    const roots = p.variables as Json[];
     const out: VariableNode[] = [];
-    for (const v of p.variables as Json[]) { if (budget <= 0) break; out.push(cap(v, 0)); }
+    for (const v of roots.slice(0, L.children)) { if (budget <= 0) break; out.push(cap(v, 0)); }
+    if (roots.length > out.length) p.omittedVariables = roots.length - out.length;
     p.variables = out;
   }
   // source windows: one bundled source per object type + id

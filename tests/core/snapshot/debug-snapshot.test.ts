@@ -66,6 +66,27 @@ describe("projectSnapshot (Cronus29 page 50152 capture)", () => {
     expect(node.children[0].children[0].omittedChildren).toBe(1);
     expect(p.points.some((x) => (x.variables as any).unavailable === "variable budget used")).toBe(true);
   });
+  test("root variables are capped at 50 and counted", () => {
+    const d = structuredClone(doc);
+    d.methods[0].lineContexts[0].variables = Array.from({ length: 60 }, (_, i) => ({ name: `r${i}`, type: "T", value: "x", hasChildren: false, children: [] }));
+    const snap = projectSnapshot(d, armed, readSource).points.find((x) => x.reasons.includes("snappoint"))!;
+    expect(snap.variables).toHaveLength(50);
+    expect(snap.omittedVariables).toBe(10);
+  });
+  test("budget running out mid-list counts the dropped roots and never overspends", () => {
+    const d = structuredClone(doc);
+    const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `r${i}`, type: "T", value: "x", hasChildren: false, children: [] }));
+    d.methods[0].lineContexts[0].variables = mk(45);
+    d.methods[0].lineContexts[1].variables = mk(45);
+    d.methods.push(...Array.from({ length: 60 }, (_, i) => ({ ...structuredClone(d.methods[0]), entry: `${300 + i}.mdc`, exception: null })));
+    const pts = projectSnapshot(d, armed, readSource).points;
+    const count = (n: any): number => 1 + n.children.reduce((a: number, c: any) => a + count(c), 0);
+    const total = pts.reduce((a, p) => a + (Array.isArray(p.variables) ? p.variables.reduce((b, n) => b + count(n), 0) : 0), 0);
+    expect(total).toBe(2000);
+    const cut = pts.find((p) => p.omittedVariables !== undefined && Array.isArray(p.variables) && p.variables.length < 45)!;
+    expect(cut.omittedVariables).toBe(45 - (cut.variables as unknown[]).length);
+    expect(pts.some((p) => (p.variables as any).unavailable === "variable budget used")).toBe(true);
+  });
   test("missing or ambiguous source -> no window and a warning", () => {
     const p = projectSnapshot(doc, armed, () => null);
     expect(p.points.every((x) => x.source === undefined)).toBe(true);
