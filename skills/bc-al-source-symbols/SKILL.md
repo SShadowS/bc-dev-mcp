@@ -1,9 +1,27 @@
 ---
 name: bc-al-source-symbols
-description: Retrieve deployed AL source or download one installed Business Central dependency symbol package without leaving the agent. Use when a debugger or coverage frame has no local file, or an AL project is missing one .app package in .alpackages.
+description: Retrieve deployed AL source, fill .alpackages with every symbol package app.json needs, or download one installed Business Central dependency package without leaving the agent. Use when a debugger or coverage frame has no local file, or an AL project is missing symbols in .alpackages.
 ---
 
 # Retrieve deployed AL source and package symbols
+
+## Fill .alpackages from app.json
+
+Call `bcdev_symbols_download {}` (or `{ project }`) when the compiler, al-sem, or coverage
+mapping is missing symbols. It reads `app.json` (`platform` -> Microsoft/System,
+`application` -> the Microsoft/Application concept, every `dependencies[]` entry) and follows
+each package's own dependencies until the whole closure is in `<project>/.alpackages`.
+
+- A package already in `.alpackages` at a satisfying version is `skipped` and not requested,
+  whatever its filename. Pass `force: true` to re-request everything; byte-identical results
+  report `unchanged`.
+- `dryRun: true` needs no connection or credentials: it lists the app.json references (not
+  their dependencies) as `skipped` or `missing`.
+- One package the server cannot supply is a `failed` entry with `error.code` (`NOT_FOUND`,
+  `TIMEOUT`, `SERVER_REJECTED`, `PROTOCOL_ERROR`); the rest still download and its own
+  dependencies are not explored. Authentication or connectivity failures abort the call.
+- Requests are sequential; a BC29 Application closure (five packages, ~75 MB) takes a few
+  seconds. `timeoutMs` and `maxBytes` apply per package.
 
 ## Read one server object
 
@@ -34,9 +52,11 @@ local cleanup warning before deleting any stale `.backup` file.
 
 ## Guardrails
 
-- The package tool downloads exactly one installed `.app`; it does not enumerate apps,
-  resolve transitive dependencies, or reproduce the AL extension's full Download Symbols
-  command. Repeat it only for package identities the project actually needs.
+- `bcdev_package_download` downloads exactly one installed `.app`; it does not enumerate apps
+  or resolve dependencies. Use `bcdev_symbols_download` for everything app.json needs.
+- Neither tool deletes or renames anything already in `.alpackages`. A newer download sits
+  next to an older copy of the same app (different filename); remove stale copies yourself if
+  the compiler complains about duplicates.
 - `version` is a minimum selector. Business Central can return a higher installed version,
   and the tool rejects a lower one or a mismatched name, publisher, or requested app ID.
 - The output directory is fixed to `.alpackages`; there is no arbitrary destination.
