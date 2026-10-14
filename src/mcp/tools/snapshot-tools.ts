@@ -14,9 +14,9 @@ import { runSnapshotJson, type SnapshotJsonRunner } from "../../core/snapshot/ru
 import { SnapshotClient, SnapshotHttpError, type FinishResult } from "../../core/snapshot/snapshot-client";
 import { normalizeSnappoints, toWireLocations, type ArmedSnappoint, type SnappointInput } from "../../core/snapshot/snappoints";
 import { extractEntry } from "../../core/snapshot/zip";
-import { DEFAULT_SNAPSHOT_PORT } from "../../core/urls";
+import { DEFAULT_API_PORT, DEFAULT_SNAPSHOT_PORT } from "../../core/urls";
 import { captureActiveError, type ServerState, type SnapshotCapture } from "../state";
-import { assertHandle, connectionShape, handleShape, resolve, SNAPSHOT_HANDLE, type ToolDefinition, type ToolDeps } from "./shared";
+import { assertHandle, claimTestRun, codeunitsShape, connectionShape, handleShape, resolve, resolveApiPort, SNAPSHOT_HANDLE, type ToolDefinition, type ToolDeps } from "./shared";
 
 const snapshotId = handleShape(SNAPSHOT_HANDLE);
 
@@ -70,6 +70,59 @@ function lostContextBody(body: Uint8Array): SnapshotHttpError | null {
   } catch {
     return null;
   }
+}
+
+// WIRE: Snapshot-context run_tests result shape (live Cronus29 2026-10-14); load-bearing fields only, the rest passes loose.
+const runResultSchema = z.looseObject({
+  success: z.boolean(),
+  codeunitResults: z.array(z.looseObject({
+    codeunitId: z.number(),
+    success: z.boolean(),
+    errorMessage: z.string().optional(),
+    testResults: z.array(z.looseObject({ methodName: z.string(), status: z.string(), message: z.string().optional() })),
+  })),
+  snapshotDebugging: z.looseObject({ attached: z.boolean(), verbosity: z.string().optional() }).optional(),
+});
+
+const RUN_UNREADABLE = "bc-dev-mcp could not read the run_tests result";
+const MAX_METHODS = 500;
+const MAX_MESSAGE = 2000;
+
+/** Never echoes the body into an error: it can hold application data. */
+function parseRunResult(result: Record<string, unknown>): Record<string, unknown> {
+  const content = Array.isArray(result["content"]) ? (result["content"] as Array<{ type?: unknown; text?: unknown }>) : [];
+  const block = content.find((b) => b?.type === "text");
+  const text = typeof block?.text === "string" ? block.text : "";
+  if (result["isError"] === true) {
+    throw new BcDevError("SERVER_REJECTED", redactAuthorization(text).slice(0, 300) || "run_tests failed", "server", false);
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new BcDevError("PROTOCOL_ERROR", RUN_UNREADABLE, "protocol", false);
+  }
+  const parsed = runResultSchema.safeParse(json);
+  if (!parsed.success) throw new BcDevError("PROTOCOL_ERROR", RUN_UNREADABLE, "protocol", false);
+  const r = parsed.data;
+  const cut = (s: string | undefined) => (s === undefined ? {} : { message: s.slice(0, MAX_MESSAGE) });
+  const attached = r.snapshotDebugging?.attached ?? null;
+  const warnings = attached === null
+    ? ["BC did not report whether this test run was attached to the capture"]
+    : attached ? [] : ["this test run was not attached to the capture"];
+  return {
+    attached,
+    ...(r.snapshotDebugging?.verbosity === undefined ? {} : { verbosity: r.snapshotDebugging.verbosity }),
+    success: r.success,
+    codeunits: r.codeunitResults.map((u) => ({
+      id: u.codeunitId,
+      success: u.success,
+      ...(u.errorMessage === undefined ? {} : { errorMessage: u.errorMessage.slice(0, MAX_MESSAGE) }),
+      methods: u.testResults.slice(0, MAX_METHODS).map((m) => ({ name: m.methodName, status: m.status, ...cut(m.message) })),
+      ...(u.testResults.length > MAX_METHODS ? { omittedMethods: u.testResults.length - MAX_METHODS } : {}),
+    })),
+    ...(warnings.length ? { warnings } : {}),
+  };
 }
 
 export function createSnapshotTools(
@@ -168,7 +221,7 @@ export function createSnapshotTools(
       description:
         "Arm a snapshot debugging capture on the BC server: the next matching session records the variables at each snappoint (an AL line, 1-based) and at any error it throws, without pausing it. " +
         "After this, TRIGGER the scenario (open the page in a browser or business-central-mcp), call bcdev_snapshot_status until ready, then bcdev_snapshot_finish to get decoded points. " +
-        "clientType WebClient is verified (also with userId or a running sessionId). WebServiceClient is experimental and records nothing usable: it binds an API/OData call, but Business Central drops the capture when that short session ends, so status/finish report it lost. Background and ClientService are experimental and unverified. Test runs cannot be captured this way (Business Central's own snapshot MCP is needed for that). " +
+        "clientType WebClient is verified (also with userId or a running sessionId). WebServiceClient is experimental and records nothing usable: it binds an API/OData call, but Business Central drops the capture when that short session ends, so status/finish report it lost. Background and ClientService are experimental and unverified. To capture an AL test run, call bcdev_snapshot_run_tests after start (verified on-prem). " +
         "One capture (profile or snapshot) at a time per tenant. " +
         DISCLOSURE,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
@@ -270,7 +323,7 @@ export function createSnapshotTools(
       outputSchema: z.looseObject({ status: z.enum(["Failed", "Initialized", "Started", "Finished"]), ready: z.boolean() }),
       handler: async (params) => {
         const c = requireSnapshot(params);
-        if (c.phase === "attaching" || c.phase === "finishing") throw captureActiveError(c, "snapshot");
+        if (c.phase === "attaching" || c.phase === "finishing" || c.phase === "testing") throw captureActiveError(c, "snapshot");
         try {
           const status = await new SnapshotClient(deps.fetchFn, c.config, c.snapshotPort, c.authorization).status(c.debuggingContext, c.affinityCookie);
           return { status, ready: status === "Started" };
@@ -368,6 +421,73 @@ export function createSnapshotTools(
         }
         release(c.token);
         return decode(fin, c.snappoints, params);
+      },
+    },
+    {
+      name: "bcdev_snapshot_run_tests",
+      title: "Run AL tests into the snapshot capture",
+      description:
+        "Run AL test codeunits attached to the armed bcdev_snapshot_start capture, through Business Central's native snapshot MCP run_tests, so the capture records the test run (a failing test's exception and variables). " +
+        "Needs an armed capture from bcdev_snapshot_start; on-prem only (cloud is refused). Returns per-method results (failed tests are ordinary results); then call bcdev_snapshot_finish to collect the recording. " +
+        "Uses the capture's connection; the MCP endpoint is on the API/OData port (apiPort, default BC_DEV_API_PORT or 7048). Test messages and BC errors can contain application data.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      schema: {
+        snapshotId,
+        codeunits: codeunitsShape.max(50).describe("Test codeunits to run (1-50)"),
+        company: z.string().trim().min(1).max(250).regex(/^[^\r\n]+$/, "company must not contain newline characters").optional().describe("Company name (default: BC's default company)"),
+        apiPort: z.number().int().min(1).max(65535).optional().describe("BC API/OData port of the MCP endpoint (default BC_DEV_API_PORT or 7048)"),
+        timeoutMs: z.number().int().min(1_000).max(300_000).optional().describe("Whole connect-and-run timeout in milliseconds (default 300000)"),
+      },
+      outputSchema: z.looseObject({
+        attached: z.boolean().nullable().describe("Whether BC attached the run to the capture; null when BC did not say"),
+        verbosity: z.string().optional(),
+        success: z.boolean(),
+        codeunits: z.array(z.looseObject({
+          id: z.number(),
+          success: z.boolean(),
+          errorMessage: z.string().optional(),
+          methods: z.array(z.looseObject({ name: z.string(), status: z.string(), message: z.string().optional() })),
+          omittedMethods: z.number().optional(),
+        })),
+        warnings: z.array(z.string()).optional(),
+      }),
+      handler: async (params) => {
+        const c = requireSnapshot(params);
+        if (c.phase !== "armed") throw captureActiveError(c, "snapshot");
+        if (c.config.environmentType !== "OnPrem") {
+          throw new BcDevError("UNSUPPORTED_SERVER", "snapshot test runs are verified on-prem only; cloud routing of a REST-armed context is unproven", "server", false, { environmentType: c.config.environmentType });
+        }
+        const config = c.config;
+        claimTestRun(state);
+        c.phase = "testing"; // same tick as the lock claim, before any await: finish/status are refused meanwhile
+        try {
+          const company = params["company"] as string | undefined;
+          const args = {
+            debuggingContext: c.debuggingContext,
+            testCases: (params["codeunits"] as Array<{ id: number; methods?: string[] }>).map((u) => ({
+              codeunitId: u.id, ...(u.methods?.length ? { testMethods: u.methods } : {}),
+            })),
+            ...(company === undefined ? {} : { companyName: company }),
+          };
+          // WIRE: Snapshot-context run_tests accepts a REST-armed debuggingContext and records into it (live Cronus29 2026-10-14)
+          const { result } = await deps.nativeMcpGateway.callTool({
+            kind: "onprem", config, apiPort: resolveApiPort(params, deps) ?? DEFAULT_API_PORT, authorization: c.authorization,
+            company, context: "snapshot", timeoutMs: (params["timeoutMs"] as number | undefined) ?? 300_000,
+          }, "run_tests", args);
+          return parseRunResult(result);
+        } catch (error) {
+          if (error instanceof BcDevError && error.code === "TIMEOUT" && error.details["timeoutPhase"] === "operation") {
+            throw new BcDevError(error.code, error.message, error.category, false, {
+              ...error.details,
+              upstreamRunCancelled: false,
+              warning: "BC may still be running these tests; wait, then call bcdev_snapshot_status / bcdev_snapshot_finish; do not start another test run yet.",
+            }, { cause: error });
+          }
+          throw error;
+        } finally {
+          state.testRunActive = false;
+          if (state.capture?.token === c.token && c.phase === "testing") c.phase = "armed";
+        }
       },
     },
   ];

@@ -142,6 +142,7 @@ const table: FailureTable = {
   },
   bcdev_snapshot_status: sessionScoped,
   bcdev_snapshot_finish: sessionScoped,
+  bcdev_snapshot_run_tests: sessionScoped,
   bcdev_source: connected({ objectType: 5, objectId: 50100 }),
   bcdev_package_download: connected({ publisher: "p", appName: "a", version: "1.0.0.0" }),
   bcdev_app_list: connected(),

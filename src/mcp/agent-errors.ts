@@ -83,6 +83,7 @@ function recoverySteps(
       if (details["heldElsewhere"] === true) {
         return [`Another client or an earlier bc-dev-mcp process holds this tenant's capture. Call ${owner} with its debuggingContext to release it, then start again.`];
       }
+      if (details["phase"] === "testing") return ["Wait for the bcdev_snapshot_run_tests call in progress to return, then retry."];
       if (details["phase"] === "attaching" || details["phase"] === "finishing") return ["Wait for the capture call in progress to return, then retry."];
       return [`Call ${owner} before starting another capture.`];
     }
@@ -134,6 +135,9 @@ function toolRecoverySteps(
     }
     if (code === "TIMEOUT" && details["phase"] === "uncertain") return ["Call bcdev_snapshot_finish again (same snapshotId)."];
     if (code === "SERVER_REJECTED" && details["lostContext"] === true) return ["The capture ended on the server; call bcdev_snapshot_start to arm a new one."];
+    if (code === "TIMEOUT" && tool === "bcdev_snapshot_run_tests" && details["upstreamRunCancelled"] === false) {
+      return ["BC may still be running these tests; wait, then call bcdev_snapshot_status / bcdev_snapshot_finish; do not start another test run yet."];
+    }
   }
   if (tool === "bcdev_app_publish" && code === "SERVER_REJECTED") {
     return ["If Business Central refused to replace an existing copy published at Global scope, call bcdev_app_list, then bcdev_app_uninstall and bcdev_app_unpublish for that appId, and retry bcdev_app_publish."];

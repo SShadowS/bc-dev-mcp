@@ -10,7 +10,7 @@ import type { BreakpointSpec, ConnectionConfig, DebuggerEvent, RunTestsResult } 
 
 const QUEUE_CAP = 100;
 
-export type CapturePhase = "attaching" | "armed" | "finishing" | "uncertain";
+export type CapturePhase = "attaching" | "armed" | "finishing" | "uncertain" | "testing";
 
 interface CaptureBase {
   debuggingContext: string;

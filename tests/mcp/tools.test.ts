@@ -99,6 +99,7 @@ describe("tools", () => {
       "bcdev_record_writes_start",
       "bcdev_record_writes_status",
       "bcdev_snapshot_finish",
+      "bcdev_snapshot_run_tests",
       "bcdev_snapshot_start",
       "bcdev_snapshot_status",
       "bcdev_source",

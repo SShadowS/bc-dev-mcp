@@ -186,7 +186,12 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
         ? [AL_PERF_HINT, "Instrumentation self-time is deterministic call-time, not statistical."]
         : [AL_PERF_HINT];
     case "bcdev_snapshot_start":
-      return ["Trigger the scenario now (open the page, start the job; business-central-mcp can drive a WebClient session), then call bcdev_snapshot_status until ready, then bcdev_snapshot_finish."];
+      return ["Trigger the scenario now (open the page, start the job; business-central-mcp can drive a WebClient session), then call bcdev_snapshot_status until ready, then bcdev_snapshot_finish (for an AL test run: bcdev_snapshot_run_tests)."];
+    case "bcdev_snapshot_run_tests":
+      return [
+        "Call bcdev_snapshot_finish to collect the captured points (the failing test's exception and variables).",
+        ...(result["attached"] === true ? [] : ["This run was not attached; finish may not contain it."]),
+      ];
     case "bcdev_snapshot_status":
       switch (result["status"]) {
         case "Initialized":

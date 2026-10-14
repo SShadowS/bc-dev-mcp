@@ -93,9 +93,9 @@ describe("snapshot tools", () => {
   let s: Setup;
   beforeEach(() => { s = setup(); });
 
-  test("registers the three tools", () => {
+  test("registers the four tools", () => {
     expect([...createSnapshotTools(new ServerState(), {} as ToolDeps).map((t) => t.name)].sort()).toEqual([
-      "bcdev_snapshot_finish", "bcdev_snapshot_start", "bcdev_snapshot_status",
+      "bcdev_snapshot_finish", "bcdev_snapshot_run_tests", "bcdev_snapshot_start", "bcdev_snapshot_status",
     ]);
   });
 
