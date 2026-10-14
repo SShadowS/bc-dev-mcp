@@ -8,7 +8,12 @@
  * SECURITY: Never persist or log tokens, CLI stdout, Authorization headers, or authenticated URLs.
  * WIRE: Callers may need the exact returned value in both the HTTP Authorization header and BC's
  * `Authentication` SignalR query parameter. This module deliberately does not build URLs, retry
- * requests, run background refresh, support static tokens, or provide a command plug-in system.
+ * requests, run background refresh, or provide a command plug-in system.
+ * A pre-acquired cloud token in `BC_ACCESS_TOKEN` (CI) is accepted for EntraId configs only: read
+ * from the injected env on each factory call, never refreshed, never used on-prem.
+ * WIRE: BC_ACCESS_TOKEN is the env var Microsoft's AL tooling (altool publishapp/runtests, AL MCP) reads
+ * for a pre-acquired cloud bearer token; trimmed, sent as Bearer, precedence over interactive login
+ * (reference dep-decomp CloudHttpClientFactory).
  */
 import { execFile } from "node:child_process";
 import { BcDevError } from "./agent-errors";
@@ -72,6 +77,37 @@ export class BasicAuthorizationProvider implements AuthorizationProvider {
 
   async getAuthorizationHeader(): Promise<string> {
     return this.header;
+  }
+}
+
+/** A pre-acquired bearer token (BC_ACCESS_TOKEN). Sent as-is; only a JWT `exp` in the past is refused. */
+export class StaticBearerAuthorizationProvider implements AuthorizationProvider {
+  constructor(
+    private readonly token: string,
+    private readonly clock: Clock = Date.now,
+  ) {}
+
+  async getAuthorizationHeader(): Promise<string> {
+    const exp = jwtExpiry(this.token);
+    if (exp !== null && exp * 1000 <= this.clock()) {
+      throw new BcDevError(
+        "AUTHENTICATION_FAILED",
+        "BC_ACCESS_TOKEN has expired; set a fresh Business Central access token or unset it to use Azure CLI",
+        "auth",
+      );
+    }
+    return `Bearer ${this.token}`;
+  }
+}
+
+function jwtExpiry(token: string): number | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const exp = (JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8")) as { exp?: unknown }).exp;
+    return typeof exp === "number" && Number.isFinite(exp) ? exp : null;
+  } catch {
+    return null;
   }
 }
 
@@ -183,11 +219,22 @@ export class AzureCliAuthorizationProvider implements AuthorizationProvider {
 export function createAuthorizationProviderFactory(
   runner: ProcessRunner = execFileRunner,
   clock: Clock = Date.now,
+  env: Record<string, string | undefined> = process.env,
 ): AuthorizationProviderFactory {
   const entraByTenant = new Map<string, AzureCliAuthorizationProvider>();
+  let staticBearer: StaticBearerAuthorizationProvider | null = null;
+  let staticToken = "";
   return (config) => {
     if (config.authentication === "UserPassword") {
       return new BasicAuthorizationProvider(config.username, config.password);
+    }
+    const token = env["BC_ACCESS_TOKEN"]?.trim() ?? "";
+    if (token !== "") {
+      if (token !== staticToken) {
+        staticToken = token;
+        staticBearer = new StaticBearerAuthorizationProvider(token, clock);
+      }
+      return staticBearer!;
     }
     let provider = entraByTenant.get(config.tenant);
     if (!provider) {

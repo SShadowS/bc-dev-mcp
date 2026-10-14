@@ -4,6 +4,7 @@ import {
   BasicAuthorizationProvider,
   createAuthorizationProviderFactory,
   createExecFileRunner,
+  StaticBearerAuthorizationProvider,
   type ExecFileLike,
   type ProcessRunner,
 } from "../../src/core/authorization";
@@ -84,12 +85,50 @@ describe("authorization providers", () => {
   });
 
   test("server-composition factory reuses one Azure provider per tenant", () => {
-    const factory = createAuthorizationProviderFactory(async () => ({ stdout: response(), stderr: "" }), () => NOW);
+    const factory = createAuthorizationProviderFactory(async () => ({ stdout: response(), stderr: "" }), () => NOW, {});
     const first = factory({ environmentType: "Sandbox", authentication: "EntraId", environmentName: "one", tenant: "tenant" });
     const second = factory({ environmentType: "Production", authentication: "EntraId", environmentName: "two", tenant: "tenant" });
     const other = factory({ environmentType: "Sandbox", authentication: "EntraId", environmentName: "one", tenant: "other" });
     expect(first).toBe(second);
     expect(first).not.toBe(other);
+  });
+
+  describe("BC_ACCESS_TOKEN", () => {
+    const entra = (tenant = "tenant") => ({ environmentType: "Sandbox" as const, authentication: "EntraId" as const, environmentName: "s", tenant });
+    const jwt = (payload: object) => `e30.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.sig`;
+    const neverCalled: ProcessRunner = async () => { throw new Error("runner must not be called"); };
+
+    test("Entra config + env token: trimmed Bearer, Azure CLI never called, one provider for any tenant", async () => {
+      const factory = createAuthorizationProviderFactory(neverCalled, () => NOW, { BC_ACCESS_TOKEN: "  abc  " });
+      const a = factory(entra("one"));
+      expect(await a.getAuthorizationHeader()).toBe("Bearer abc");
+      expect(factory(entra("two"))).toBe(a);
+    });
+
+    test("whitespace-only token is ignored: Azure CLI path", async () => {
+      let calls = 0;
+      const factory = createAuthorizationProviderFactory(async () => { calls++; return { stdout: response(), stderr: "" }; }, () => NOW, { BC_ACCESS_TOKEN: " 	 " });
+      expect(await factory(entra()).getAuthorizationHeader()).toBe("Bearer secret-token");
+      expect(calls).toBe(1);
+    });
+
+    test("UserPassword config ignores the env token", async () => {
+      const factory = createAuthorizationProviderFactory(neverCalled, () => NOW, { BC_ACCESS_TOKEN: "abc" });
+      const header = await factory({ environmentType: "OnPrem", authentication: "UserPassword", server: "http://h", serverInstance: "BC", username: "u", password: "p" }).getAuthorizationHeader();
+      expect(header).toStartWith("Basic ");
+    });
+
+    test("JWT with past exp -> AUTHENTICATION_FAILED without the token text; future exp and non-JWT pass", async () => {
+      const expired = jwt({ exp: Math.floor(NOW / 1000) - 1 });
+      const error = await new StaticBearerAuthorizationProvider(expired, () => NOW).getAuthorizationHeader().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(BcDevError);
+      expect(error).toMatchObject({ code: "AUTHENTICATION_FAILED", category: "auth" });
+      expect((error as BcDevError).message).not.toContain(expired);
+      expect(JSON.stringify((error as BcDevError).details)).not.toContain(expired);
+      const fresh = jwt({ exp: Math.floor(NOW / 1000) + 3600 });
+      expect(await new StaticBearerAuthorizationProvider(fresh, () => NOW).getAuthorizationHeader()).toBe(`Bearer ${fresh}`);
+      expect(await new StaticBearerAuthorizationProvider("opaque", () => NOW).getAuthorizationHeader()).toBe("Bearer opaque");
+    });
   });
 
   test("refreshes within five minutes of expiration", async () => {

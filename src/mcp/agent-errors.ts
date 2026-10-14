@@ -90,7 +90,7 @@ function recoverySteps(
     case "SQL_INSIGHT_NOT_ENABLED": return ["Detach, then call bcdev_debug_attach with sqlInsight: true before retrying SQL inspection."];
     case "TOOL_DISABLED": return ["Use an enabled tool, or enable the requested tool before retrying."];
     case "GIT_ERROR": return ["Verify the AL project Git repository and coverageAgainst ref, then retry bcdev_test_run."];
-    case "AUTHENTICATION_FAILED": return ["Call bcdev_status after correcting the configured Business Central credentials or Azure CLI login."];
+    case "AUTHENTICATION_FAILED": return ["Call bcdev_status after correcting the configured Business Central credentials, Azure CLI login, or BC_ACCESS_TOKEN."];
     case "ENDPOINT_UNREACHABLE": return ["Call bcdev_status after confirming the Business Central endpoint is reachable."];
     case "UNSUPPORTED_SERVER": return ["Call bcdev_status and use a Business Central server that supports the required developer API feature."];
     case "NOT_FOUND": return ["Verify the requested object, source file, session, or package identifier and retry."];
