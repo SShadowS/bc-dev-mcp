@@ -185,6 +185,33 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       return result["kind"] === "instrumentation"
         ? [AL_PERF_HINT, "Instrumentation self-time is deterministic call-time, not statistical."]
         : [AL_PERF_HINT];
+    case "bcdev_snapshot_start":
+      return ["Trigger the scenario now (open the page, call the web service, start the job; business-central-mcp can drive a WebClient session), then call bcdev_snapshot_status until ready, then bcdev_snapshot_finish."];
+    case "bcdev_snapshot_status":
+      switch (result["status"]) {
+        case "Initialized":
+          return ["Trigger or continue the scenario, then call bcdev_snapshot_status again."];
+        case "Started":
+        case "Finished":
+          return ["Call bcdev_snapshot_finish to collect and decode the snapshot."];
+        case "Failed":
+          return ["Call bcdev_snapshot_finish to release the failed capture."];
+        default:
+          return [];
+      }
+    case "bcdev_snapshot_finish":
+      switch (result["decodeStatus"]) {
+        case "empty":
+          return ["Start a new capture and make sure the target session runs between start and finish."];
+        case "raw":
+          return ["Open zipPath in VS Code (AL: snapshot replay), or install bc-mdc-converter 0.2.0+ and finish a new capture."];
+        case "failed":
+          return ["See error and failedStage; zipPath, when present, still opens in VS Code."];
+        case "decoded":
+          return ["Read points (exceptions first); open zipPath in VS Code to step through the recording."];
+        default:
+          return [];
+      }
     case "bcdev_app_uninstall": {
       const steps: string[] = [];
       if (result["alsoUninstalled"] === null) {

@@ -5,6 +5,7 @@ import type { ServerState } from "../state";
 import { createAppTools } from "./app-tools";
 import { createDebugTools } from "./debug-tools";
 import { createProfileTools } from "./profile-tools";
+import { createSnapshotTools } from "./snapshot-tools";
 import { createSourceTools } from "./source-tools";
 import { createTestTools } from "./test-tools";
 import { createRecordWriteTools } from "./record-write-tools";
@@ -18,6 +19,7 @@ export function createTools(state: ServerState, deps: ToolDeps): ToolDefinition[
     ...createRecordWriteTools(state, deps),
     ...createNativeMcpTools(state, deps),
     ...createProfileTools(state, deps),
+    ...createSnapshotTools(state, deps),
     ...createSourceTools(state, deps),
     ...createAppTools(state, deps),
   ].map(withAgentResponses);

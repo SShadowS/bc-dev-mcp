@@ -136,6 +136,12 @@ const table: FailureTable = {
   bcdev_profile_start: connected(),
   bcdev_profile_poll: sessionScoped,
   bcdev_profile_finish: sessionScoped,
+  bcdev_snapshot_start: {
+    ...connected(),
+    unsupportedFeature: { na: "the webApiVersion gate reads snapshotendpointmetadata, which this harness's dev-endpoint fake does not serve; covered in snapshot-tools.test.ts" },
+  },
+  bcdev_snapshot_status: sessionScoped,
+  bcdev_snapshot_finish: sessionScoped,
   bcdev_source: connected({ objectType: 5, objectId: 50100 }),
   bcdev_package_download: connected({ publisher: "p", appName: "a", version: "1.0.0.0" }),
   bcdev_app_list: connected(),
