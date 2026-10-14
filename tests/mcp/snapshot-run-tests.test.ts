@@ -206,6 +206,8 @@ describe("bcdev_snapshot_run_tests", () => {
       const e = await s.fail(name, {});
       expect(e.code).toBe("PROFILE_ACTIVE");
       expect(e.details["phase"]).toBe("testing");
+      expect(e.message).toContain("bcdev_snapshot_run_tests call is in progress");
+      expect(e.message).not.toContain("call bcdev_snapshot_finish");
       expect(agentErrorBody(name, e).nextSteps.join(" ").toLowerCase()).toContain("wait");
     }
     expect((await s.fail(TOOL, RUN)).code).toBe("PROFILE_ACTIVE");

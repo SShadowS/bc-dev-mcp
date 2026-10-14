@@ -47,9 +47,15 @@ export type CaptureState = ProfileCapture | SnapshotCapture;
 export function captureActiveError(active: CaptureState, starting: "profile" | "snapshot"): BcDevError {
   const owner = active.captureKind;
   const ownerFinishTool = owner === "profile" ? "bcdev_profile_finish" : "bcdev_snapshot_finish";
+  const message =
+    active.phase === "testing"
+      ? "A bcdev_snapshot_run_tests call is in progress on the snapshot capture — wait for it to return, then retry"
+      : active.phase === "attaching" || active.phase === "finishing"
+        ? `A ${owner} capture call is in progress (phase ${active.phase}) — wait for it to return, then retry`
+        : `A ${owner} capture is already active — call ${ownerFinishTool} before using the ${starting} tools`;
   return new BcDevError(
     "PROFILE_ACTIVE",
-    `A ${owner} capture is already active — call ${ownerFinishTool} before using the ${starting} tools`,
+    message,
     "state",
     false,
     {

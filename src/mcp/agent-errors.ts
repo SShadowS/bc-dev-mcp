@@ -139,6 +139,9 @@ function toolRecoverySteps(
       return ["BC may still be running these tests; wait, then call bcdev_snapshot_status / bcdev_snapshot_finish; do not start another test run yet."];
     }
   }
+  if (tool.startsWith("bcdev_native_") && code === "UNSUPPORTED_SERVER" && typeof details["url"] === "string") {
+    return ["Pass apiPort with the server's OData/API port (default 7048, BC_DEV_API_PORT; not the dev port 7049) and confirm McpServicesEnabled is on for the server instance, then retry."];
+  }
   if (tool === "bcdev_app_publish" && code === "SERVER_REJECTED") {
     return ["If Business Central refused to replace an existing copy published at Global scope, call bcdev_app_list, then bcdev_app_uninstall and bcdev_app_unpublish for that appId, and retry bcdev_app_publish."];
   }
@@ -153,6 +156,10 @@ function toolRecoverySteps(
 
 export function agentErrorBody(tool: string, error: unknown): AgentErrorBody {
   const normalized = normalizeAgentError(error);
+  const toolSteps = toolRecoverySteps(tool, normalized.code, normalized.details);
+  // A tool-specific TIMEOUT / UNSUPPORTED_SERVER step supersedes the generic one (near-duplicate or contradictory);
+  // other codes keep both (app_publish SERVER_REJECTED relies on the pair).
+  const supersedes = toolSteps.length > 0 && (normalized.code === "TIMEOUT" || normalized.code === "UNSUPPORTED_SERVER");
   return {
     error: {
       code: normalized.code,
@@ -162,6 +169,6 @@ export function agentErrorBody(tool: string, error: unknown): AgentErrorBody {
       tool,
       details: redactDetails(normalized.details),
     },
-    nextSteps: [...toolRecoverySteps(tool, normalized.code, normalized.details), ...recoverySteps(normalized.code, normalized.details)],
+    nextSteps: supersedes ? toolSteps : [...toolSteps, ...recoverySteps(normalized.code, normalized.details)],
   };
 }

@@ -192,11 +192,14 @@ describe("snapshot tools", () => {
     const st = await s.fail("bcdev_snapshot_status");
     expect(st.code).toBe("PROFILE_ACTIVE");
     expect(st.details).toMatchObject({ phase: "attaching", ownerFinishTool: "bcdev_snapshot_finish" });
+    expect(st.message).toContain("capture call is in progress (phase attaching)");
+    expect(st.message).not.toContain("call bcdev_snapshot_finish");
     expect((await s.fail("bcdev_snapshot_finish")).details).toMatchObject({ phase: "attaching" });
     expect((await s.fail("bcdev_snapshot_start", SNAP)).code).toBe("PROFILE_ACTIVE");
     release();
     await starting;
     expect(s.state.capture?.phase as string).toBe("armed"); // TS keeps the loop's narrowing to "attaching"
+    expect((await s.fail("bcdev_snapshot_start", SNAP)).message).toContain("call bcdev_snapshot_finish");
   });
 
   test("7b. two concurrent finishes: one result, one PROFILE_ACTIVE phase finishing", async () => {

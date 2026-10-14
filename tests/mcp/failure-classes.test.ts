@@ -93,7 +93,7 @@ const nativeTool = (extra: Record<string, unknown> = {}): Record<FailureClass, F
   return {
     invalidPath: { args: { ...onPrem, project: missing }, code: "CONFIGURATION_ERROR" },
     missingAuth: { args: cloud, code: "CONFIGURATION_ERROR" },
-    unsupportedFeature: { na: "on-prem and cloud are both supported; no feature gate remains" },
+    unsupportedFeature: { na: "no dev-API version gate; UNSUPPORTED_SERVER comes from the MCP endpoint's HTTP 404/405, covered in tests/core/native-mcp.test.ts" },
     serverDisconnect: { args: { ...cloud, tenant: "contoso" }, code: "ENDPOINT_UNREACHABLE" },
   };
 };

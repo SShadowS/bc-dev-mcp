@@ -248,7 +248,7 @@ describe("profile tools", () => {
     }) as unknown as typeof fetch;
     const tools = new Map(createProfileTools(state, deps(fetchFn)).map((t) => [t.name, t]));
     const first = tools.get("bcdev_profile_start")!.handler({ ...conn }); // NOT awaited — slot claimed synchronously
-    await expect(tools.get("bcdev_profile_start")!.handler({ ...conn })).rejects.toThrow(/already active/);
+    await expect(tools.get("bcdev_profile_start")!.handler({ ...conn })).rejects.toThrow(/in progress \(phase attaching\)/);
     releaseAttach();
     await first;
     expect(state.capture).not.toBeNull();

@@ -96,6 +96,26 @@ describe("agent errors", () => {
     expect(agentErrorBody("bcdev_snapshot_status", lost).nextSteps[0]).toBe("The capture ended on the server; call bcdev_snapshot_start to arm a new one.");
   });
 
+  test("tool-specific TIMEOUT / UNSUPPORTED_SERVER steps replace the generic step; other codes still concatenate", () => {
+    const run = new BcDevError("TIMEOUT", "x", "network", false, { upstreamRunCancelled: false });
+    const runSteps = agentErrorBody("bcdev_snapshot_run_tests", run).nextSteps;
+    expect(runSteps).toHaveLength(1);
+    expect(runSteps[0]).toStartWith("BC may still be running these tests");
+    expect(agentErrorBody("bcdev_snapshot_finish", new BcDevError("TIMEOUT", "x", "network", true, { phase: "uncertain" })).nextSteps).toHaveLength(1);
+    expect(agentErrorBody("bcdev_test_run", run).nextSteps).toEqual([
+      "Do not start another test run yet. Confirm the native server-side run has finished, then retry or start a new run.",
+    ]);
+    const wrongPort = new BcDevError("UNSUPPORTED_SERVER", "x", "server", false, { status: 404, url: "http://h:7049/BC/mcp" });
+    expect(agentErrorBody("bcdev_native_call", wrongPort).nextSteps).toEqual([
+      "Pass apiPort with the server's OData/API port (default 7048, BC_DEV_API_PORT; not the dev port 7049) and confirm McpServicesEnabled is on for the server instance, then retry.",
+    ]);
+    const cloud404 = new BcDevError("UNSUPPORTED_SERVER", "x", "server", false, { status: 404 });
+    expect(agentErrorBody("bcdev_native_call", cloud404).nextSteps).toEqual([
+      "Call bcdev_status and use a Business Central server that supports the required developer API feature.",
+    ]);
+    expect(agentErrorBody("bcdev_app_publish", new BcDevError("SERVER_REJECTED", "x", "server")).nextSteps).toHaveLength(2);
+  });
+
   test("serializes a redacted machine-readable error with recovery steps", () => {
     const body = agentErrorBody(
       "bcdev_debug_wait",

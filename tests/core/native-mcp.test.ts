@@ -475,11 +475,7 @@ describe("BC native MCP gateway: on-prem target", () => {
     expect(url.searchParams.get("tenant")).toBe("a b&c");
 
     const s2 = setup();
-    const t = onprem();
-    (t as { config: { server: string; tenant?: string } }).config = {
-      ...(t as { config: object }).config, server: "https://host", tenant: undefined,
-    } as never;
-    await s2.gateway.listTools(t);
+    await s2.gateway.listTools(onprem({ config: { ...onprem().config, server: "https://host", tenant: undefined } }));
     expect(s2.captured().url.protocol).toBe("https:");
     expect(s2.captured().url.searchParams.get("tenant")).toBe("default");
   });
