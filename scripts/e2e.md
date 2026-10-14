@@ -410,7 +410,8 @@ armed capture's `debuggingContext`. Driver: `scratch/snapprobe/e2e-native.ts` (g
 - [x] 4. `bcdev_native_list` on-prem, no company: business and runtime catalogs. <!-- business 285 ms: server {name "Microsoft Dynamics 365 Business Central", version "29.0.56030.0"}, tools [bc_actions_search, bc_actions_describe, bc_actions_invoke, list_companies]; runtime 168 ms: [run_tests]. -->
 - [x] 5. `bcdev_native_call` runtime `run_tests { testCases: [{ codeunitId: 50131 }] }` -> results; lock released. <!-- 308 ms, result.content[0].text {"success":false,"codeunitResults":[{"codeunitId":50131,...,"testResults":[FailsOnZeroPayments Failed, SplitsEvenly Success]}]} (no snapshotDebugging outside the Snapshot context); an immediate second call with testMethods ["SplitsEvenly"] ran (266 ms, success true, one method), so the test-run lock was released. -->
 - [x] 6. Wrong API port (`apiPort: 7047`) -> `UNSUPPORTED_SERVER`. <!-- 83 ms, message "Business Central's MCP endpoint is not available at http://cronus29:7047/BC/mcp/: check the API port and that McpServicesEnabled is on", details {status 405, url}. nextSteps are the generic UNSUPPORTED_SERVER ones ("Call bcdev_status ..."), not port-specific. -->
-- [ ] Cleanup (uninstall + unpublish Hello Bug Demo, back to 103 apps) — not done: needs the user's go-ahead.
+- [x] Cleanup (uninstall + unpublish Hello Bug Demo, back to 103 apps) <!-- 2026-10-15 Cronus29: bcdev_app_uninstall deleteData:true -> uninstalled, alsoUninstalled []; bcdev_app_unpublish -> unpublished; bcdev_app_list 103 apps, Hello Bug absent. -->
+
 
 ## App lifecycle (on-prem BC28; SaaS open)
 
