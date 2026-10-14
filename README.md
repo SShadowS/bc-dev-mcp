@@ -99,7 +99,7 @@ claude mcp add bc-dev --env BC_DEV_USER=admin --env BC_DEV_PASSWORD=... -- npx -
 }
 ```
 
-(`bunx bc-dev-mcp` works too.) For on-premises, credentials come from the two environment variables above. For SaaS, no token or password environment variable is accepted: `environmentType`, `environmentName`, and `tenant` come from the AL project's `.vscode/launch.json`, and the server asks Azure CLI for an in-memory Business Central token. Every connection-opening tool also accepts target overrides.
+(`bunx bc-dev-mcp` works too.) For on-premises, credentials come from the two environment variables above. For SaaS, no password environment variable is accepted: `environmentType`, `environmentName`, and `tenant` come from the AL project's `.vscode/launch.json`, and the server asks Azure CLI for an in-memory Business Central token by default, or uses `BC_ACCESS_TOKEN` for CI. Every connection-opening tool also accepts target overrides.
 
 Running from source instead: `git clone` → `bun install && bun run build` → point `command` at `node dist/index.js`, or `bun run compile` for a standalone `bc-dev-mcp.exe`.
 
@@ -123,6 +123,7 @@ Debugger attach returns as soon as Business Central accepts the request; binding
 | `BC_DEV_USER` | env var | — | On-prem UserPassword username |
 | `BC_DEV_PASSWORD` | env var | — | On-prem UserPassword password |
 | `BC_DEV_ENTRA_TENANT` | env var | — | SaaS tenant fallback when launch.json does not provide `tenant` |
+| `BC_ACCESS_TOKEN` | env var | — | SaaS only: pre-acquired Business Central bearer token (CI); takes precedence over Azure CLI, never refreshed |
 | `environmentType` | launch.json / tool param | inferred | `OnPrem`, `Sandbox`, or `Production` |
 | `environmentName` | launch.json / tool param | — | SaaS environment name |
 | `server` | launch.json / tool param | — | BC server URL, e.g. `http://bcserver` |
@@ -153,7 +154,7 @@ Example SaaS launch configuration:
 }
 ```
 
-Azure access tokens are acquired with `az account get-access-token`, cached only in memory until shortly before expiry, and never logged or written by this project.
+Azure access tokens are acquired with `az account get-access-token`, cached only in memory until shortly before expiry, and never logged or written by this project. A `BC_ACCESS_TOKEN` is never logged either; once its JWT `exp` has passed, calls fail with `AUTHENTICATION_FAILED` (it is not refreshed).
 
 ## Architecture
 
@@ -384,8 +385,10 @@ left out (`verbosity: "full"` also bundles the source of every object the sessio
 
 Verified live against BC29 (`scripts/e2e.md` "Snapshot debug capture"): `clientType` WebClient
 (default), `userId` and `sessionId` bind; WebServiceClient records nothing usable (the capture is
-dropped when the API call's session ends); Background is unverified. BC29 ignores snappoint
-`condition`s, so filter the points yourself. Test runs cannot be captured on this path.
+dropped when the API call's session ends); Background binds a TaskScheduler session but records nothing
+usable either (source only while it runs, dropped when it ends). BC29 ignores snappoint
+`condition`s, so filter the points yourself. To capture an AL test run, arm a capture and call
+`bcdev_snapshot_run_tests` (on-prem).
 
 ## Skills
 
