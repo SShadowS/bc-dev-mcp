@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { envAlSemBinary, type AlSemBinary } from "./alsem-binary";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ALSEM_ENV_VAR, runCommand, toolOutput, type CommandRunner } from "./call-graph";
@@ -117,9 +118,10 @@ export function parseAlSemDigest(text: string): DigestEntry[] {
 export function createAlSemRiskProvider(
   env: Record<string, string | undefined>,
   run: CommandRunner = runCommand,
+  alsemBinary: AlSemBinary = envAlSemBinary(env),
 ): RiskDigestProvider {
-  const binary = env[ALSEM_ENV_VAR]?.trim() || "alsem";
   return async (project, relativeFiles) => {
+    const binary = await alsemBinary();
     if (relativeFiles.length === 0) return { entries: [], warnings: [] };
     const work = await mkdtemp(join(tmpdir(), "bcdev-alsem-digest-"));
     try {

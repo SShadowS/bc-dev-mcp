@@ -11,10 +11,21 @@ import { createAlSemOrderPredictor } from "../core/test-order-static";
 import { createAlSemStaticWritersProvider } from "../core/alsem-writes";
 import { SdkNativeMcpGateway } from "../core/native-mcp";
 import { createHttp10Get } from "../core/http10";
+import { alsemVersionOf, createAlSemResolver } from "../core/alsem-binary";
 
 // One ServerState for the process: the debug session, event queue and run lock must survive
 // whichever McpServer instance serveStdio builds for the connection's protocol era.
 const state = new ServerState();
+// One al-sem lookup (env, PATH >= pin, verified cache, pinned download) shared by every al-sem caller.
+const alsem = createAlSemResolver({
+  env: process.env,
+  platform: process.platform,
+  arch: process.arch,
+  fetchFn: fetch,
+  versionOf: alsemVersionOf,
+  log: (message) => console.error(`[bc-dev-mcp] ${message}`),
+  now: Date.now,
+});
 const deps = {
   hubFactory: signalrHubFactory,
   authorizationFactory: createAuthorizationProviderFactory(),
@@ -23,10 +34,11 @@ const deps = {
   env: process.env,
   cwd: process.cwd(),
   gitChanges: collectGitChanges,
-  callGraph: cachedCallGraphProvider(createCallGraphProvider(process.env)),
-  riskDigest: createAlSemRiskProvider(process.env),
-  orderPredictor: createAlSemOrderPredictor(process.env),
-  staticWriters: createAlSemStaticWritersProvider(process.env),
+  alsem,
+  callGraph: cachedCallGraphProvider(createCallGraphProvider(process.env, undefined, alsem.binary)),
+  riskDigest: createAlSemRiskProvider(process.env, undefined, alsem.binary),
+  orderPredictor: createAlSemOrderPredictor(process.env, undefined, alsem.binary),
+  staticWriters: createAlSemStaticWritersProvider(process.env, undefined, alsem.binary),
   nativeMcpGateway: new SdkNativeMcpGateway(fetch),
 };
 

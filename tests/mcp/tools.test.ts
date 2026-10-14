@@ -161,6 +161,16 @@ describe("tools", () => {
     const { tools } = setup(hub);
     const status = (await tools.get("bcdev_status")!.handler({})) as Record<string, unknown>;
     expect(status["supportsTestRunning"]).toBe(true);
+    expect(status["alsem"]).toBeUndefined();
+  });
+
+  test("bcdev_status reports which al-sem runs when the resolver is wired", async () => {
+    const alsem = { source: "download" as const, path: "C:/cache/alsem/1.7.1/alsem.exe", version: "1.7.1" };
+    const { tools } = setup(hub, undefined, undefined, { alsem: { binary: async () => alsem.path, resolve: async () => alsem } });
+    const tool = tools.get("bcdev_status")!;
+    const status = await tool.handler({});
+    expect((status as Record<string, unknown>)["alsem"]).toEqual(alsem);
+    expect(tool.outputSchema.safeParse(status).success).toBe(true);
   });
 
   test("bcdev_status fails AUTHENTICATION_FAILED when metadata answers but the gated route 401s", async () => {

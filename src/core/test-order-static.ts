@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { envAlSemBinary, type AlSemBinary } from "./alsem-binary";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { ALSEM_ENV_VAR, failed, runCommand, unavailable, type CommandRunner } from "./call-graph";
@@ -215,9 +216,10 @@ export function explainPredictions(
 export function createAlSemOrderPredictor(
   env: Record<string, string | undefined>,
   run: CommandRunner = runCommand,
+  alsemBinary: AlSemBinary = envAlSemBinary(env),
 ): OrderPollutionPredictor {
-  const binary = env[ALSEM_ENV_VAR]?.trim() || "alsem";
   return async (project, selection) => {
+    const binary = await alsemBinary();
     const skipped = (why: string) => ({ prediction: null, warnings: [`Static pollution prediction skipped: ${why}`] });
     let work: string | undefined;
     try {

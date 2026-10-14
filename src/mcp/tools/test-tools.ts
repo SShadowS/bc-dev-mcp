@@ -181,12 +181,18 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
         supportsTestRunning: z.boolean().describe("false = server too old for TestRunnerHub (needs dev API >= 7.0)"),
         supportsCoreSignalR: z.boolean(),
         supportsSourceDownload: z.boolean().describe("true = dev/sourcecontent available (dev API >= 2.0) for bcdev_source"),
+        alsem: z.looseObject({
+          source: z.enum(["env", "path", "cache", "download", "unavailable"]),
+          path: z.string(),
+          version: z.string().optional(),
+          reason: z.string().optional(),
+        }).optional().describe("Which al-sem the static enrichments run (BC_DEV_ALSEM, PATH, or the pinned verified download); unavailable = they fall back"),
       }),
       handler: async (params) => {
         const { config, authorization } = resolve(params, deps);
         const info = await fetchServerInfo(config, authorization, deps.fetchFn);
         await verifyDevAuthentication(config, authorization, deps.fetchFn);
-        return info;
+        return deps.alsem ? { ...info, alsem: await deps.alsem.resolve() } : info;
       },
     },
     {

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { envAlSemBinary, type AlSemBinary } from "./alsem-binary";
 import { readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -98,11 +99,10 @@ export type AlSemAnalyze = (project: string, detectors: string[], timeoutMs: num
 
 const execFileAsync = promisify(execFile);
 
-export function createAlSemAnalyze(env: Record<string, string | undefined>): AlSemAnalyze {
-  const binary = env[ALSEM_ENV_VAR]?.trim() || "alsem";
+export function createAlSemAnalyze(env: Record<string, string | undefined>, alsemBinary: AlSemBinary = envAlSemBinary(env)): AlSemAnalyze {
   return async (project, detectors, timeoutMs) => {
     const { stdout } = await execFileAsync(
-      binary,
+      await alsemBinary(),
       ["analyze", resolve(project), "--format", "json", "--with-evidence", "--single-app", "--detector", detectors.join(",")],
       { encoding: "utf8", timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, windowsHide: true },
     );

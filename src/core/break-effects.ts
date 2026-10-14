@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { envAlSemBinary, type AlSemBinary } from "./alsem-binary";
 import { promisify } from "node:util";
 import { ALSEM_ENV_VAR } from "./call-graph";
 import { WRITE_OPS } from "./alsem-writes";
@@ -94,8 +95,11 @@ function proof(payload: Record<string, any>): ProofAnswer {
   };
 }
 
-export function createAlSemBreakEffects(env: Record<string, string | undefined>, run: StdoutRunner = runForStdout): BreakEffectsProvider {
-  const binary = env[ALSEM_ENV_VAR]?.trim() || "alsem";
+export function createAlSemBreakEffects(
+  env: Record<string, string | undefined>,
+  run: StdoutRunner = runForStdout,
+  alsemBinary: AlSemBinary = envAlSemBinary(env),
+): BreakEffectsProvider {
   let warned = false;
   const soft = (status: "unavailable" | "failed", message: string): BreakEffects => {
     const out: BreakEffects = { status, message };
@@ -110,6 +114,7 @@ export function createAlSemBreakEffects(env: Record<string, string | undefined>,
       return { status: "symbolOnly", message: `Top frame ${objectName}.${methodName} is in a symbol-only app (not in the workspace); al-sem analyses workspace source only, so no effects were computed.` };
     }
     try {
+      const binary = await alsemBinary();
       const selector = `${objectName}.${methodName}`;
       const first = await run(binary, ["query", "effects", project, "--routine", selector, "--format", "json"]);
       if (first.notFound) return soft("unavailable", `alsem was not found; set ${ALSEM_ENV_VAR} to alsem.exe (al-sem release) or put it on PATH to enrich breaks with effects.`);

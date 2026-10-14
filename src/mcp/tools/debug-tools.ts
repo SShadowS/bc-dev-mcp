@@ -220,7 +220,7 @@ export function createDebugTools(state: ServerState, deps: ToolDeps): ToolDefini
           const top = (result["stack"] as Array<{ objectType: number; objectId: number; objectName: string; methodName: string }>)[0];
           if (top) {
             const inWorkspace = session.index.byId(top.objectType, top.objectId) !== undefined;
-            result = { ...result, effects: await (breakEffects ??= createAlSemBreakEffects(deps.env))({ project: session.index.projectDir, objectName: top.objectName, methodName: top.methodName, inWorkspace }) };
+            result = { ...result, effects: await (breakEffects ??= createAlSemBreakEffects(deps.env, undefined, deps.alsem?.binary))({ project: session.index.projectDir, objectName: top.objectName, methodName: top.methodName, inWorkspace }) };
           }
         }
         return session.droppedEvents > 0 ? { ...result, droppedEvents: session.droppedEvents } : result;

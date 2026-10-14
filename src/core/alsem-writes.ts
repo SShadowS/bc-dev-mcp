@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { envAlSemBinary, type AlSemBinary } from "./alsem-binary";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -211,9 +212,10 @@ async function mapLimited<T, R>(items: T[], fn: (item: T) => Promise<R>): Promis
 export function createAlSemStaticWritersProvider(
   env: Record<string, string | undefined>,
   run: AlSemJsonRunner = runAlSemJson,
+  alsemBinary: AlSemBinary = envAlSemBinary(env),
 ): StaticWritersProvider {
-  const binary = env[ALSEM_ENV_VAR]?.trim() || "alsem";
   return async ({ project, tableId, tableName, includeTemporary }) => {
+    const binary = await alsemBinary();
     try {
       const appId = await appIdOf(project);
       const selectors = [...(appId ? [`${appId}/table/${tableId}`] : []), ...(tableName ? [tableName] : [])];

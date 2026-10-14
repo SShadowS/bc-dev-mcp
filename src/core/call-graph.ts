@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { ALSEM_ENV_VAR, envAlSemBinary, type AlSemBinary } from "./alsem-binary";
 import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
@@ -97,7 +98,7 @@ export type CallGraphProvider = (project: string) => Promise<CallGraph>;
 /** Env var naming the altool executable; otherwise `altool` is resolved from PATH. */
 export const ALTOOL_ENV_VAR = "BC_DEV_ALTOOL";
 /** Env var naming the alsem executable; otherwise `alsem` is resolved from PATH. */
-export const ALSEM_ENV_VAR = "BC_DEV_ALSEM";
+export { ALSEM_ENV_VAR };
 /** Env var choosing the engine: auto (default) | al-sem | altool. */
 export const ENGINE_ENV_VAR = "BC_DEV_CALLGRAPH_ENGINE";
 
@@ -365,9 +366,10 @@ export function createAltoolCallGraphProvider(
 export function createAlSemCallGraphProvider(
   env: Record<string, string | undefined>,
   run: CommandRunner = runCommand,
+  alsemBinary: AlSemBinary = envAlSemBinary(env),
 ): CallGraphProvider {
-  const binary = env[ALSEM_ENV_VAR]?.trim() || "alsem";
   return async (project) => {
+    const binary = await alsemBinary();
     const work = await mkdtemp(join(tmpdir(), "bcdev-alsem-graph-"));
     try {
       const graphFile = join(work, "graph.jsonl");
@@ -393,9 +395,10 @@ export function createAlSemCallGraphProvider(
 export function createCallGraphProvider(
   env: Record<string, string | undefined>,
   run: CommandRunner = runCommand,
+  alsemBinary: AlSemBinary = envAlSemBinary(env),
 ): CallGraphProvider {
   const choice = (env[ENGINE_ENV_VAR]?.trim() || "auto").toLowerCase();
-  const alsem = createAlSemCallGraphProvider(env, run);
+  const alsem = createAlSemCallGraphProvider(env, run, alsemBinary);
   const altool = createAltoolCallGraphProvider(env, run);
   if (choice === "al-sem") return alsem;
   if (choice === "altool") return altool;

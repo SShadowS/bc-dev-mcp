@@ -84,7 +84,7 @@ export function createProfileTools(
   // al-sem is optional: any failure inside explainHotspots is a warning, never a tool error.
   const explain = async <T extends { hotspots: Parameters<typeof explainHotspots>[0] }>(summary: T, params: Record<string, unknown>) => {
     const project = resolvePath(deps.cwd, (params["project"] as string | undefined) ?? ".");
-    const { hotspots, analysis, warnings } = await explainHotspots(summary.hotspots, project, deps.alsemAnalyze ?? createAlSemAnalyze(deps.env));
+    const { hotspots, analysis, warnings } = await explainHotspots(summary.hotspots, project, deps.alsemAnalyze ?? createAlSemAnalyze(deps.env, deps.alsem?.binary));
     return { summary: { ...summary, hotspots }, ...(analysis ? { hotspotAnalysis: analysis } : {}), ...(warnings.length > 0 ? { warnings } : {}) };
   };
 
