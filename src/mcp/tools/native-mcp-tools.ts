@@ -5,6 +5,7 @@ import type {
   NativeMcpTarget,
 } from "../../core/native-mcp";
 import type { CloudConnectionConfig } from "../../core/types";
+import { DEFAULT_API_PORT } from "../../core/urls";
 import type { ServerState } from "../state";
 import {
   claimTestRun,
@@ -13,19 +14,29 @@ import {
   handleShape,
   requireSession,
   resolve,
+  resolveApiPort,
   type ToolDefinition,
   type ToolDeps,
 } from "./shared";
 
 const nativeConnectionShape = {
   project: connectionShape.project,
-  environmentType: z
-    .enum(["Sandbox", "Production"])
-    .optional()
-    .describe("Business Central cloud target kind (default: from launch.json)"),
+  environmentType: connectionShape.environmentType,
   environmentName: connectionShape.environmentName,
+  server: connectionShape.server,
+  serverInstance: connectionShape.serverInstance,
   tenant: connectionShape.tenant,
+  apiPort: z
+    .number()
+    .int()
+    .min(1)
+    .max(65535)
+    .optional()
+    .describe("On-prem only: BC API/OData port where the MCP endpoint lives (default BC_DEV_API_PORT or 7048)"),
 } as const;
+
+const ON_PREM_NOTE =
+  " On-prem: uses BC's MCP endpoint on the API/OData port (needs McpServicesEnabled). Plain http:// sends Basic credentials unencrypted — use it only for local/dev containers. context='debugging' on-prem is unverified (only business and runtime were seen live).";
 
 const contextSchema = z
   .enum(["business", "runtime", "debugging"])
@@ -39,7 +50,8 @@ const companySchema = z
   .min(1)
   .max(250)
   .regex(/^[^\r\n]+$/, "company must not contain newline characters")
-  .describe("Exact Business Central company name required by the native MCP gateway");
+  .optional()
+  .describe("Company name. Required for cloud; optional on-prem (BC's default company when omitted)");
 
 const configurationNameSchema = z
   .string()
@@ -96,13 +108,6 @@ function targetFrom(
   params: Record<string, unknown>,
 ): NativeMcpTarget {
   const { config, authorization } = resolve(params, deps);
-  if (config.environmentType === "OnPrem") {
-    throw new BcDevError(
-      "UNSUPPORTED_SERVER",
-      "Business Central native MCP passthrough currently supports cloud Sandbox and Production environments only",
-      "server",
-    );
-  }
   const context = params["context"] as NativeMcpContext;
   const configurationName = params["configurationName"] as string | undefined;
   if (configurationName !== undefined && context !== "business") {
@@ -119,10 +124,9 @@ function targetFrom(
       "validation",
     );
   }
-  return {
-    config: config as CloudConnectionConfig,
+  const company = params["company"] as string | undefined;
+  const common = {
     authorization,
-    company: params["company"] as string,
     context,
     ...(configurationName === undefined ? {} : { configurationName }),
     ...(context === "debugging"
@@ -130,6 +134,19 @@ function targetFrom(
       : {}),
     timeoutMs: params["timeoutMs"] as number | undefined,
   };
+  if (config.environmentType === "OnPrem") {
+    return {
+      kind: "onprem",
+      config,
+      apiPort: resolveApiPort(params, deps) ?? DEFAULT_API_PORT,
+      company,
+      ...common,
+    };
+  }
+  if (company === undefined) {
+    throw new BcDevError("INVALID_ARGUMENT", "company is required for cloud native MCP", "validation");
+  }
+  return { config: config as CloudConnectionConfig, company, ...common };
 }
 
 export function createNativeMcpTools(
@@ -141,7 +158,7 @@ export function createNativeMcpTools(
       name: "bcdev_native_list",
       title: "List BC native MCP tools",
       description:
-        "Discover the dynamic Business Central 28 native MCP tool catalog for business actions, AL runtime, or the active paused debugger. Use the returned input schemas with bcdev_native_call.",
+        "Discover the dynamic Business Central 28 native MCP tool catalog for business actions, AL runtime, or the active paused debugger. Use the returned input schemas with bcdev_native_call." + ON_PREM_NOTE,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -179,7 +196,7 @@ export function createNativeMcpTools(
       name: "bcdev_native_call",
       title: "Call BC native MCP tool",
       description:
-        "Invoke one exact tool from bcdev_native_list. Arguments and the complete native result pass through unchanged. This generic bridge is conservatively marked destructive because business actions can write data.",
+        "Invoke one exact tool from bcdev_native_list. Arguments and the complete native result pass through unchanged. This generic bridge is conservatively marked destructive because business actions can write data." + ON_PREM_NOTE,
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,

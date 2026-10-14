@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { BcDevError } from "../../core/agent-errors";
 import {
   listApps,
   MAX_APP_LIFECYCLE_TIMEOUT_MS,
@@ -11,7 +10,7 @@ import {
 } from "../../core/app-lifecycle";
 import type { DependencyPublishingOption, SchemaUpdateMode } from "../../core/urls";
 import type { ServerState } from "../state";
-import { connectionShape, resolve, type ToolDefinition, type ToolDeps } from "./shared";
+import { connectionShape, resolve, resolveApiPort, type ToolDefinition, type ToolDeps } from "./shared";
 
 const GUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
@@ -40,18 +39,6 @@ const appRecordSchema = z.object({
   publishedAs: z.string().describe("Publish scope reported by Business Central, e.g. Dev, Global, PTE"),
 });
 
-function apiPort(params: Record<string, unknown>, deps: ToolDeps): number | undefined {
-  const explicit = params["apiPort"] as number | undefined;
-  if (explicit !== undefined) return explicit;
-  const fromEnv = deps.env["BC_DEV_API_PORT"]?.trim();
-  if (!fromEnv) return undefined;
-  const port = Number(fromEnv);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new BcDevError("CONFIGURATION_ERROR", "BC_DEV_API_PORT must be an integer port between 1 and 65535", "configuration");
-  }
-  return port;
-}
-
 function lifecycleContext(params: Record<string, unknown>, deps: ToolDeps): AppLifecycleContext {
   const { config, authorization } = resolve(params, deps);
   return {
@@ -59,7 +46,7 @@ function lifecycleContext(params: Record<string, unknown>, deps: ToolDeps): AppL
     authorization,
     fetchFn: deps.fetchFn,
     http10Get: deps.http10Get,
-    apiPort: apiPort(params, deps),
+    apiPort: resolveApiPort(params, deps),
     companyId: params["companyId"] as string | undefined,
     timeoutMs: params["timeoutMs"] as number | undefined,
   };

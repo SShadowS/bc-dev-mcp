@@ -345,7 +345,20 @@ export const connectionShape = {
   tenant: z.string().optional().describe("Tenant ID/domain (SaaS: required via launch/param/BC_DEV_ENTRA_TENANT; OnPrem default: 'default')"),
 } as const;
 
-export const codeunitsShape = z
+/** On-prem API/OData port: explicit param > BC_DEV_API_PORT (validated) > undefined. */
+export function resolveApiPort(params: Record<string, unknown>, deps: ToolDeps): number | undefined {
+  const explicit = params["apiPort"] as number | undefined;
+  if (explicit !== undefined) return explicit;
+  const fromEnv = deps.env["BC_DEV_API_PORT"]?.trim();
+  if (!fromEnv) return undefined;
+  const port = Number(fromEnv);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new BcDevError("CONFIGURATION_ERROR", "BC_DEV_API_PORT must be an integer port between 1 and 65535", "configuration");
+  }
+  return port;
+}
+
+export const codeunitsShape =z
   .array(
     z.object({
       id: z.number().describe("Test codeunit object ID (from bcdev_test_discover)"),

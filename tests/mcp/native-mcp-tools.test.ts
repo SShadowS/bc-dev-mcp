@@ -69,6 +69,7 @@ function setup(options: {
   environmentType?: "Sandbox" | "Production" | "OnPrem";
   gateway?: FakeNativeMcpGateway;
   hub?: FakeHub;
+  env?: Record<string, string>;
 } = {}) {
   const state = new ServerState();
   const hub = options.hub ?? new FakeHub();
@@ -80,7 +81,7 @@ function setup(options: {
     }),
     http10Get: async () => { throw new Error("http10Get not expected in this test"); },
     fetchFn: (async () => new Response(JSON.stringify({ WebApiVersion: "7.0" }))) as unknown as typeof fetch,
-    env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p" },
+    env: { BC_DEV_USER: "u", BC_DEV_PASSWORD: "p", ...options.env },
     cwd: project(options.environmentType),
     gitChanges: async (_project, baseRef): Promise<GitChangeSet> => ({
       baseRef,
@@ -192,18 +193,66 @@ describe("BC native MCP tools", () => {
     expect(() => tools.get("bcdev_native_call")!.outputSchema.parse(result)).not.toThrow();
   });
 
-  test("rejects on-premises targets and configuration names outside business context", async () => {
-    const onPrem = setup({ environmentType: "OnPrem" });
-    const unsupported = await onPrem.tools.get("bcdev_native_list")!.handler({
-      company: "CRONUS",
-      context: "business",
-    }).catch((caught) => caught);
-    expect(unsupported).toMatchObject({
-      code: "UNSUPPORTED_SERVER",
-      category: "server",
-    });
-    expect(onPrem.gateway.listCalls).toHaveLength(0);
+  const onPremParams = {
+    environmentType: "OnPrem",
+    server: "http://Cronus29",
+    serverInstance: "BC",
+    context: "business",
+  };
 
+  test("on-prem target: default API port, company optional", async () => {
+    const { tools, gateway } = setup({ environmentType: "OnPrem" });
+    await tools.get("bcdev_native_list")!.handler({ ...onPremParams });
+    expect(gateway.listCalls[0]?.target).toMatchObject({
+      kind: "onprem",
+      apiPort: 7048,
+      company: undefined,
+    });
+  });
+
+  test("on-prem apiPort: param beats env, env beats default, bad env fails", async () => {
+    const a = setup({ environmentType: "OnPrem", env: { BC_DEV_API_PORT: "7248" } });
+    await a.tools.get("bcdev_native_list")!.handler({ ...onPremParams, apiPort: 7148 });
+    expect(a.gateway.listCalls[0]?.target).toMatchObject({ apiPort: 7148 });
+    await a.tools.get("bcdev_native_list")!.handler({ ...onPremParams });
+    expect(a.gateway.listCalls[1]?.target).toMatchObject({ apiPort: 7248 });
+    const b = setup({ environmentType: "OnPrem", env: { BC_DEV_API_PORT: "nope" } });
+    const err = await b.tools.get("bcdev_native_list")!.handler({ ...onPremParams }).catch((c) => c);
+    expect(err).toMatchObject({ code: "CONFIGURATION_ERROR" });
+    expect(b.gateway.listCalls).toHaveLength(0);
+  });
+
+  test("cloud still requires company", async () => {
+    const { tools, gateway } = setup();
+    const err = await tools.get("bcdev_native_list")!.handler({ context: "business" }).catch((c) => c);
+    expect(err).toMatchObject({ code: "INVALID_ARGUMENT", category: "validation" });
+    expect(gateway.listCalls).toHaveLength(0);
+  });
+
+  test("on-prem runtime call takes the test-run lock", async () => {
+    const pending = deferred<{ server: { name: string; version: string }; result: Record<string, unknown> }>();
+    const gateway = new FakeNativeMcpGateway();
+    gateway.onCall = () => pending.promise;
+    const { state, tools } = setup({ environmentType: "OnPrem", gateway });
+    const run = tools.get("bcdev_native_call")!.handler({
+      ...onPremParams, context: "runtime", toolName: "run_tests",
+    });
+    expect(state.testRunActive).toBe(true);
+    pending.resolve({ server: { name: "BC", version: "28" }, result: {} });
+    await run;
+    expect(state.testRunActive).toBe(false);
+  });
+
+  test("public context enum rejects the internal snapshot value", () => {
+    for (const name of ["bcdev_native_list", "bcdev_native_call"]) {
+      const { tools } = setup();
+      const shape = tools.get(name)!.schema as unknown as Record<string, { safeParse(v: unknown): { success: boolean } }>;
+      expect(shape["context"]!.safeParse("snapshot").success).toBe(false);
+      expect(shape["context"]!.safeParse("business").success).toBe(true);
+    }
+  });
+
+  test("rejects configuration names outside business context", async () => {
     const cloud = setup();
     const invalid = await cloud.tools.get("bcdev_native_list")!.handler({
       company: "CRONUS",
