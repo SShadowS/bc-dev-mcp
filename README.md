@@ -161,7 +161,7 @@ Azure access tokens are acquired with `az account get-access-token`, cached only
 MCP client (agent)
   |
   v  (stdio)
-src/mcp/server.ts ── tools/ (32 bcdev_* tools) ── state.ts (debug/test/profile ownership)
+src/mcp/server.ts ── tools/ (32 bcdev_* tools) ── state.ts (debug/test/profile/snapshot ownership)
   |
   v
 src/core/  (pure library — typed returns, injected deps)
@@ -492,7 +492,7 @@ seconds, preventing a stale or hung preflight from holding that slot indefinitel
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
 | `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
 | `src/mcp/tools/` | The 32 bcdev_* tool definitions (zod schemas + metadata + handlers) |
-| `src/mcp/state.ts` | Single-slot debug/profile/record-write state and their opaque handles (`debugSessionId`, `profileId`, `recordingId`), event queue, run lock |
+| `src/mcp/state.ts` | Single-slot debug/profile/record-write state and their opaque handles (`debugSessionId`, `profileId`, `snapshotId`, `recordingId`), event queue, run lock |
 | `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
 | `src/core/test-orchestration.ts` | Pure repeat-run identity, stability classification, and adjacent pass/fail diff analysis |
 | `src/core/hubs/debugger-hub.ts` | DebuggerHub client (attach, breakpoints, stepping, inspection) |

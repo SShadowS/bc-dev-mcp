@@ -41,6 +41,8 @@ stateful and the steps cannot be reordered.
   `PROFILE_ACTIVE`; call `bcdev_profile_finish` first. `bcdev_profile_poll` and
   `bcdev_profile_finish` without a capture fail with `PROFILE_NOT_ACTIVE`. Finish always
   releases the slot, even when it returns `captured: false` or throws, so it is also your reset.
+  The capture slot is shared with snapshot debugging: if it holds a snapshot capture, start
+  fails `PROFILE_ACTIVE` naming `bcdev_snapshot_finish`, which releases it.
 - **The capture is tenant-wide.** If another client or a crashed earlier process left one armed,
   start fails `PROFILE_ACTIVE` with `details.heldElsewhere: true`. Release it with
   `bcdev_profile_finish` and that capture's `debuggingContext` (from the start that armed it);
@@ -59,8 +61,9 @@ stateful and the steps cannot be reordered.
 - **Expect `IdleTime` at the top of a sampled profile** for a lightly loaded interactive
   session; read the AL frames below it.
 - **Converter fallback (instrumentation only).** The server returns a `.mdc` snapshot zip.
-  `bcdev_profile_finish` converts it with bc-mdc-converter, found via `BC_MDC_CONVERTER` or
-  `bc-mdc-converter` on `PATH`. When the binary is absent or conversion fails, the call still
+  `bcdev_profile_finish` converts it with bc-mdc-converter, found via `BC_MDC_CONVERTER`, else
+  `bc-mdc-converter` on `PATH` (at the pinned version or newer), else the pinned verified
+  download (`BC_MDC_CONVERTER_DOWNLOAD=0` disables it). When the binary is absent or conversion fails, the call still
   succeeds with `kind: "instrumentation-raw"`, `captured: true` and the saved `zipPath` — no
   `profilePath`, no `summary`. Install the converter and convert the zip
   (`bc-mdc-converter <zip> <out.alcpuprofile> --format v8`) or open it in VS Code
