@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { AlObjectIndex, discoverTestRunners, discoverTests } from "../../src/core/al-objects";
+import { AlObjectIndex, discoverAlpackagesTests, discoverPackageTests, discoverTestRunners, discoverTests } from "../../src/core/al-objects";
+import { buildAppPackage } from "../fixtures/app-package";
 
 function makeProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "bcmcp-al-"));
@@ -171,5 +172,95 @@ describe("discoverTests", () => {
     ]);
     // runners are not test codeunits
     expect((await discoverTests(dir)).map((t) => t.codeunitId)).toEqual([50100]);
+  });
+});
+
+describe("package test discovery", () => {
+  const testCodeunit = {
+    Id: 50190,
+    Name: "Probe Tests",
+    Properties: [{ Name: "Subtype", Value: "Test" }, { Name: "TestPermissions", Value: "Disabled" }],
+    Methods: [
+      { Name: "WithHandlers", Attributes: [
+        { Name: "Test" },
+        { Name: "HandlerFunctions", Arguments: [{ Value: "MsgHandler" }] },
+        { Name: "TransactionModel", Arguments: [{ Value: "AutoRollback" }] },
+      ] },
+      { Name: "MsgHandler", Attributes: [{ Name: "MessageHandler" }] },
+      { Name: "SecondTest", Attributes: [{ Name: "test" }] },
+    ],
+  };
+  const symbols = {
+    Codeunits: [
+      testCodeunit,
+      { Id: 50191, Name: "Plain", Methods: [{ Name: "X", Attributes: [{ Name: "Test" }] }] },
+    ],
+    Namespaces: [{
+      Name: "SShadowS",
+      Namespaces: [{
+        Name: "Probe",
+        Codeunits: [
+          { Id: 50192, Name: "Probe Empty Tests", Properties: [{ Name: "Subtype", Value: "Test" }], Methods: [] },
+          { Id: 50193, Name: "Probe Runner", Properties: [{ Name: "Subtype", Value: "TestRunner" }, { Name: "TestIsolation", Value: "Codeunit" }] },
+          { Id: 50194, Name: "Default Runner", Properties: [{ Name: "Subtype", Value: "TestRunner" }] },
+        ],
+      }],
+    }],
+  };
+  const fixture = (name: string, nulPadding = 0) => buildAppPackage({
+    publisher: "SShadowS", name, appId: "7A1C0001-0000-4000-8000-0000000000B1", version: "1.0.0.0", symbols, nulPadding,
+  });
+
+  test("lists test codeunits and runners from a .app in declaration order with namespaces", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bcmcp-pkg-"));
+    const app = join(dir, "probe.app");
+    writeFileSync(app, fixture("Probe", 64));
+    const pkg = await discoverPackageTests(app);
+    expect(pkg).toMatchObject({ path: resolve(app), appId: "7a1c0001-0000-4000-8000-0000000000b1", appName: "Probe", publisher: "SShadowS", version: "1.0.0.0" });
+    expect(pkg.tests).toEqual([
+      {
+        codeunitId: 50190, name: "Probe Tests", namespace: "", file: resolve(app),
+        methods: ["WithHandlers", "SecondTest"],
+        methodDetails: [
+          { name: "WithHandlers", transactionModel: "AutoRollback", attributes: ["Test", "HandlerFunctions(MsgHandler)", "TransactionModel(AutoRollback)"] },
+          { name: "SecondTest", transactionModel: "AutoCommit", attributes: ["test"] },
+        ],
+      },
+      { codeunitId: 50192, name: "Probe Empty Tests", namespace: "SShadowS.Probe", file: resolve(app), methods: [], methodDetails: [] },
+    ]);
+    expect(pkg.runners).toEqual([
+      { codeunitId: 50193, name: "Probe Runner", namespace: "SShadowS.Probe", file: resolve(app), testIsolation: "Codeunit" },
+      { codeunitId: 50194, name: "Default Runner", namespace: "SShadowS.Probe", file: resolve(app), testIsolation: "Disabled" },
+    ]);
+  });
+
+  test("a file that is not an AL package is a CONFIGURATION_ERROR", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bcmcp-pkg-"));
+    writeFileSync(join(dir, "bad.app"), "not a zip");
+    await expect(discoverPackageTests(join(dir, "bad.app"))).rejects.toMatchObject({ code: "CONFIGURATION_ERROR" });
+  });
+
+  test("a missing appFile propagates ENOENT", async () => {
+    await expect(discoverPackageTests(join(tmpdir(), "no-such-bcmcp.app"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("scans .alpackages, warning on unreadable packages and continuing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bcmcp-pkg-"));
+    mkdirSync(join(dir, ".alpackages", "nested"), { recursive: true });
+    writeFileSync(join(dir, ".alpackages", "a.app"), fixture("A"));
+    writeFileSync(join(dir, ".alpackages", "broken.app"), "garbage");
+    writeFileSync(join(dir, ".alpackages", "nested", "c.app"), fixture("C"));
+    writeFileSync(join(dir, ".alpackages", "readme.txt"), "x");
+    const { packages, warnings } = await discoverAlpackagesTests(dir);
+    expect(packages.map((p) => p.appName)).toEqual(["A"]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(`Unable to read test symbols from ${join(dir, ".alpackages", "broken.app")}`);
+  });
+
+  test("a missing .alpackages folder yields no packages and a warning", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bcmcp-pkg-"));
+    const { packages, warnings } = await discoverAlpackagesTests(dir);
+    expect(packages).toEqual([]);
+    expect(warnings[0]).toContain(join(dir, ".alpackages"));
   });
 });

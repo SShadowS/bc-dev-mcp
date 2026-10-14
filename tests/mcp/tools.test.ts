@@ -206,6 +206,39 @@ describe("tools", () => {
     expect(found.tests).toHaveLength(1);
   });
 
+  test("bcdev_test_discover reads tests from an appFile and from .alpackages", async () => {
+    const { tools, deps } = setup(hub);
+    const tool = tools.get("bcdev_test_discover")!;
+    const plain = (await tool.handler({})) as Record<string, unknown>;
+    expect("packages" in plain).toBe(false);
+    expect("warnings" in plain).toBe(false);
+
+    mkdirSync(join(deps.cwd, ".alpackages"));
+    writeFileSync(join(deps.cwd, ".alpackages", "Tests.app"), buildAppPackage({
+      publisher: "Microsoft", name: "Agent Samples Tests", appId: "7a1c0001-0000-4000-8000-0000000000b1", version: "29.0.0.0",
+      nulPadding: 100,
+      symbols: { Codeunits: [{ Id: 133740, Name: "SV-AS Accuracy Test", Properties: [{ Name: "Subtype", Value: "Test" }], Methods: [{ Name: "TestAccuracy", Attributes: [{ Name: "Test" }] }] }] },
+    }));
+    writeFileSync(join(deps.cwd, ".alpackages", "Broken.app"), "nope");
+
+    const scanned = (await tool.handler({ alpackages: true })) as { tests: unknown[]; packages: Array<{ tests: Array<{ codeunitId: number }> }>; warnings: string[] };
+    expect(() => tool.outputSchema.parse({ ...scanned, nextSteps: [] })).not.toThrow();
+    expect(scanned.tests).toHaveLength(1);
+    expect(scanned.packages.map((p) => p.tests.map((t) => t.codeunitId))).toEqual([[133740]]);
+    expect(scanned.warnings).toHaveLength(1);
+
+    const one = (await tool.handler({ appFile: join(".alpackages", "Tests.app") })) as { tests: unknown[]; runners: unknown[]; packages: unknown[] };
+    expect(() => tool.outputSchema.parse({ ...one, nextSteps: [] })).not.toThrow();
+    expect(one.tests).toEqual([]);
+    expect(one.runners).toEqual([]);
+    expect(one.packages).toHaveLength(1);
+
+    const error = await tool.handler({ appFile: join(".alpackages", "Broken.app") }).catch((e: unknown) => e);
+    const body = agentErrorBody("bcdev_test_discover", error);
+    expect(body.error.code).toBe("CONFIGURATION_ERROR");
+    expect(body.nextSteps.join(" ")).toContain("bcdev_package_download");
+  });
+
   test("every tool result validates against its own outputSchema", async () => {
     const { tools } = setup(hub);
     hub.onInvoke = (method) => {

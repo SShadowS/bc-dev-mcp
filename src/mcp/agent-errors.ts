@@ -145,6 +145,9 @@ function toolRecoverySteps(
   if (tool === "bcdev_app_publish" && code === "SERVER_REJECTED") {
     return ["If Business Central refused to replace an existing copy published at Global scope, call bcdev_app_list, then bcdev_app_uninstall and bcdev_app_unpublish for that appId, and retry bcdev_app_publish."];
   }
+  if (tool === "bcdev_test_discover" && code === "CONFIGURATION_ERROR" && typeof details["path"] === "string") {
+    return ["Pass appFile as an AL extension .app (compiler output or a file in .alpackages), or fetch one with bcdev_package_download, then retry."];
+  }
   if (code === "NOT_FOUND" && (tool === "bcdev_app_uninstall" || tool === "bcdev_app_unpublish")) {
     return ["Call bcdev_app_list to confirm the published appId, version, and company, then retry."];
   }
@@ -159,7 +162,9 @@ export function agentErrorBody(tool: string, error: unknown): AgentErrorBody {
   const toolSteps = toolRecoverySteps(tool, normalized.code, normalized.details);
   // A tool-specific TIMEOUT / UNSUPPORTED_SERVER step supersedes the generic one (near-duplicate or contradictory);
   // other codes keep both (app_publish SERVER_REJECTED relies on the pair).
-  const supersedes = toolSteps.length > 0 && (normalized.code === "TIMEOUT" || normalized.code === "UNSUPPORTED_SERVER");
+  // bcdev_test_discover's appFile step replaces the generic launch-configuration one, which does not apply.
+  const supersedes = toolSteps.length > 0 &&
+    (normalized.code === "TIMEOUT" || normalized.code === "UNSUPPORTED_SERVER" || tool === "bcdev_test_discover");
   return {
     error: {
       code: normalized.code,

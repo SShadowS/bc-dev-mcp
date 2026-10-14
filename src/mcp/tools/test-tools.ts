@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { writeFile } from "node:fs/promises";
 import { relative as relativePath, resolve as resolvePath } from "node:path";
-import { AL_OBJECT_TYPE, AlObjectIndex, discoverTestRunners, discoverTests } from "../../core/al-objects";
+import { AL_OBJECT_TYPE, AlObjectIndex, discoverAlpackagesTests, discoverPackageTests, discoverTestRunners, discoverTests } from "../../core/al-objects";
 import { TestRunnerClient } from "../../core/hubs/test-runner-hub";
 import { fetchServerInfo, verifyDevAuthentication } from "../../core/server-info";
 import type { CoverageEntry, CoverageMode, RunTestsResult } from "../../core/types";
@@ -249,9 +249,17 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
     {
       name: "bcdev_test_discover",
       title: "Discover AL tests",
-      description: "Scan the AL project for test codeunits ([Test] methods, with each method's attributes and TransactionModel) and TestRunner codeunits (with TestIsolation). Filesystem only — no server needed.",
+      description: "Scan the AL project for test codeunits ([Test] methods, with each method's attributes and TransactionModel) and TestRunner codeunits (with TestIsolation). Also reads compiled packages: appFile inspects one .app, alpackages: true adds every .app in <project>/.alpackages (dependency or Microsoft test apps, e.g. fetched with bcdev_package_download), so their codeunit IDs can be passed to bcdev_test_run. Filesystem only — no server needed.",
       annotations: { readOnlyHint: true, openWorldHint: false },
-      schema: { project: connectionShape.project },
+      schema: {
+        project: connectionShape.project,
+        appFile: z.string().min(1).optional().describe(
+          "Path to one compiled .app (absolute, or relative to the project). Inspects only that package; the workspace .al scan is skipped (tests and runners are empty).",
+        ),
+        alpackages: z.boolean().optional().describe(
+          "Also inspect every .app directly in <project>/.alpackages (default false). Results go to packages; unreadable packages to warnings.",
+        ),
+      },
       outputSchema: z.object({
         tests: z.array(
           z.looseObject({
@@ -267,10 +275,42 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
         runners: z.array(
           z.looseObject({ codeunitId: z.number(), name: z.string(), file: z.string(), testIsolation: z.string() }),
         ),
+        packages: z.array(z.object({
+          path: z.string().describe("Absolute .app path"),
+          appId: z.string().describe("Package app ID (lower-case GUID)"),
+          appName: z.string().describe("Package name"),
+          publisher: z.string().describe("Package publisher"),
+          version: z.string().describe("Package version"),
+          tests: z.array(z.looseObject({
+            codeunitId: z.number().describe("Pass as bcdev_test_run codeunits[].id"),
+            name: z.string().describe("Codeunit name"),
+            namespace: z.string().describe("Dotted AL namespace; empty when none"),
+            file: z.string().describe("The .app path"),
+            methods: z.array(z.string()).describe("[Test] methods in declaration order"),
+            methodDetails: z.array(z.looseObject({
+              name: z.string().describe("Method name"),
+              transactionModel: z.string().describe("TransactionModel attribute argument, else AutoCommit"),
+              attributes: z.array(z.string()).describe("Attributes as Name or Name(arg, ...); argument values unquoted"),
+            })).describe("Per-method details"),
+          })).describe("Test codeunits (Subtype = Test), including ones with no [Test] methods"),
+          runners: z.array(z.looseObject({
+            codeunitId: z.number().describe("Runner codeunit ID"),
+            name: z.string().describe("Codeunit name"),
+            namespace: z.string().describe("Dotted AL namespace; empty when none"),
+            file: z.string().describe("The .app path"),
+            testIsolation: z.string().describe("TestIsolation property, else Disabled"),
+          })).describe("TestRunner codeunits"),
+        })).optional().describe("Present when appFile or alpackages was given: one entry per package read, also when it holds no tests"),
+        warnings: z.array(z.string()).optional().describe("alpackages only: packages that could not be read, or a missing .alpackages folder"),
       }),
       handler: async (params) => {
         const project = (params["project"] as string | undefined) ?? deps.cwd;
-        return { tests: await discoverTests(project), runners: await discoverTestRunners(project) };
+        const appFile = params["appFile"] as string | undefined;
+        if (appFile !== undefined) {
+          return { tests: [], runners: [], packages: [await discoverPackageTests(resolvePath(project, appFile))] };
+        }
+        const result = { tests: await discoverTests(project), runners: await discoverTestRunners(project) };
+        return params["alpackages"] === true ? { ...result, ...(await discoverAlpackagesTests(project)) } : result;
       },
     },
     {
