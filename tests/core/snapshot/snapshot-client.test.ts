@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { SnapshotClient } from "../../../src/core/snapshot/snapshot-client";
+import { SnapshotClient, SnapshotHttpError } from "../../../src/core/snapshot/snapshot-client";
+import type { DebugAttachParams } from "../../../src/core/snapshot/snapshot-types";
 import { BasicAuthorizationProvider } from "../../../src/core/authorization";
 
 const cfg = { environmentType: "OnPrem", authentication: "UserPassword", server: "http://bc", serverInstance: "BC", tenant: "default", username: "u", password: "p" } as const;
@@ -157,6 +158,63 @@ describe("SnapshotClient", () => {
   test("attachInstrumentation tolerates a missing affinity cookie (single-node)", async () => {
     const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => new Response('"NextSessionOnTenant"') }]), cfg, 7083, auth);
     expect((await c.attachInstrumentation({ debuggingContext: "ctx", clientType: "WebClient", sessionId: -1 })).affinityCookie).toBeNull();
+  });
+
+  const dbgParams = { debuggingContext: "ctx", clientType: "WebClient", sessionId: -1, verbosity: "snappoint", locations: [{ objectType: 8, objectId: 50152, lines: [{ line: 34 }] }] } satisfies DebugAttachParams;
+  const caught = (p: Promise<unknown>) => p.then(() => { throw new Error("expected failure"); }, (e: unknown) => e as SnapshotHttpError);
+
+  test("attachDebug posts the debug body and returns attachKind", async () => {
+    let sent = "";
+    const c = new SnapshotClient(
+      (async (_u: RequestInfo | URL, init?: RequestInit) => { sent = String(init?.body); return new Response('"NextSessionOnTenant"'); }) as unknown as typeof fetch,
+      cfg, 7083, auth,
+    );
+    const r = await c.attachDebug(dbgParams);
+    expect(r.attachKind).toBe("NextSessionOnTenant");
+    expect(JSON.parse(sent)).toMatchObject({ ExecutionContext: 1, SnapshotVerbosity: 0, SourceBreakpointLocations: [{ Id: { ObjectType: 8, ObjectNumber: 50152 } }] });
+  });
+
+  test("status 404 -> SnapshotHttpError lostContext", async () => {
+    const c = new SnapshotClient(fakeFetch([{ match: /status/, res: () => new Response("nope", { status: 404 }) }]), cfg, 7083, auth);
+    const e = await caught(c.status("ctx", null));
+    expect(e).toBeInstanceOf(SnapshotHttpError);
+    expect(e.lostContext).toBe(true);
+    expect(e.heldElsewhere).toBe(false);
+  });
+
+  test("status 200 with a Message body -> lostContext", async () => {
+    const c = new SnapshotClient(fakeFetch([{ match: /status/, res: () => new Response(JSON.stringify({ Message: "The snapshot debugger status could not be retrieved for this context" })) }]), cfg, 7083, auth);
+    const e = await caught(c.status("ctx", null));
+    expect(e).toBeInstanceOf(SnapshotHttpError);
+    expect(e.lostContext).toBe(true);
+  });
+
+  test("attach 400 already started -> heldElsewhere", async () => {
+    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => new Response("A snapshot debugging session has already started on this tenant", { status: 400 }) }]), cfg, 7083, auth);
+    const e = await caught(c.attachDebug({ ...dbgParams, locations: [] }));
+    expect(e.heldElsewhere).toBe(true);
+    expect(e.lostContext).toBe(false);
+  });
+
+  test("finish over maxBytes throws naming the limit", async () => {
+    const c = new SnapshotClient(fakeFetch([{ match: /finish/, res: () => new Response(new Uint8Array(11)) }]), cfg, 7083, auth);
+    const e = await caught(c.finish("ctx", null, 10));
+    expect(e).toBeInstanceOf(SnapshotHttpError);
+    expect(e.operation).toBe("snapshot finish");
+    expect(e.message).toContain("10");
+  });
+
+  test("finish rejects on Content-Length before reading", async () => {
+    const c = new SnapshotClient(fakeFetch([{ match: /finish/, res: () => new Response(new Uint8Array(11), { headers: { "Content-Length": "11" } }) }]), cfg, 7083, auth);
+    const e = await caught(c.finish("ctx", null, 10));
+    expect(e.operation).toBe("snapshot finish");
+  });
+
+  test("error messages never contain the Authorization value", async () => {
+    const c = new SnapshotClient(fakeFetch([{ match: /attach/, res: () => new Response("bad Authorization: Bearer eyJSECRET.rest", { status: 401 }) }]), cfg, 7083, auth);
+    const e = await caught(c.attachDebug({ ...dbgParams, locations: [] }));
+    expect(e.message).not.toContain("eyJSECRET");
+    expect(e.message).not.toContain(await auth.getAuthorizationHeader());
   });
 
   describe("non-2xx responses throw with the status", () => {

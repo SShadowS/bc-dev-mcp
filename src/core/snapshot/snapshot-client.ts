@@ -11,7 +11,9 @@ import type { AuthorizationProvider } from "../authorization";
 import { redactAuthorization } from "../redaction";
 import { snapshotUrl } from "../urls";
 import {
+  buildDebugAttachBody,
   buildInstrumentationAttachBody,
+  type DebugAttachParams,
   buildSamplingAttachBody,
   parseStatus,
   type InstrumentationAttachParams,
@@ -36,6 +38,21 @@ export interface FinishResult {
 
 const AFFINITY = "ApplicationGatewayAffinity";
 
+export class SnapshotHttpError extends Error {
+  constructor(public readonly operation: string, public readonly status: number, public readonly bodySnippet: string) {
+    super(`${operation} HTTP ${status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
+    this.name = "SnapshotHttpError";
+  }
+  // WIRE: a context BC no longer knows answers 404, or 200 with {"Message":"...could not be retrieved..."} (live Cronus29 2026-10-14).
+  get lostContext(): boolean {
+    return this.status === 404 || /could not be retrieved|may have been removed/i.test(this.bodySnippet);
+  }
+  // WIRE: attach 400 "A snapshot debugging session has already started on this tenant" (live Cronus29 2026-10-13).
+  get heldElsewhere(): boolean {
+    return this.status === 409 || /snapshot debugging session has already started/i.test(this.bodySnippet);
+  }
+}
+
 export class SnapshotClient {
   constructor(
     private fetchFn: typeof fetch,
@@ -58,9 +75,9 @@ export class SnapshotClient {
     return q;
   }
 
-  private async responseError(operation: string, res: Response): Promise<Error> {
-    const diagnostic = redactAuthorization((await res.text()).trim()).slice(0, 2000);
-    return new Error(`${operation} HTTP ${res.status}${diagnostic ? `: ${diagnostic}` : ""}`);
+  private async responseError(operation: string, res: Response): Promise<SnapshotHttpError> {
+    const diagnostic = redactAuthorization((await res.text()).trim()).slice(0, 300);
+    return new SnapshotHttpError(operation, res.status, diagnostic);
   }
 
   async metadata(): Promise<SnapshotMetadata> {
@@ -77,6 +94,19 @@ export class SnapshotClient {
       method: "POST",
       headers: await this.headers(null, true),
       body: JSON.stringify(buildSamplingAttachBody(p)),
+    });
+    if (!res.ok) throw await this.responseError("snapshot attach", res);
+    const affinityCookie = this.readAffinityCookie(res);
+    const attachKind = (await res.text()).trim().replace(/^"|"$/g, "");
+    return { attachKind, affinityCookie };
+  }
+
+  async attachDebug(p: DebugAttachParams): Promise<AttachResult> {
+    const url = snapshotUrl(this.config, "attach", this.snapshotPort, { debuggingcontext: p.debuggingContext });
+    const res = await this.fetchFn(url, {
+      method: "POST",
+      headers: await this.headers(null, true),
+      body: JSON.stringify(buildDebugAttachBody(p)),
     });
     if (!res.ok) throw await this.responseError("snapshot attach", res);
     const affinityCookie = this.readAffinityCookie(res);
@@ -113,10 +143,20 @@ export class SnapshotClient {
       body: JSON.stringify({ DebuggingContext: debuggingContext }),
     });
     if (!res.ok) throw await this.responseError("snapshot status", res);
-    return parseStatus(await res.text());
+    const text = await res.text();
+    // WIRE: a context BC no longer knows can answer 200 with {"Message":"..."} instead of a status value.
+    try {
+      const j: unknown = JSON.parse(text);
+      if (j && typeof j === "object" && typeof (j as { Message?: unknown }).Message === "string") {
+        throw new SnapshotHttpError("snapshot status", 200, redactAuthorization((j as { Message: string }).Message).slice(0, 300));
+      }
+    } catch (e) {
+      if (e instanceof SnapshotHttpError) throw e;
+    }
+    return parseStatus(text);
   }
 
-  async finish(debuggingContext: string, affinityCookie: string | null): Promise<FinishResult> {
+  async finish(debuggingContext: string, affinityCookie: string | null, maxBytes?: number): Promise<FinishResult> {
     const url = snapshotUrl(this.config, "finish", this.snapshotPort, this.query(debuggingContext, affinityCookie));
     const res = await this.fetchFn(url, {
       method: "POST",
@@ -124,7 +164,30 @@ export class SnapshotClient {
       body: JSON.stringify({ DebuggingContext: debuggingContext }),
     });
     if (!res.ok) throw await this.responseError("snapshot finish", res);
-    const buf = new Uint8Array(await res.arrayBuffer());
+    const tooBig = () => new SnapshotHttpError("snapshot finish", res.status, `response exceeds the ${maxBytes}-byte limit`);
+    const declared = Number(res.headers.get("content-length"));
+    if (maxBytes !== undefined && declared > maxBytes) throw tooBig();
+    let buf: Uint8Array;
+    if (maxBytes === undefined || !res.body) {
+      buf = new Uint8Array(await res.arrayBuffer());
+    } else {
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.length;
+        if (total > maxBytes) {
+          await reader.cancel();
+          throw tooBig();
+        }
+        chunks.push(value);
+      }
+      buf = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { buf.set(c, off); off += c.length; }
+    }
     const etag = res.headers.get("etag")?.trim().replace(/^"|"$/g, "") ?? null;
     // WIRE: a capture that never bound a session finishes 200 with a 0-byte body and no ETag (scripts/e2e.md, live BC28 2026-10-13).
     return { empty: buf.length === 0, etag, body: buf };

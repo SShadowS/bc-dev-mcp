@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import { BcDevError } from "../../core/agent-errors";
-import { SnapshotClient } from "../../core/snapshot/snapshot-client";
+import { SnapshotClient, SnapshotHttpError } from "../../core/snapshot/snapshot-client";
 import { summarizeProfile } from "../../core/snapshot/profile-summary";
 import { createAlSemAnalyze, explainHotspots } from "../../core/hotspot-explain";
 import { extractEntry, listEntryNames, MAX_TEXT_ENTRY_BYTES } from "../../core/snapshot/zip";
@@ -203,7 +203,7 @@ export function createProfileTools(
           // WIRE: a capture armed by another client (or a crashed process) holds the tenant: attach
           // returns HTTP 400 "A snapshot debugging session has already started on this tenant"
           // (live Cronus29 2026-10-13); finish with that capture's debuggingContext releases it.
-          if (err instanceof Error && /snapshot debugging session has already started/i.test(err.message)) {
+          if (err instanceof SnapshotHttpError && err.heldElsewhere) {
             throw new BcDevError("PROFILE_ACTIVE", `${err.message} (held by another client or an earlier process)`, "state", false, { heldElsewhere: true });
           }
           throw err;

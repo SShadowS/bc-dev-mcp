@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildSamplingAttachBody, buildInstrumentationAttachBody, parseStatus, CLIENT_TYPE_WIRE } from "../../../src/core/snapshot/snapshot-types";
+import { buildDebugAttachBody, buildSamplingAttachBody, buildInstrumentationAttachBody, parseStatus, CLIENT_TYPE_WIRE } from "../../../src/core/snapshot/snapshot-types";
 import { snapshotUrl, DEFAULT_SNAPSHOT_PORT } from "../../../src/core/urls";
 
 const cfg = { environmentType: "OnPrem", authentication: "UserPassword", server: "http://bc", serverInstance: "BC", tenant: "default", username: "u", password: "p" } as const;
@@ -87,6 +87,17 @@ describe("instrumentation attach body", () => {
   test("instrumentation attach body includes UserId only when provided", () => {
     expect(buildInstrumentationAttachBody({ debuggingContext: "c", clientType: "WebClient", sessionId: -1 }).UserId).toBeUndefined();
     expect(buildInstrumentationAttachBody({ debuggingContext: "c", clientType: "WebClient", sessionId: -1, userId: "me" }).UserId).toBe("me");
+  });
+});
+
+describe("debug attach body", () => {
+  test("debug attach body: Debugging context, verbosity, grouped 0-based locations", () => {
+    const body = buildDebugAttachBody({ debuggingContext: "c", clientType: "WebClient", sessionId: -1, verbosity: "snappoint",
+      locations: [{ objectType: 8, objectId: 50152, lines: [{ line: 34 }, { line: 35, condition: "x > 1" }] }] });
+    expect(body).toEqual({ DebuggingContext: "c", ClientType: 1, SnapshotVerbosity: 0, SessionId: -1, ExecutionContext: 1,
+      SourceBreakpointLocations: [{ Id: { ObjectType: 8, ObjectNumber: 50152 }, Lines: [{ Position: { Line: 34, Column: 0 } }, { Position: { Line: 35, Column: 0 }, Condition: "x > 1" }] }] });
+    expect(buildDebugAttachBody({ debuggingContext: "c", clientType: "Background", sessionId: 7, verbosity: "full", locations: [], userId: "U" }))
+      .toMatchObject({ ClientType: 2, SnapshotVerbosity: 1, SessionId: 7, UserId: "U", SourceBreakpointLocations: [] });
   });
 });
 

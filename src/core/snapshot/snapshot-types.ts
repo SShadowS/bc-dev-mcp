@@ -41,6 +41,41 @@ export function buildSamplingAttachBody(p: SamplingAttachParams): Record<string,
   return body;
 }
 
+export interface WireLocation {
+  objectType: number;
+  objectId: number;
+  lines: Array<{ line: number; condition?: string }>; // line 0-based
+}
+
+export interface DebugAttachParams {
+  debuggingContext: string;
+  clientType: ClientTypeName;
+  userId?: string;
+  sessionId: number;
+  verbosity: "snappoint" | "full";
+  locations: WireLocation[];
+}
+
+// WIRE: debugging attach — ExecutionContext=Debugging(1); SnapshotVerbosity SnapPoint(0) | Full(1); locations are
+// SourceBreakpointLocationWrapper[] { Id: ApplicationObjectIdWrapper, Lines: LineWrapper[] } with a 0-based line and
+// column 0 (esp-decomp SnapshotDebuggerAttachInitializeRequestHandler Position.Create(line, 0, linesStartAt1)).
+// Live Cronus29 2026-10-14: page 50152 line 35 -> Line 34 captured that line.
+export function buildDebugAttachBody(p: DebugAttachParams): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    DebuggingContext: p.debuggingContext,
+    ClientType: CLIENT_TYPE_WIRE[p.clientType],
+    SnapshotVerbosity: p.verbosity === "full" ? 1 : 0,
+    SessionId: p.sessionId,
+    ExecutionContext: 1,
+    SourceBreakpointLocations: p.locations.map((l) => ({
+      Id: { ObjectType: l.objectType, ObjectNumber: l.objectId },
+      Lines: l.lines.map((x) => ({ Position: { Line: x.line, Column: 0 }, ...(x.condition ? { Condition: x.condition } : {}) })),
+    })),
+  };
+  if (p.userId) body["UserId"] = p.userId;
+  return body;
+}
+
 export interface InstrumentationAttachParams {
   debuggingContext: string;
   clientType: ClientTypeName;
