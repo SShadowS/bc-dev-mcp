@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { AL_OBJECT_TYPE, type AlObjectIndex } from "../al-objects";
 import { BcDevError } from "../agent-errors";
 import type { WireLocation } from "./snapshot-types";
@@ -44,7 +44,7 @@ export async function normalizeSnappoints(
     if (sp.file !== undefined) {
       const abs = resolve(project, sp.file);
       const rel = relative(index.projectDir, abs);
-      if (rel.startsWith("..") || isAbsolute(rel)) throw bad(i, `file is outside the workspace: ${sp.file}`);
+      if (rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel)) throw bad(i, `file is outside the workspace: ${sp.file}`);
       const ref = index.byFile(abs);
       if (!ref) throw bad(i, `file is not an AL object in the workspace (no object declaration found): ${sp.file}`);
       const total = await readLines(abs);
@@ -52,7 +52,7 @@ export async function normalizeSnappoints(
       ({ typeName, objectId, file, unverified } = { typeName: ref.typeName, objectId: ref.objectId, file: abs, unverified: false });
     } else {
       typeName = (sp.objectType ?? "").toLowerCase();
-      if (!Number.isInteger(sp.objectId) || sp.objectId! < 1) throw bad(i, "objectId must be an integer >= 1");
+      if (!Number.isInteger(sp.objectId) || sp.objectId! < 1 || sp.objectId! > 2147483647) throw bad(i, "objectId must be an integer in 1..2147483647");
       objectId = sp.objectId!;
       unverified = true;
     }

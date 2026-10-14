@@ -49,5 +49,13 @@ describe("normalizeSnappoints", () => {
   test("enum has no code", () => invalid(norm([{ objectType: "enum", objectId: 5, line: 1 }])));
   test("enum file has no code", () => invalid(norm([{ file: "src/Enum.al", line: 1 }])));
   test("objectId 0", () => invalid(norm([{ objectType: "codeunit", objectId: 0, line: 1 }])));
+  test("objectId above int32", () => invalid(norm([{ objectType: "codeunit", objectId: 2147483648, line: 1 }])));
+  test("dir named ..foo inside workspace is not outside", async () => {
+    await mkdir(join(dir, "..foo"));
+    await writeFile(join(dir, "..foo", "X.al"), "codeunit 50200 X\n{\n}\n");
+    index = await AlObjectIndex.build(dir);
+    const [p] = await norm([{ file: "..foo/X.al", line: 1 }]);
+    expect(p).toMatchObject({ objectId: 50200, unverified: false });
+  });
   test("more than 20 snappoints", () => invalid(norm(Array.from({ length: 21 }, (_, i) => ({ file: "src/Page.al", line: i + 1 })))));
 });
