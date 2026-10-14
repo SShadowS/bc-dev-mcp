@@ -571,6 +571,17 @@ describe("readPackageIdentity", () => {
     });
   });
 
+  test("reads identity from a NUL-padded SymbolReference.json (Microsoft BC29 test packages)", () => {
+    const bytes = buildAppPackage({
+      publisher: "Microsoft",
+      name: "Agent Samples Tests",
+      appId: APP_ID,
+      version: "29.0.54011.56136",
+      nulPadding: 7412,
+    });
+    expect(readPackageIdentity(bytes)).toMatchObject({ appName: "Agent Samples Tests", version: "29.0.54011.56136" });
+  });
+
   test("rejects bytes that are not an app package", () => {
     let caught: unknown;
     try {

@@ -8,6 +8,7 @@ import {
   discoverAlProcedureIdentities,
   discoverTestMethodIdentities,
 } from "../../src/core/al-procedures";
+import { buildAppPackage } from "../fixtures/app-package";
 
 function symbolPackage(symbols: unknown): Buffer {
   const name = Buffer.from("SymbolReference.json");
@@ -429,6 +430,31 @@ describe("AL procedure identities", () => {
     const uncached = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
     expect(uncached.warnings).toHaveLength(1);
     expect(uncached.procedures[0]).toMatchObject({ methodId: null });
+  });
+
+  test("reads a NUL-padded dependency SymbolReference.json without a warning", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bcmcp-procedures-"));
+    mkdirSync(join(project, ".alpackages"));
+    writeFileSync(join(project, "app.json"), JSON.stringify({ runtime: "17.0" }));
+    writeFileSync(join(project, "Worker.Codeunit.al"), [
+      "codeunit 50100 Worker",
+      "{",
+      "    procedure ReadCustomer(Customer: Record Customer)",
+      "    begin",
+      "    end;",
+      "}",
+    ].join("\n"));
+    writeFileSync(join(project, ".alpackages", "dependency.app"), buildAppPackage({
+      publisher: "Microsoft",
+      name: "Base",
+      appId: "7a1c0001-0000-4000-8000-0000000000b1",
+      version: "29.0.0.0",
+      symbols: { Tables: [{ Id: 18, Name: "Customer" }] },
+      nulPadding: 512,
+    }));
+    const found = await discoverAlProcedureIdentities(project, ["Worker.Codeunit.al"]);
+    expect(found.warnings).toEqual([]);
+    expect(found.procedures[0]?.methodId).toBeNumber();
   });
 
   test("does not treat a quoted keyword identifier as procedure control flow", async () => {

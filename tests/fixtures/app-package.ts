@@ -13,6 +13,10 @@ export interface AppPackageFixture {
   extra?: string;
   bom?: boolean;
   preamble?: boolean;
+  /** Extra top-level SymbolReference.json members (Codeunits, Namespaces, ...), merged over the defaults. */
+  symbols?: Record<string, unknown>;
+  /** Trailing NUL bytes after the JSON, as in Microsoft's BC29 "Agent Samples Tests" package. */
+  nulPadding?: number;
 }
 
 function buildZip(entries: ZipEntry[], method: 0 | 8): Buffer {
@@ -74,11 +78,12 @@ export function buildAppPackage(fixture: AppPackageFixture): Buffer {
     Version: fixture.version,
     Codeunits: [],
     Extra: fixture.extra ?? "",
+    ...fixture.symbols,
   };
   const prefix = fixture.bom === false ? "" : "\uFEFF";
   const zip = buildStoredZip([
     { name: "NavxManifest.xml", content: Buffer.from("<Package />") },
-    { name: "SymbolReference.json", content: Buffer.from(`${prefix}${JSON.stringify(symbols)}`) },
+    { name: "SymbolReference.json", content: Buffer.from(`${prefix}${JSON.stringify(symbols)}${"\u0000".repeat(fixture.nulPadding ?? 0)}`) },
   ]);
   return fixture.preamble === false
     ? zip

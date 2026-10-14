@@ -4,7 +4,8 @@ import { join, resolve } from "node:path";
 import type { AuthorizationProvider } from "./authorization";
 import { BcDevError } from "./agent-errors";
 import { upperInvariantUtf16 } from "./al-identifiers";
-import { extractEntry, MAX_TEXT_ENTRY_BYTES } from "./snapshot/zip";
+import { MAX_TEXT_ENTRY_BYTES } from "./snapshot/zip";
+import { readSymbolReference } from "./symbol-reference";
 import type { ConnectionConfig } from "./types";
 import { baseClientUrl } from "./urls";
 
@@ -186,23 +187,16 @@ export function readPackageIdentity(
   bytes: Buffer,
   maxSymbolBytes: number = DEFAULT_SYMBOL_REFERENCE_BYTES,
 ): PackageIdentity {
-  let symbolBytes: Buffer | null;
+  let symbols: Record<string, unknown> | null;
   try {
-    symbolBytes = extractEntry(bytes, "SymbolReference.json", maxSymbolBytes);
+    symbols = readSymbolReference(bytes, maxSymbolBytes);
   } catch (error) {
-    throw protocolError("Application package is not a valid archive", {}, error);
+    throw error instanceof SyntaxError
+      ? protocolError("Application package has an invalid SymbolReference.json", {}, error)
+      : protocolError("Application package is not a valid archive", {}, error);
   }
-  if (!symbolBytes) {
+  if (!symbols) {
     throw protocolError("Application package has no SymbolReference.json");
-  }
-
-  let symbols: Record<string, unknown>;
-  try {
-    const parsed = JSON.parse(symbolBytes.toString("utf8").replace(/^\uFEFF/, "")) as unknown;
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
-    symbols = parsed as Record<string, unknown>;
-  } catch (error) {
-    throw protocolError("Application package has an invalid SymbolReference.json", {}, error);
   }
 
   // WIRE: AL compiler .app packages identify their module at the top level of

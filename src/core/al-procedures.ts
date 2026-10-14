@@ -3,7 +3,7 @@ import { join, relative, resolve } from "node:path";
 import { AL_OBJECT_TYPE, discoverTests } from "./al-objects";
 import { upperInvariantUtf16 } from "./al-identifiers";
 import { BcDevError } from "./agent-errors";
-import { extractEntry } from "./snapshot/zip";
+import { readSymbolReference } from "./symbol-reference";
 
 interface Token {
   text: string;
@@ -1224,10 +1224,8 @@ async function addDependencySymbols(
         continue;
       }
       const zip = await readFile(file);
-      const symbolEntry = extractEntry(zip, "SymbolReference.json");
-      if (!symbolEntry) continue;
-      const text = symbolEntry.toString("utf8").replace(/^\uFEFF/, "");
-      const symbols = JSON.parse(text) as Record<string, unknown>;
+      const symbols = readSymbolReference(zip);
+      if (!symbols) continue;
       const packageCatalog = new SubtypeCatalog();
       addContainerDefinitions(packageCatalog, symbols);
       // Symbol packages can omit a moved object's top-level definition while still carrying its
