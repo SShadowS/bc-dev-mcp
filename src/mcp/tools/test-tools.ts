@@ -187,12 +187,22 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
           version: z.string().optional(),
           reason: z.string().optional(),
         }).optional().describe("Which al-sem the static enrichments run (BC_DEV_ALSEM, PATH, or the pinned verified download); unavailable = they fall back"),
+        converter: z.looseObject({
+          source: z.enum(["env", "path", "cache", "download", "unavailable"]),
+          path: z.string().nullable(),
+          version: z.string().optional(),
+          reason: z.string().optional(),
+        }).optional().describe("Which bc-mdc-converter converts profiles and snapshots (BC_MDC_CONVERTER, PATH, or the pinned verified download); unavailable = path null"),
       }),
       handler: async (params) => {
         const { config, authorization } = resolve(params, deps);
         const info = await fetchServerInfo(config, authorization, deps.fetchFn);
         await verifyDevAuthentication(config, authorization, deps.fetchFn);
-        return deps.alsem ? { ...info, alsem: await deps.alsem.resolve() } : info;
+        return {
+          ...info,
+          ...(deps.alsem ? { alsem: await deps.alsem.resolve() } : {}),
+          ...(deps.converter ? { converter: await deps.converter.resolve() } : {}),
+        };
       },
     },
     {

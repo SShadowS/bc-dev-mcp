@@ -271,7 +271,7 @@ describe("profile tools", () => {
       return new Response("{}");
     }) as unknown as typeof fetch;
     const tools = new Map(
-      createProfileTools(state, deps(fetchFn), { resolveEnv: () => ({ converterPath: "/conv" }), run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
+      createProfileTools(state, deps(fetchFn), { resolveEnv: async () => ({ converterPath: "/conv" }), run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
     );
     const r = (await tools.get("bcdev_profile_start")!.handler({ ...conn, kind: "instrumentation" })) as Record<string, unknown>;
     expect(r["converterAvailable"]).toBe(true);
@@ -281,7 +281,7 @@ describe("profile tools", () => {
   test("start kind:instrumentation reports converterAvailable:false and warns in the hint", async () => {
     const fetchFn = (async (u: RequestInfo | URL) => (u.toString().includes("attach") ? new Response('"NextSessionOnTenant"') : new Response("{}"))) as unknown as typeof fetch;
     const tools = new Map(
-      createProfileTools(state, deps(fetchFn), { resolveEnv: () => null, run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
+      createProfileTools(state, deps(fetchFn), { resolveEnv: async () => null, run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
     );
     const r = (await tools.get("bcdev_profile_start")!.handler({ ...conn, kind: "instrumentation" })) as Record<string, unknown>;
     expect(r["converterAvailable"]).toBe(false);
@@ -314,7 +314,7 @@ describe("profile tools", () => {
       return { code: 0, stderr: "" };
     }) as never;
     const tools = new Map(
-      createProfileTools(state, d, { resolveEnv: () => ({ converterPath: "/conv" }), run }).map((t) => [t.name, t]),
+      createProfileTools(state, d, { resolveEnv: async () => ({ converterPath: "/conv" }), run }).map((t) => [t.name, t]),
     );
     await tools.get("bcdev_profile_start")!.handler({ ...conn, kind: "instrumentation" });
     void ctx;
@@ -335,7 +335,7 @@ describe("profile tools", () => {
       return new Response("{}");
     }) as unknown as typeof fetch;
     const tools = new Map(
-      createProfileTools(state, deps(fetchFn), { resolveEnv: () => null, run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
+      createProfileTools(state, deps(fetchFn), { resolveEnv: async () => null, run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
     );
     await tools.get("bcdev_profile_start")!.handler({ ...conn, kind: "instrumentation" });
     const f = (await tools.get("bcdev_profile_finish")!.handler({})) as Record<string, unknown>;
@@ -354,7 +354,7 @@ describe("profile tools", () => {
       return new Response("{}");
     }) as unknown as typeof fetch;
     const tools = new Map(
-      createProfileTools(state, deps(fetchFn), { resolveEnv: () => ({ converterPath: "/conv" }), run: async () => ({ code: 1, stderr: "boom" }) }).map((t) => [t.name, t]),
+      createProfileTools(state, deps(fetchFn), { resolveEnv: async () => ({ converterPath: "/conv" }), run: async () => ({ code: 1, stderr: "boom" }) }).map((t) => [t.name, t]),
     );
     await tools.get("bcdev_profile_start")!.handler({ ...conn, kind: "instrumentation" });
     const f = (await tools.get("bcdev_profile_finish")!.handler({})) as Record<string, unknown>;
@@ -375,7 +375,7 @@ describe("profile tools", () => {
       return new Response("{}");
     }) as unknown as typeof fetch;
     const tools = new Map(
-      createProfileTools(state, deps(fetchFn), { resolveEnv: () => null, run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
+      createProfileTools(state, deps(fetchFn), { resolveEnv: async () => null, run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
     );
     await tools.get("bcdev_profile_start")!.handler({ ...conn, kind: "instrumentation" });
     const f = (await tools.get("bcdev_profile_finish")!.handler({})) as Record<string, unknown>;
@@ -388,7 +388,7 @@ describe("profile tools", () => {
     const fetchFn = (async (u: RequestInfo | URL) =>
       u.toString().includes("attach") ? new Response('"NextSessionOnTenant"') : new Response(null, { headers: { "Content-Length": "0" } })) as unknown as typeof fetch;
     const tools = new Map(
-      createProfileTools(state, deps(fetchFn), { resolveEnv: () => ({ converterPath: "/conv" }), run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
+      createProfileTools(state, deps(fetchFn), { resolveEnv: async () => ({ converterPath: "/conv" }), run: async () => ({ code: 0, stderr: "" }) }).map((t) => [t.name, t]),
     );
     await tools.get("bcdev_profile_start")!.handler({ ...conn, kind: "instrumentation" });
     const f = (await tools.get("bcdev_profile_finish")!.handler({})) as Record<string, unknown>;

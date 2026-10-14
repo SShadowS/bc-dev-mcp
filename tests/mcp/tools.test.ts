@@ -173,6 +173,15 @@ describe("tools", () => {
     expect(tool.outputSchema.safeParse(status).success).toBe(true);
   });
 
+  test("bcdev_status reports which bc-mdc-converter runs when the resolver is wired", async () => {
+    const none = { source: "unavailable" as const, path: null, reason: "download disabled" };
+    const { tools } = setup(hub, undefined, undefined, { converter: { binary: async () => null, resolve: async () => none } });
+    const tool = tools.get("bcdev_status")!;
+    const status = await tool.handler({});
+    expect((status as Record<string, unknown>)["converter"]).toEqual(none);
+    expect(tool.outputSchema.safeParse(status).success).toBe(true);
+  });
+
   test("bcdev_status fails AUTHENTICATION_FAILED when metadata answers but the gated route 401s", async () => {
     // Live BC28/BC29 shape: dev/metadata 200 regardless of password, dev/sourcecontent 401.
     const fetchFn = (async (input: RequestInfo | URL) =>

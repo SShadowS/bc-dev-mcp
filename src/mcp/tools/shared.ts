@@ -1,5 +1,6 @@
 import type { BreakEffectsProvider } from "../../core/break-effects";
 import type { AlSemResolver } from "../../core/alsem-binary";
+import type { ToolResolver } from "../../core/tool-binary";
 import { resolve as resolvePath } from "node:path";
 import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -57,6 +58,8 @@ export interface ToolDeps {
   nativeMcpGateway: NativeMcpGateway;
   /** Shared al-sem lookup (src/core/alsem-binary.ts); absent = BC_DEV_ALSEM / PATH only, never a download (tests). */
   alsem?: AlSemResolver;
+  /** Shared bc-mdc-converter lookup (src/core/tool-binary.ts); absent = BC_MDC_CONVERTER / PATH only, never a download (tests). */
+  converter?: ToolResolver;
   /** `alsem analyze` runner for bcdev_profile_finish hotspot explanations; defaults to spawning alsem (BC_DEV_ALSEM / PATH), tests inject a fake. */
   alsemAnalyze?: AlSemAnalyze;
 }

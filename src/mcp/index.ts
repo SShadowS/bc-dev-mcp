@@ -12,6 +12,8 @@ import { createAlSemStaticWritersProvider } from "../core/alsem-writes";
 import { SdkNativeMcpGateway } from "../core/native-mcp";
 import { createHttp10Get } from "../core/http10";
 import { alsemVersionOf, createAlSemResolver } from "../core/alsem-binary";
+import { CONVERTER_TOOL, createToolResolver } from "../core/tool-binary";
+import { converterVersionOf } from "../core/snapshot/converter";
 
 // One ServerState for the process: the debug session, event queue and run lock must survive
 // whichever McpServer instance serveStdio builds for the connection's protocol era.
@@ -26,6 +28,15 @@ const alsem = createAlSemResolver({
   log: (message) => console.error(`[bc-dev-mcp] ${message}`),
   now: Date.now,
 });
+const converter = createToolResolver(CONVERTER_TOOL, {
+  env: process.env,
+  platform: process.platform,
+  arch: process.arch,
+  fetchFn: fetch,
+  versionOf: converterVersionOf,
+  log: (message) => console.error(`[bc-dev-mcp] ${message}`),
+  now: Date.now,
+});
 const deps = {
   hubFactory: signalrHubFactory,
   authorizationFactory: createAuthorizationProviderFactory(),
@@ -35,6 +46,7 @@ const deps = {
   cwd: process.cwd(),
   gitChanges: collectGitChanges,
   alsem,
+  converter,
   callGraph: cachedCallGraphProvider(createCallGraphProvider(process.env, undefined, alsem.binary)),
   riskDigest: createAlSemRiskProvider(process.env, undefined, alsem.binary),
   orderPredictor: createAlSemOrderPredictor(process.env, undefined, alsem.binary),

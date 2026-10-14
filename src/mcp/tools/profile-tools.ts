@@ -76,9 +76,13 @@ function readArchive<T>(read: () => T, message: string): T {
 export function createProfileTools(
   state: ServerState,
   deps: ToolDeps,
-  converterOverride?: { resolveEnv: () => ConverterEnv | null; run: SpawnRunner },
+  converterOverride?: { resolveEnv: () => Promise<ConverterEnv | null>; run: SpawnRunner },
 ): ToolDefinition[] {
-  const resolveEnv = converterOverride?.resolveEnv ?? (() => resolveConverter({ env: deps.env }));
+  const resolveEnv = converterOverride?.resolveEnv ?? (async () => {
+    if (!deps.converter) return resolveConverter({ env: deps.env });
+    const path = await deps.converter.binary();
+    return path ? { converterPath: path } : null;
+  });
   const runConvert = converterOverride?.run;
 
   // al-sem is optional: any failure inside explainHotspots is a warning, never a tool error.
@@ -177,7 +181,7 @@ export function createProfileTools(
           state.profile.affinityCookie = attach.affinityCookie;
           state.profile.attachKind = attach.attachKind;
           if (kind === "instrumentation") {
-            const converterAvailable = resolveEnv() !== null;
+            const converterAvailable = (await resolveEnv()) !== null;
             return {
               profileId: id,
               debuggingContext,
@@ -296,7 +300,7 @@ export function createProfileTools(
           const outDir = params["outPath"] ? dirname(params["outPath"] as string) : deps.cwd;
           const zipPath = join(outDir, `${p.debuggingContext}.snapshot.zip`);
           writeFileSync(zipPath, Buffer.from(fin.body));
-          const env = resolveEnv();
+          const env = await resolveEnv();
           if (!env) {
             return {
               captured: true,

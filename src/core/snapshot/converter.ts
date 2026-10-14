@@ -1,6 +1,22 @@
 import { existsSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { join } from "node:path";
+import { promisify } from "node:util";
+import { probeVersion } from "../tool-binary";
+
+const execFileAsync = promisify(execFile);
+
+export const converterVersionOf = (binary: string) => probeVersion(binary, /bc-mdc-converter (\d+\.\d+\.\d+)/);
+
+/** `<binary> --formats` lists the output formats it can write, one per line; false on any error. */
+export async function converterSupports(binary: string, format: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync(binary, ["--formats"], { encoding: "utf8", timeout: 15_000, windowsHide: true });
+    return stdout.split(/\r?\n/).includes(format);
+  } catch {
+    return false;
+  }
+}
 
 export interface ConverterEnv {
   converterPath: string;
