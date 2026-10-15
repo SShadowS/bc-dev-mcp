@@ -77,4 +77,5 @@ local cleanup warning before deleting any stale `.backup` file.
   publisher's resource-exposure policy. The tool does not extract or claim source that
   Business Central did not expose through `bcdev_source`.
 - Connection defaults come from `.vscode/launch.json`. SaaS uses the current Azure CLI
-  identity; on-premises uses `BC_DEV_USER` and `BC_DEV_PASSWORD`.
+  identity, or `BC_ACCESS_TOKEN` (pre-acquired bearer token, EntraId/cloud only) when set, which
+  takes precedence; on-premises uses `BC_DEV_USER` and `BC_DEV_PASSWORD`.

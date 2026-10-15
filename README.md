@@ -42,7 +42,7 @@ and the snapshot-debugging capture proxy.
 | Runtime dependencies | 5 (`@microsoft/signalr`, `@modelcontextprotocol/server`, `@modelcontextprotocol/client`, `zod`, `@sshadows/bc-toolbox-envelope`) |
 | Transport | MCP over stdio (protocol 2026-07-28 and 2025-11-25 clients) |
 | Server requirement | BC dev API `WebApiVersion >= 7.0` (AL 18 platform, e.g. BC28) |
-| Auth | Azure CLI / Entra ID (SaaS) · UserPassword (on-prem / docker) |
+| Auth | Azure CLI / Entra ID or a pre-acquired `BC_ACCESS_TOKEN` (SaaS) · UserPassword (on-prem / docker) |
 | Validation | Live E2E against BC28 and SaaS Sandbox (`scripts/e2e.md`) |
 
 ## Features
@@ -72,7 +72,8 @@ and the snapshot-debugging capture proxy.
 ## Prerequisites
 
 - A reachable BC server with dev API `WebApiVersion >= 7.0` (check with `bcdev_status`)
-- For SaaS: the standard Azure CLI, signed in to the launch configuration's tenant (`az login --tenant <tenant-id>`)
+- For SaaS: the standard Azure CLI, signed in to the launch configuration's tenant (`az login --tenant <tenant-id>`),
+  or a pre-acquired Business Central bearer token in `BC_ACCESS_TOKEN` (takes precedence; not refreshed)
 - For on-premises: UserPassword credentials for the dev endpoint
 - Git on `PATH` and an AL project inside a repository when using `coverageAgainst`
 - Bun (to run from source) or Node 22+ (to run the built `dist/index.js`)
