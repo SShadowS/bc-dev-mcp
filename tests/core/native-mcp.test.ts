@@ -523,7 +523,7 @@ describe("BC native MCP gateway: on-prem target", () => {
     expect(conn.closed).toBe(true);
   });
 
-  test("on-prem 401/404/405 map to actionable errors", async () => {
+  test("on-prem 401/404/405/503 map to actionable errors", async () => {
     const run = async (status: number) => {
       const c = new FakeConnection();
       c.connectError = new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, "x", { status });
@@ -533,7 +533,8 @@ describe("BC native MCP gateway: on-prem target", () => {
     expect(e401.code).toBe("AUTHENTICATION_FAILED");
     expect(e401.message).toContain("BC_DEV_USER");
     expect(e401.message).not.toContain("Azure");
-    for (const st of [404, 405]) {
+    // 503: HTTP.sys answer on a port with no registered MCP URL (the dev port 7049).
+    for (const st of [404, 405, 503]) {
       const e = await run(st);
       expect(e.code).toBe("UNSUPPORTED_SERVER");
       expect(e.message).toContain("McpServicesEnabled");

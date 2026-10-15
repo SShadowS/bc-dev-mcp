@@ -290,7 +290,9 @@ function normalizeNativeError(error: unknown, target: NativeMcpTarget): BcDevErr
           { cause: error },
         );
       }
-      if (status === 404 || status === 405) {
+      // WIRE: live Cronus29 2026-10-15 — the dev port 7049 answers the MCP URL with HTTP.sys 503
+      // "Service Unavailable" (no MCP URL registered there), so 503 is the most likely wrong-port answer.
+      if (status === 404 || status === 405 || status === 503) {
         const url = nativeMcpUrl(target);
         const where = url.origin + url.pathname;
         return new BcDevError(
