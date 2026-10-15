@@ -172,6 +172,7 @@ async function writeCoberturaReport(
   if (!complete) {
     warnings.push("The run aborted, Business Central omitted a coverage payload, or local procedure discovery was incomplete; uncovered entries (hits 0) prove nothing.");
   }
+  warnings.push(...discovered.warnings);
   if (report.unidentified > 0) warnings.push(`${report.unidentified} procedure(s) have no compiler method identity and are omitted from the report.`);
   if (triggers > 0) warnings.push(`${triggers} trigger(s) are omitted: procedure coverage carries no method identity for triggers.`);
   if (report.outside > 0) {

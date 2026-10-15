@@ -432,6 +432,25 @@ describe("tools", () => {
     expect(xml).not.toContain('"T.Codeunit"');
   });
 
+  test("coberturaFile forwards the specific procedure-discovery warnings", async () => {
+    const { tools, deps } = setup(hub);
+    mkdirSync(join(deps.cwd, "src"));
+    writeFileSync(join(deps.cwd, "src", "Calc.Codeunit.al"),
+      'codeunit 50110 "Calc"\n{\n#if FOO &&& BAR\n    procedure Calc()\n    begin\n    end;\n#endif\n}\n');
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => {
+        hub.emit("TestCompleted", 50100, "A", 0, "", 5);
+        hub.emit("TestRunCompleted", { Tests: [{ ApplicationObjectId: 50100, MethodId: 1, CoveredProcedures: [] }] });
+      });
+      return undefined;
+    };
+    const result = await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }], coberturaFile: "c.xml" }) as {
+      coverageReport: { complete: boolean; warnings: string[] };
+    };
+    expect(result.coverageReport.complete).toBe(false);
+    expect(result.coverageReport.warnings.join(" ")).toContain("unsupported #if expression");
+  });
+
   test("coberturaFile rejects coverage 'none' before RunTests and releases the lock", async () => {
     const { state, tools } = setup(hub);
     const error = await tools.get("bcdev_test_run")!.handler({
