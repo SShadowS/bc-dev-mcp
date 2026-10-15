@@ -2,10 +2,10 @@
 
 MCP server for Business Central AL development: run tests (with code coverage) and debug interactively against a BC server's dev endpoint — the same SignalR hubs the AL VS Code extension uses.
 
-[![Bun](https://img.shields.io/badge/bun-1.x-black)](https://bun.sh)
-[![TypeScript](https://img.shields.io/badge/typescript-strict-blue)](https://typescriptlang.org)
+[![npm](https://img.shields.io/npm/v/bc-dev-mcp)](https://npmjs.com/package/bc-dev-mcp)
+[![Node](https://img.shields.io/badge/node-22+-green)](https://nodejs.org)
 [![BC dev API](https://img.shields.io/badge/BC%20dev%20API-%E2%89%A57.0-purple)]()
-[![Tests](https://img.shields.io/badge/tests-991%20passing-green)]()
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Why bc-dev-mcp
 
@@ -31,8 +31,7 @@ What you gain over Microsoft's MCP servers (checked against AL Language 30.0, `a
 | Clean up apps without host access | `al_publish` only | List, publish, uninstall, unpublish over HTTP; reports apps BC uninstalled with it |
 | Rely on the output | None of the 24 tools publishes an `outputSchema` | Every tool has an `outputSchema` and `structuredContent`, stable error codes with `nextSteps`, usage skills served over MCP, MCP 2026-07-28 |
 
-Microsoft's own extras are worth keeping: symbol search, page inspection, translations, object IDs,
-and the snapshot-debugging capture proxy.
+Microsoft's own extras are worth keeping: symbol search, page inspection, translations and object IDs.
 
 ## Overview
 
@@ -41,33 +40,27 @@ and the snapshot-debugging capture proxy.
 | Runtime | Bun (dev/build) · Node 22+ (dist) |
 | Runtime dependencies | 5 (`@microsoft/signalr`, `@modelcontextprotocol/server`, `@modelcontextprotocol/client`, `zod`, `@sshadows/bc-toolbox-envelope`) |
 | Transport | MCP over stdio (protocol 2026-07-28 and 2025-11-25 clients) |
+| Tools | 34 `bcdev_*` tools, plus 5 usage skills served over MCP |
 | Server requirement | BC dev API `WebApiVersion >= 7.0` (AL 18 platform, e.g. BC28) |
 | Auth | Azure CLI / Entra ID or a pre-acquired `BC_ACCESS_TOKEN` (SaaS) · UserPassword (on-prem / docker) |
-| Validation | Live E2E against BC28 and SaaS Sandbox (`scripts/e2e.md`) |
+| Validation | Live E2E against BC28, BC29 and SaaS Sandbox (`scripts/e2e.md`) |
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| **Agent-grade responses** | Every success returns schema-validated `structuredContent` plus contextual `nextSteps`; failures use stable, redacted JSON error bodies |
-| **Structured test runs** | Run-level pass/fail/abort counts, per-method duration, parsed AL call stacks, and local source mappings while retaining raw server output |
-| **Diff-scoped test selection** | Turn a Git diff into a ranked test selection from a whole-program call graph (al-sem, or Microsoft's `altool graph`) plus coverage history, with ready-to-run shards |
-| **Test orchestration** | Repeat one test selection, diff adjacent passed/failed sets, retain every run, and classify stable, flaky, inconsistent, or incomplete methods; `mode: "order"` finds order-dependent tests and bisects each to its polluter |
-| **Code coverage** | `procedure` mode, mapped to local source; Cobertura XML export for CI (`coberturaFile`). No line coverage: BC sends line data only over Dev API 8.0 |
-| **Coverage gap analysis** | Cross a Git diff with exact procedure coverage to report which changed procedures the selected tests did and did not exercise |
-| **Multi-codeunit plans** | Sequential codeunit groups over one hub connection |
-| **Interactive debugging** | Next-session, user-filtered, or exact-session attach; file/line breakpoints, break on all or unhandled errors only, record-write breaks (optionally skipping temp records), stack + variables + watch, stepping, abort/release at a break |
-| **Record-write triage** | Arm a bounded capture for one numeric table ID, automatically continue every global record-write stop, and group exact matching writer stacks while failing closed on unresolved evidence |
-| **BC native MCP passthrough** | Dynamically discover and invoke BC28 business-action, AL-runtime, and paused-debugger native MCP tools from the same agent |
-| **On-demand source & symbols** | Read one deployed server object, fill the project’s `.alpackages` cache with every symbol package `app.json` needs, or download one validated installed `.app` package |
-| **App lifecycle over HTTP** | List, publish, uninstall, and unpublish apps without PowerShell or host access — dev endpoint plus Automation API (on-prem port 7048 or BC_DEV_API_PORT) |
-| **Debug-a-test** | Test run bound to the debug session — breakpoints fire during test execution |
-| **Config auto-discovery** | Server/instance/tenant read from the AL project's `.vscode/launch.json` |
-| **Preflight diagnostics** | `bcdev_status` distinguishes unreachable / bad credentials / unsupported dev API |
-| **Static insight from al-sem** | Risk of uncovered changes, effects of the routine at a breakpoint, predicted test-order polluters, static writer sets and hotspot explanations; al-sem is fetched automatically (pinned, SHA-256-verified) when it is not installed |
-| **Skills over MCP** | Ships its own usage skills to the agent (`skills/list`, `skills/get`) |
-| **Sampling CPU profiling** | Capture a `.alcpuprofile` (V8 format) of a live session and get a ranked AL self-time hotspot summary; hand off to al-perf for deep analysis |
-| **Snapshot debug capture** | Record variables at chosen AL lines and at any error in a session you cannot pause (a user's browser session, an exact NST session), then get decoded points with call stack and source window; the zip replays in VS Code |
+| **Test runs** | Discovery from source or compiled `.app`s, multi-codeunit plans, per-method results and durations, parsed AL call stacks mapped to your files — [docs/testing.md](docs/testing.md) |
+| **Coverage** | Procedure coverage mapped to source, crossed with a Git diff (`coverageAgainst`), Cobertura XML export for CI (`coberturaFile`) |
+| **Test selection** | Turn a Git diff into ranked, ready-to-run test shards from a whole-program call graph (al-sem, or `altool graph`) plus coverage history |
+| **Flaky and order-dependent tests** | Repeat a selection and diff pass/fail sets; `mode: "order"` finds order-dependent victims and bisects each to its polluter |
+| **Interactive debugging** | Attach by next session, user or session ID; breakpoints, break on error or record write, stepping, variables, watch, eval, live SQL cost — [docs/debugging.md](docs/debugging.md) |
+| **Record-write triage** | Capture every write to one table, grouped by writer stack, cross-checked against al-sem's static writers |
+| **Profiling and snapshots** | Sampling or instrumentation CPU profiles with a ranked hotspot summary; snapshot capture of sessions you cannot pause, decoded into variables and call stacks — [docs/profiling-and-snapshots.md](docs/profiling-and-snapshots.md) |
+| **BC native MCP passthrough** | List and call Business Central's own MCP tools (business actions, AL runtime, paused debugger), cloud and on-prem — [docs/native-mcp.md](docs/native-mcp.md) |
+| **Source and symbols** | Read deployed source for off-disk objects; fill `.alpackages` from `app.json` — [docs/source-and-symbols.md](docs/source-and-symbols.md) |
+| **App lifecycle over HTTP** | List, publish, uninstall and unpublish apps without PowerShell or host access |
+| **Agent-grade responses** | Schema-validated `structuredContent`, contextual `nextSteps`, stable redacted error codes — [docs/response-contract.md](docs/response-contract.md) |
+| **Zero setup** | Server/instance/tenant from `.vscode/launch.json`; al-sem and bc-mdc-converter fetched on demand (pinned, SHA-256-verified) |
 
 ## Prerequisites
 
@@ -107,55 +100,35 @@ Running from source instead: `git clone` → `bun install && bun run build` → 
 ## Quick Start
 
 1. `bcdev_status` — verify reachability, auth, and that test running is supported.
-2. `bcdev_test_discover` — list test codeunits and `[Test]` methods from local `.al` files, a compiled `.app` (`appFile`), or every package in `.alpackages` (`alpackages: true`).
-3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results. Add `coverageAgainst: "origin/main"` for changed-procedure analysis. After publishing the current changed objects to the target, also pass `changesDeployed: true` to permit `covered`/`uncovered` classifications; without that explicit assertion, changed procedures remain `unknown`.
-4. `bcdev_test_orchestrate { codeunits: [{ id: 50100 }], runs: 3 }` — repeat the same selection, retain every run, diff adjacent pass/fail sets, and flag flaky methods.
-5. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` for `sessionBound` and breaks → inspect with `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`. For a debug-bound test run, trigger with `bcdev_debug_run_tests { codeunits: [{ id: 50100 }] }`.
-6. To find writers of one table without stepping through every stop: `bcdev_record_writes_start { tableId: 18 }` → trigger the matching workload → check `bcdev_record_writes_status` → call `bcdev_record_writes_finish` for grouped stacks.
-7. To use Business Central's own MCP catalog: `bcdev_native_list { company: "...", context: "business" }` → inspect the returned schemas → `bcdev_native_call` with one exact returned tool name.
-8. For off-disk code or missing symbols: use `bcdev_source { objectType, objectId }`, `bcdev_symbols_download {}` to fill `.alpackages` from `app.json`, or `bcdev_package_download { publisher, appName, version, appId }` for one installed package.
+2. `bcdev_test_discover` — list test codeunits and `[Test]` methods.
+3. `bcdev_test_run { codeunits: [{ id: 50100 }], coverage: "procedure" }` — structured results with coverage.
+4. `bcdev_debug_attach { breakOnError: true }` → trigger the workload → `bcdev_debug_wait` → `bcdev_debug_variables` / `bcdev_debug_eval` → `bcdev_debug_continue` → `bcdev_debug_detach`.
 
-Debugger attach returns as soon as Business Central accepts the request; binding is asynchronous. With no selector it binds the next session of the `breakOnNext` client type. Pass `userId` to filter that next session by Business Central user, or pass a known positive `sessionId` to attach to an existing NST session. `sessionId` and `userId` are mutually exclusive; exact `sessionId` targeting takes precedence over `breakOnNext`. `bcdev_debug_wait` reports `{ kind: "sessionBound", sessionId, hostId }` after binding; `hostId` may be null when Business Central omits that optional field. If identity lookup fails, it reports a nonfatal warning-form `sessionBound` event and debugging remains active. If Business Central emits a fatal user-filter rejection before `sessionBound`, the debugger tears down without binding or delivering breaks and reports an actionable `fatal` event.
+The server also ships these workflows as skills (`skill://bc-al-testing/SKILL.md` and friends), so an agent can read the full playbook itself.
 
 ## Configuration
 
 | Setting | Source | Default | Description |
 |---------|--------|---------|-------------|
-| `BC_DEV_USER` | env var | — | On-prem UserPassword username |
-| `BC_DEV_PASSWORD` | env var | — | On-prem UserPassword password |
+| `BC_DEV_USER` / `BC_DEV_PASSWORD` | env var | — | On-prem UserPassword credentials |
 | `BC_DEV_ENTRA_TENANT` | env var | — | SaaS tenant fallback when launch.json does not provide `tenant` |
 | `BC_ACCESS_TOKEN` | env var | — | SaaS only: pre-acquired Business Central bearer token (CI); takes precedence over Azure CLI, never refreshed |
 | `environmentType` | launch.json / tool param | inferred | `OnPrem`, `Sandbox`, or `Production` |
 | `environmentName` | launch.json / tool param | — | SaaS environment name |
-| `server` | launch.json / tool param | — | BC server URL, e.g. `http://bcserver` |
-| `serverInstance` | launch.json / tool param | — | Server instance, e.g. `BC` |
-| `BC_DEV_CALLGRAPH_ENGINE` | env var | `auto` | Call-graph engine for `bcdev_test_select`: `auto` (al-sem, else altool), `al-sem` or `altool` |
-| `BC_DEV_ALSEM` | env var | see below | Path to `alsem.exe` (al-sem), used as-is. Unset: `alsem` on PATH if it is at least the pinned version, else the pinned al-sem release binary, downloaded once into the cache and checked against its SHA-256 before it runs (`bcdev_status` reports which one: `alsem.source`). `bcdev_test_select` runs `alsem graph <project>`; `bcdev_test_orchestrate` mode `order` runs `alsem digest`/`query touches` to predict polluters (optional: absent al-sem = one warning); `bcdev_record_writes_*` runs `alsem query` for its optional static cross-check; `bcdev_profile_finish` runs `alsem analyze` for hotspot explanations (optional); `bcdev_debug_wait { effects: true }` runs `alsem query effects` + `alsem prove` (without alsem that enrichment reports `status: unavailable` instead of failing). al-sem needs no compile, shows `Codeunit.Run` and trigger paths, and states where its graph is incomplete |
-| `BC_DEV_ALSEM_DOWNLOAD` | env var | on | `0` = never download al-sem (offline or locked-down hosts); al-sem then comes only from `BC_DEV_ALSEM` or PATH. The download uses Node's `fetch`, which ignores `HTTPS_PROXY`: behind a proxy, set `BC_DEV_ALSEM` |
-| `BC_DEV_CACHE_DIR` | env var | `%LOCALAPPDATA%\bc-dev-mcp` / `~/.cache/bc-dev-mcp` | Where the downloaded al-sem and bc-mdc-converter live (`alsem/<version>/`, `bc-mdc-converter/<version>/`) |
-| `BC_MDC_CONVERTER` | env var | see below | Path to the [bc-mdc-converter](https://github.com/SShadowS/bc-mdc-converter) binary, used as-is. Unset: `bc-mdc-converter` on PATH if it is at least the pinned version, else the pinned release binary, downloaded once into the cache and checked against its SHA-256 (`bcdev_status` reports which one: `converter.source`). `bcdev_snapshot_finish` decodes recordings with it; `bcdev_profile_finish` converts instrumentation captures |
-| `BC_MDC_CONVERTER_DOWNLOAD` | env var | on | `0` = never download bc-mdc-converter; without one, `bcdev_snapshot_finish` returns `decodeStatus: "raw"` with the saved zip |
-| `BC_DEV_ALTOOL` | env var | `altool` on PATH | Path to `altool.exe` (AL extension `bin` folder); the fallback engine, via its `graph` command |
-| `BC_DEV_API_PORT` | env var | `7048` | On-prem API/OData port: the Automation API used by the `bcdev_app_*` tools and BC's MCP endpoint used on-prem by `bcdev_native_*` and `bcdev_snapshot_run_tests` (tool param `apiPort` overrides) |
+| `server` / `serverInstance` | launch.json / tool param | — | BC server URL and instance, e.g. `http://bcserver`, `BC` |
 | `port` | launch.json / tool param | `7049` | Developer service port |
 | `tenant` | launch.json / tool param | `default` | Tenant (hub negotiate requires one) |
 | `project` | tool param | server cwd | AL project dir for launch.json and `.al` scanning |
+| `BC_DEV_API_PORT` | env var | `7048` | On-prem API/OData port: the `bcdev_app_*` tools and BC's own MCP endpoint (tool param `apiPort` overrides) |
+| `BC_DEV_CALLGRAPH_ENGINE` | env var | `auto` | Call-graph engine for `bcdev_test_select`: `auto` (al-sem, else altool), `al-sem` or `altool` |
+| `BC_DEV_ALSEM` | env var | pinned download | Path to `alsem.exe`; unset = PATH if new enough, else the pinned release, downloaded and SHA-256-checked |
+| `BC_DEV_ALSEM_DOWNLOAD` | env var | on | `0` = never download al-sem |
+| `BC_MDC_CONVERTER` | env var | pinned download | Path to the [bc-mdc-converter](https://github.com/SShadowS/bc-mdc-converter) binary; resolved like al-sem |
+| `BC_MDC_CONVERTER_DOWNLOAD` | env var | on | `0` = never download bc-mdc-converter (snapshots then come back raw) |
+| `BC_DEV_CACHE_DIR` | env var | `%LOCALAPPDATA%\bc-dev-mcp` / `~/.cache/bc-dev-mcp` | Where downloaded al-sem and bc-mdc-converter live |
+| `BC_DEV_ALTOOL` | env var | `altool` on PATH | Path to `altool.exe`, the fallback call-graph engine |
 
-Connection-opening tools accept the corresponding target fields; session-scoped tools reuse their attached authorization provider. On-premises `UserPassword` and SaaS Entra are explicit separate modes and never fall back to each other. Windows and on-premises AAD are not currently supported. For upgrade compatibility, an on-prem launch configuration that still says `"authentication": "Windows"` or `"AAD"` continues to use UserPassword only when both `BC_DEV_USER` and `BC_DEV_PASSWORD` are present; otherwise it fails with an actionable unsupported-mode error.
-
-Example SaaS launch configuration:
-
-```jsonc
-{
-  "type": "al",
-  "request": "launch",
-  "environmentType": "Sandbox",
-  "environmentName": "Sandbox",
-  "tenant": "00000000-0000-0000-0000-000000000000"
-}
-```
-
-Azure access tokens are acquired with `az account get-access-token`, cached only in memory until shortly before expiry, and never logged or written by this project. A `BC_ACCESS_TOKEN` is never logged either; once its JWT `exp` has passed, calls fail with `AUTHENTICATION_FAILED` (it is not refreshed).
+Authentication modes, a SaaS `launch.json` example and how the helper binaries are resolved: [docs/configuration.md](docs/configuration.md).
 
 ## Architecture
 
@@ -168,9 +141,9 @@ src/mcp/server.ts ── tools/ (34 bcdev_* tools) ── state.ts (debug/test/p
   v
 src/core/  (pure library — typed returns, injected deps)
   |-- launch-config.ts   launch.json + env credentials
-  |-- authorization.ts   Basic or cached Azure CLI authorization provider
+  |-- authorization.ts   Basic, cached Azure CLI or BC_ACCESS_TOKEN authorization
   |-- server-info.ts     GET dev/metadata, feature gates
-  |-- native-mcp.ts      BC cloud Streamable HTTP MCP client and trusted routing
+  |-- native-mcp.ts      BC native MCP client (cloud gateway, on-prem over HTTP/1.0)
   |-- package-download.ts bounded, validated dev/packages download into .alpackages
   |-- symbols-download.ts app.json -> full symbol closure in .alpackages
   |-- al-objects.ts      file <-> (objectType, objectId) index, test discovery
@@ -201,360 +174,51 @@ src/core/  (pure library — typed returns, injected deps)
 | `bcdev_record_writes_finish` | Release/stop collection and return grouped exact writer stacks plus unresolved evidence |
 | `bcdev_source` | Read the server’s deployed AL source for an object not on local disk |
 | `bcdev_package_download` | Download one validated installed dependency/symbol `.app` into `<project>/.alpackages` |
-| `bcdev_symbols_download` | Download every symbol package `app.json` needs (System, Application, dependencies and theirs) into `<project>/.alpackages`; `dryRun` lists the references and their cache status |
+| `bcdev_symbols_download` | Download every symbol package `app.json` needs into `<project>/.alpackages`; `dryRun` lists the references and their cache status |
 | `bcdev_app_list` | List published apps with app ID, version, installed state, and publish scope |
 | `bcdev_app_publish` | Publish and install a compiled `.app` at Dev scope through the dev endpoint |
 | `bcdev_app_uninstall` | Uninstall an app; reports the dependents Business Central uninstalled with it |
 | `bcdev_app_unpublish` | Unpublish one published version of an uninstalled app |
-| `bcdev_native_list` | List the dynamic BC28 native tool catalog for business, AL runtime, or a paused debugger |
+| `bcdev_native_list` | List Business Central's native MCP tool catalog for business, AL runtime, or a paused debugger |
 | `bcdev_native_call` | Invoke one exact native tool and preserve its complete upstream result |
 | `bcdev_profile_status` | Preflight the snapshot-debugger endpoint; report whether sampling CPU profiling is supported |
 | `bcdev_profile_start` | Arm a CPU profiler (`kind: "sampling"` or `"instrumentation"`); binds the next matching session (trigger it after) |
 | `bcdev_profile_poll` | Poll the active capture; `ready` once the session was recorded (Started) |
-| `bcdev_profile_finish` | Finish, write the `.alcpuprofile`, return a ranked AL self-time hotspot summary. With `project` (or a server cwd holding `app.json`) and al-sem installed, hotspots in the workspace app also carry al-sem's static performance findings (title, confidence, evidence call chain, suggested fix); without `alsem` they are returned unchanged with one warning |
+| `bcdev_profile_finish` | Finish, write the `.alcpuprofile`, return a ranked AL self-time hotspot summary, with al-sem's static performance findings when available |
 | `bcdev_snapshot_start` | Arm a snapshot debugging capture with up to 20 snappoints (file + 1-based line); binds the next matching session, a user's next session, or a running `sessionId` (trigger it after) |
 | `bcdev_snapshot_status` | Status of the active snapshot capture; `ready` once a session is recording (Started) |
-| `bcdev_snapshot_finish` | Finish, save the recording zip and return decoded points (exceptions first, then snappoint hits) with variables, call stack and source window; with `debuggingContext` it recovers a capture another process left armed |
-| `bcdev_snapshot_run_tests` | Run AL test codeunits (optionally only some methods) attached to the armed capture, through BC's native snapshot `run_tests`; returns per-method results, then `bcdev_snapshot_finish` collects the recording (on-prem only) |
+| `bcdev_snapshot_finish` | Finish, save the recording zip and return decoded points (exceptions first, then snappoint hits) with variables, call stack and source window |
+| `bcdev_snapshot_run_tests` | Run AL test codeunits attached to the armed capture (on-prem); then `bcdev_snapshot_finish` collects the recording |
 
-## Record-write triage
+## Documentation
 
-Business Central's debugger enables record-write breaks globally; it does not accept a table filter.
-`bcdev_record_writes_start` therefore arms one debugger session, inspects each paused
-`Insert`/`Modify`/`ModifyAll`/`Rename`/`Delete`/`DeleteAll` receiver, compares its runtime numeric
-table ID with `tableId`, groups exact matches by operation, receiver, and full stack, and
-automatically continues. Unrelated writes are counted but not retained as writer groups.
-
-Use `sessionId`, `userId`, or `breakOnNext` as with manual debugger attach. Temporary-record writes
-are excluded by default; pass `includeTemporary: true` to include them. Deployed source is
-authoritative. Local source can establish an exact match only when the caller explicitly asserts
-that it is deployed with `changesDeployed: true`; the tool does not verify that assertion.
-`maxObservedWrites` bounds all observed breaks and defaults to 500. Reaching it releases the
-workload and returns a truncated, incomplete report.
-
-The final `complete` flag means every record-write break observed in this one attached-session
-capture window was classified. It is not proof that no other session or operation writes the
-table. Any missing source/span, unsupported receiver, watch failure, unknown runtime type,
-unexpected break, lifecycle failure, early session detach, or truncation keeps the report
-fail-closed. Exact groups collected before a detach remain available, but the tool does not claim
-that no later writes were missed.
-
-A next-session or user-filtered capture whose bound session detaches before any break (a stray
-bind, seen in about half the `breakOnNext: "WebServiceClient"` attaches on BC28) is re-armed
-after ~10 s rather than stopped: status reports `phase: "rearming"` and `strayBinds`/`rearms`
-counters, and a workload started in that window is missed. After `maxRearms` (default 3) strays
-the capture stops with `stopReason: "strayBindsExhausted"`.
-
-**Static cross-check (optional, needs [al-sem](https://github.com/SShadowS/al-sem)).** When `alsem`
-is found (`BC_DEV_ALSEM` or PATH), start also returns `staticWriters`: the write sites
-(`Insert`/`Modify`/`ModifyAll`/`Delete`/`DeleteAll`/`Rename`, temporary records excluded unless
-`includeTemporary`) al-sem believes can write the table, from `alsem query touches` +
-`alsem query effects`, plus its "unknown bucket" (writes with an unresolved table, such as
-`RecordRef`). The table is selected as `<app.json id>/table/<tableId>`, then by table name (the
-project's own source object, and at finish the runtime name the debugger reported; base-app tables
-need their symbols in `.alpackages`). Finish adds `staticCrossCheck`: statically possible writers
-that were never observed, and observed writers that are not in al-sem's set (flagged when they sit
-in its unknown bucket). Without `alsem`, or with an unknown al-sem schema major, start carries one
-warning and nothing else changes. Limits to keep in mind: the debugger reports lines, not columns, so two
-writes on one line join as one observed site; al-sem #9 (`Rename` is not modelled as a write), and dependencies without shipped
-source never appear in the static set. "Never observed" only means not exercised by this workload.
-
-## BC native MCP passthrough
-
-`bcdev_native_list` and `bcdev_native_call` connect to Business Central's cloud MCP gateway with
-the same launch configuration and Azure CLI identity used by the other SaaS tools. Each operation
-requires one explicit context and, on cloud, an exact `company` (on-prem: see below):
-
-- `business` lists the dynamic `bc_actions_*` catalog. Pass `configurationName` only when selecting
-  a named Business Central MCP configuration.
-- `runtime` lists the BC28 AL runtime catalog. Native runtime calls share the same singleton
-  test-run lock as `bcdev_test_run`, `bcdev_test_orchestrate`, and
-  `bcdev_debug_run_tests`.
-- `debugging` lists troubleshooting tools for the active manual debugger. Attach, trigger the
-  workload, and wait for a `break` first; a merely bound or resumed session is rejected.
-
-Always list before calling and follow the returned native `inputSchema`. The generic call is marked
-potentially destructive because its safety cannot vary dynamically with the chosen upstream tool.
-Its `result` is the unchanged native `CallToolResult`; `result.isError: true` therefore remains
-available with all upstream evidence instead of being rewritten as a bridge error.
-
-Each list or call uses a fresh upstream MCP session and closes it before returning. Prefer the
-first-class debugger tools for repeated inspection because they reuse the existing debugger hub.
-Native debugging snapshots the paused session identity at call start; do not resume that debugger
-concurrently with an in-flight native call.
-
-If a native runtime invocation times out after its upstream call begins, Business Central may
-still be running the tests even though the local singleton slot has been released. That timeout
-is non-retryable and tells the caller to confirm the server-side run finished before retrying or
-starting any other test run.
-
-Cloud: Sandbox and Production (live acceptance Sandbox-only). On-prem: see below (verified live on BC 29, one server).
-
-**On-prem and docker.** Pass the on-prem connection (`server`, `serverInstance`, `tenant`, or a
-`launch.json` with `environmentType: "OnPrem"`) and the same tools talk to the server's own MCP
-endpoint, `<server>:<apiPort>/<instance>/mcp/`, with your `BC_DEV_USER` / `BC_DEV_PASSWORD`.
-It is on the API/OData port (`apiPort`, default `BC_DEV_API_PORT` or 7048), not the SOAP port
-7047, and needs `McpServicesEnabled` on the server (a wrong port, e.g. 7047, comes back as
-`UNSUPPORTED_SERVER` naming the port and the setting; a disabled service is expected to fail the
-same way but has not been tested). `company` is optional on-prem: without it BC uses its default
-company. `business` and `runtime` are verified live; `debugging` is accepted but unverified on-prem.
-**Plain `http://` sends Basic credentials unencrypted**: use it only for local or dev containers,
-and HTTPS for anything else.
-
-Its contexts intentionally match the verified BC28 surface and do not include native profiling;
-the existing `bcdev_profile_*` snapshot tools are separate and unchanged.
-
-## On-demand source and symbols
-
-`bcdev_source` reads the deployed source for one numeric object identity. Use it when a debugger
-frame or coverage row has no local file. Empty content with `isAlContent:false` means Business
-Central did not expose deployed AL source; the tool does not substitute potentially stale local
-source.
-
-`bcdev_package_download` retrieves one explicitly identified installed `.app` through
-`dev/packages` and writes it to the selected project’s `.alpackages` directory. Supply the
-publisher, name, four-part minimum version, and app ID when known. Business Central may resolve a
-higher installed version; the result reports both requested and resolved versions. The selected
-project must already contain `app.json`.
-
-The package is size- and time-bounded, validated through `SymbolReference.json`, checked against
-the requested identity, hashed, and only then installed under a filename derived from the returned
-metadata. A byte-identical file returns `unchanged`; different validated server bytes replace the
-same package path. A nonfatal `warning` can report that the validated replacement succeeded but a
-stale `.backup` file could not be removed. This is deliberately a single-package operation, not dependency enumeration or
-full Download Symbols synchronization. The default request bounds are 120 seconds and 256 MiB;
-`timeoutMs` and `maxBytes` can raise them to hard limits of 300 seconds and 512 MiB. Inflated symbol
-metadata is independently capped at the runtime-safe text limit (at most 512 MiB). A `NOT_FOUND`
-response can mean either no installed package matched or the target server does not expose
-`dev/packages`.
-
-`bcdev_symbols_download` does what the AL extension's Download Symbols does, from the project's
-`app.json`: `platform` selects Microsoft/System, `application` the Microsoft/Application package,
-and each `dependencies` entry its app. It then reads every package's manifest and follows its
-dependencies until the whole closure is local. A package already in `.alpackages` at a satisfying
-version (any filename) is skipped without a request; `force: true` re-requests everything. Requests
-are sequential, one per package, with the same validation and bounds as `bcdev_package_download`
-(per package). The cache is always `<project>/.alpackages`, and nothing already in it is deleted or
-renamed. A package the server cannot supply is reported `failed` with its error code while the rest
-continue; authentication or connectivity failures abort. `dryRun: true` lists the `app.json`
-references and their cache status without a connection or credentials.
-
-## Profiling
-
-`bcdev_profile_*` **captures** a CPU profile; it does not itself drive BC. The division of labour is
-deliberate:
-
-1. `bcdev_profile_start` arms the profiler on the snapshot-debugger port (7083, separate from the dev
-   port) and binds the **next** matching session. Pass `kind: "sampling"` (default) or
-   `kind: "instrumentation"`.
-2. **You trigger the session to profile** — open a page or run a report in a browser, or drive a
-   WebSocket client such as [`business-central-mcp`](https://github.com/SShadowS/business-central-mcp).
-   That running WebClient session is what the profiler records.
-3. `bcdev_profile_poll` until `ready`, then `bcdev_profile_finish` writes the `.alcpuprofile` (V8
-   format, with AL call frames) and returns a ranked self-time hotspot summary.
-4. For deep analysis (anti-patterns, AI insights), hand the `.alcpuprofile` to
-   [al-perf](https://github.com/SShadowS/al-perf).
-
-**`kind: "sampling"`** (default) is statistical — a periodic stack sample at a configurable interval
-(`samplingIntervalMs`) — and dependency-free: the `.alcpuprofile` comes straight off the wire, no
-extra tooling required.
-
-**`kind: "instrumentation"`** records every call deterministically instead of sampling, so
-self-time in the resulting profile is exact call-time, not a statistical estimate. The server
-returns a `.mdc` snapshot zip, not an `.alcpuprofile` directly, so `bcdev_profile_finish` converts it
-headlessly via [`bc-mdc-converter`](https://github.com/SShadowS/bc-mdc-converter) — a standalone
-Rust binary (no .NET runtime, no AL tooling) whose `.alcpuprofile` output is byte-identical to the
-official AL tooling's. Point `BC_MDC_CONVERTER` at the binary or put it on `PATH`. When it's
-missing, `bcdev_profile_finish` degrades gracefully: it still saves the raw `.mdc` `.zip` to disk
-and tells you to convert it manually or open it in VS Code (`AL: Open snapshot` → generate profile)
-instead of failing the call.
-
-Validated end-to-end against a live BC28 in `scripts/e2e-profile-results-2026-07-04.md`.
-
-## Snapshot capture
-
-Use `bcdev_snapshot_*` when you cannot attach the interactive debugger and pause: a user's browser
-session, or a session that must keep running. It shares the snapshot-debugger port (7083) and the
-one-capture-per-tenant slot with profiling.
-
-1. `bcdev_snapshot_start` with `snappoints` (`file` + 1-based `line`; none = record only what throws)
-   and optionally `userId`, `sessionId` or `verbosity: "full"`.
-2. **Trigger the scenario** (open the page in a browser or with
-   [`business-central-mcp`](https://github.com/SShadowS/business-central-mcp)).
-3. `bcdev_snapshot_status` until `ready`, then `bcdev_snapshot_finish`. Points come back exceptions
-   first, then snappoint hits; a snappoint's values are taken **before** that line runs.
-
-To capture an AL **test run** (on-prem), replace step 2 with `bcdev_snapshot_run_tests { codeunits:
-[{ id, methods? }] }`: it runs the tests attached to the armed capture and returns per-method results
-(a failing test is an ordinary result), then call `bcdev_snapshot_finish` directly. The failing
-test's exception point carries the variables at the moment it threw.
-
-Zips are saved to `%TEMP%\bc-dev-mcp-snapshots` (`<os temp>/bc-dev-mcp-snapshots`) unless you pass
-`outPath`; bc-dev-mcp never deletes them, and they open in VS Code for replay. Decoding needs
-bc-mdc-converter (see `BC_MDC_CONVERTER`), which is downloaded on first use when missing.
-
-**Data disclosure:** captured variables can hold customer data, credentials and source code. They
-are returned to the agent as-is, and the saved zip holds everything, including what the response
-left out (`verbosity: "full"` also bundles the source of every object the session touched).
-
-Verified live against BC29 (`scripts/e2e.md` "Snapshot debug capture"): `clientType` WebClient
-(default), `userId` and `sessionId` bind; WebServiceClient records nothing usable (the capture is
-dropped when the API call's session ends); Background binds a TaskScheduler session but records nothing
-usable either (source only while it runs, dropped when it ends). BC29 ignores snappoint
-`condition`s, so filter the points yourself. To capture an AL test run, arm a capture and call
-`bcdev_snapshot_run_tests` (on-prem).
-
-## Skills
-
-The server ships its own operational manual as [Agent Skills](https://agentskills.io) over MCP
-resources per the [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
-(SEP-2640, `io.modelcontextprotocol/skills`): `skill://bc-al-testing/SKILL.md`,
-`skill://bc-al-debugging/SKILL.md`, `skill://bc-al-profiling/SKILL.md`,
-`skill://bc-al-source-symbols/SKILL.md` and `skill://bc-native-mcp/SKILL.md`.
-Clients that understand the extension discover them with `skills/list` (frontmatter plus a manifest
-with SHA-256 digest and size per file) or fetch one with `skills/get`, then read the file with
-`resources/read`; everything else sees them as plain readable resources.
-Sources live in `skills/`; `bun run embed-skills` regenerates `src/mcp/skills.generated.ts`.
-The npm package also ships the plain `skills/*/SKILL.md` files, so clients that never call
-`resources/read` can install them straight from `node_modules/bc-dev-mcp/skills/`.
-
-## Agent response contract
-
-Successful tool calls remain backward-compatible objects and add a required `nextSteps: string[]`.
-The array is contextual and may be empty when the result is terminal or no useful action follows.
-Test runs add `summary`; failed method rows add `failure.message`, `failure.parsed`, and predictable
-`failure.callStack` frames. The original `output` and each frame's `raw` text are retained so an
-unrecognized or localized server format never loses evidence. Local source mapping is lazy and
-best-effort: passing runs without coverage do not scan the AL tree, indexes are reused per MCP
-server and project, and an unreadable/missing project preserves the server evidence plus a
-nonfatal `sourceMappingWarning` that identifies whether call-stack or coverage file mapping was
-unavailable.
-
-Use `bcdev_test_orchestrate` when repeatability is the question. It claims the same singleton
-test-run slot for the entire sequence, executes 2–20 ordinary TestRunnerHub runs sequentially,
-retains each enriched attempt, and returns exact adjacent additions/removals for the passed and failed
-sets. A method is `flaky` only with positive pass-and-fail evidence. Missing or duplicate
-observations, an aborted run, or a run with no real methods forces `complete: false`; mixed
-passed/skipped or failed/skipped observations are `inconsistent`, not mislabeled as flaky.
-If an attempt cannot start, earlier evidence and a final aborted attempt remain in `runs[]`.
-After an aborted attempt, later requested runs are left as missing rather than started while
-the prior server-side run may still be active. Client cancellation is observed between attempts;
-it does not cancel an active Business Central run. `tests[].method` keeps the first requested or
-observed spelling, so its casing can differ from raw server rows. An all-skipped selection retains
-the existing `passed` outcome convention but warns that it contains no passing execution evidence.
-Overlapping codeunit/method selections are rejected, while disjoint method groups for one codeunit
-remain valid. Non-rolled-back test side effects repeat on every attempt.
-Orchestration intentionally does not aggregate coverage — use `bcdev_test_run` for coverage and
-changed-procedure analysis.
-
-`mode: "order"` answers "does this test fail only because of another test?". It runs every
-selected method alone, then the selection in recorded order, reversed, and once per shuffle `seeds`
-entry (default `[1, 2, 3]`; the same seeds replay the same orders). A method that passes alone but
-fails after others is an `odVictim`; pairwise bisection (`maxProbes`, default 50) narrows it to a
-single polluter, verified by a `[polluter, victim]` run. With `pollutionTableId`, one extra
-debugger-bound recorded run captures writes to that table and attributes them to each polluter as
-`writeObserved`, `noWriteObserved`, or `unknown` (an observed write break, not proof of commit).
-Every row carries the method's `transactionModel`, and `order.runners` lists the project's
-TestRunner codeunits with their TestIsolation. Business Central rolls data back after each codeunit
-group even after `Commit()`, but not between methods of one codeunit, so committed rows only leak
-from a method declared above the victim in the same codeunit; reversing and shuffling move whole
-codeunit groups. Order mode reads declaration order from local source, so the codeunits must be in
-`project`, and it caps the selection at 50 methods because each run and probe is one Initialize.
-See `demos/ORDER-POLLUTION.md`.
-
-Pass `coverageAgainst` to `bcdev_test_run` for roadmap item 5's coverage-gap analysis. The tool
-resolves the ref's merge base with `HEAD`, compares that commit with the current working tree
-(committed branch changes, staged and unstaged edits, plus nonignored untracked AL files), and
-automatically selects procedure coverage. `coverageGaps` reports each current executable procedure
-intersecting those changed lines as `covered`, `uncovered`, or `unknown`, including the exact source
-span, changed ranges, compiler method ID, and covering test identities. An `uncovered` result is only
-emitted when the compiler identity is exact, the caller explicitly confirms the current changes are
-deployed with `changesDeployed: true`, and every requested test group returned procedure coverage
-that omitted it. TestRunnerHub does not return an artifact or source hash, so
-`coverageGaps.deployment` distinguishes that caller assertion from tool verification. Without the
-assertion, with unresolved signatures, incomplete parsing or coverage, or an aborted run, the
-affected result remains `unknown` and `complete` is false. Trigger spans are detected but their
-coverage identities are not yet classified by local discovery, so a changed trigger also forces an
-explicit incomplete result instead of disappearing from the gate. SaaS validation confirmed that
-Business Central reports codeunit `OnRun`, table `OnInsert`, report `OnPreReport`, and page
-`OnOpenPage` under their owning object identities with the compiler's trigger-specific method-ID
-hash; nested trigger scopes still need separate identity handling. Changed code that carries no
-method identity at all — object and field properties, field and control declarations, global
-variables, object headers, `namespace`/`using` declarations, and semantic preprocessor directives
-outside method spans — is counted in
-`summary.unattributedChanges`, listed in `warnings` with its exact lines, and also forces
-`complete: false`: procedure coverage can never prove those lines were exercised. Conditional
-compilation follows `app.json` preprocessor symbols (the manifest and its explicit `runtime` are
-required because the runtime selects method-ID hash variants), and dependency identities preserve
-namespace qualification from `.alpackages`. Use the same base ref when rerunning a broader test
-selection to close reported gaps.
-
-Breakpoint additions include `verification.status` (`verified`, `relocated`, or `unverified`) and
-the resolved object, method, and 1-based span when Business Central supplies them. An all-zero
-wire span is the value type's unset form and remains `unverified`; it is not reported as line 1.
-Variable and watch nodes include `changeState` plus the convenience boolean `changed`; `unknown`
-means the server omitted or returned an unfamiliar wire value, not that the value was proven
-unchanged.
-
-MCP errors intentionally omit `structuredContent` (the protocol has no negotiated structured-error
-channel here). Their text content is a JSON object with stable `error.code`, `category`, `message`,
-`retryable`, `tool`, redacted `details`, and recovery `nextSteps`, so agents can parse it without
-scraping prose while existing MCP clients still receive a normal `isError: true` response. Expected
-launch configuration, Azure CLI authentication, active-profile, SQL-insight, and unsupported-server
-failures are typed where they originate; message matching is only a defensive fallback. String
-detail values are redacted, and sensitive detail keys fail closed to `[REDACTED]`.
-`error.code` is either a toolbox core code shared across the BC toolbox (`TOOLBOX_CORE_ERROR_CODES`)
-or a bc-dev-mcp extension code for server-specific state (`BC_DEV_MCP_ERROR_CODES`, e.g.
-`NO_DEBUG_SESSION`); both live in `src/core/agent-errors.ts` with the extension rule. Clients that
-don't recognise an extension code should fall back to `category` and `retryable`.
-If an installed MCP SDK no longer exposes the private validation-error formatting seam, the server
-warns and continues with the SDK's default formatting instead of refusing to start.
-
-Debugger guidance accounts for asynchronous binding: next-session/user-filtered attach tells the
-agent to create or trigger the matching session before waiting, exact-session attach waits for
-confirmation before driving the operation, and a timeout reminds the agent to confirm the workload
-was triggered. Profiling guidance similarly branches on reachability, feature support, every poll
-status (`Initialized`, `Started`, `Finished`, or `Failed`), and whether the capture actually
-contained data. Test-running support is preflighted only after atomically claiming the shared
-single-run slot, so concurrent direct/debug-bound calls cannot pass the feature gate together. A
-successful capability result is cached for 60 seconds and the metadata request times out after 15
-seconds, preventing a stale or hung preflight from holding that slot indefinitely.
+| Document | Covers |
+|----------|--------|
+| [docs/testing.md](docs/testing.md) | Repeat runs, order-dependent tests, coverage-gap analysis |
+| [docs/debugging.md](docs/debugging.md) | Attach and session binding, breakpoint verification, record-write triage |
+| [docs/profiling-and-snapshots.md](docs/profiling-and-snapshots.md) | CPU profiling (sampling, instrumentation) and snapshot capture |
+| [docs/native-mcp.md](docs/native-mcp.md) | BC native MCP passthrough, cloud and on-prem |
+| [docs/source-and-symbols.md](docs/source-and-symbols.md) | Deployed source, single-package and full symbol download |
+| [docs/response-contract.md](docs/response-contract.md) | Success shape, error bodies, `nextSteps` guidance |
+| [docs/configuration.md](docs/configuration.md) | Authentication modes, helper binary resolution |
+| [docs/skills.md](docs/skills.md) | The usage skills the server serves over MCP (SEP-2640) |
+| [docs/roadmap.md](docs/roadmap.md) | Shipped roadmap items |
+| [docs/capture-ship-recipe.md](docs/capture-ship-recipe.md) | Scheduled profile capture → al-perf ingest |
+| [scripts/e2e.md](scripts/e2e.md) | Live wire-assumption checklist and known server behaviours |
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `src/mcp/index.ts` | stdio entry: builds deps, calls buildServer, connects transport |
-| `src/mcp/server.ts` | buildServer: registerTool/registerResource wiring (testable over InMemoryTransport) |
+| `src/mcp/server.ts` | buildServer: tool, resource and skills wiring (testable over InMemoryTransport) |
 | `src/mcp/tools/` | The 34 bcdev_* tool definitions (zod schemas + metadata + handlers) |
-| `src/mcp/state.ts` | Single-slot debug/profile/record-write state and their opaque handles (`debugSessionId`, `profileId`, `snapshotId`, `recordingId`), event queue, run lock |
-| `src/core/hubs/test-runner-hub.ts` | TestRunnerHub client (Initialize/RunTests, coverage) |
-| `src/core/test-orchestration.ts` | Pure repeat-run identity, stability classification, and adjacent pass/fail diff analysis |
-| `src/core/hubs/debugger-hub.ts` | DebuggerHub client (attach, breakpoints, stepping, inspection) |
-| `src/core/hubs/signalr-base.ts` | Hub seam: auth query params, key normalization, `HubProxy` |
-| `src/core/authorization.ts` | Shared Basic/Azure CLI authorization provider and token cache |
-| `src/core/git-changes.ts` | Merge-base-to-working-tree AL change ranges, including untracked files |
-| `src/core/al-procedures.ts` | Executable procedure/trigger spans and compiler-compatible procedure identities |
-| `src/core/coverage-gaps.ts` | Exact join between changed procedures and TestRunnerHub coverage evidence |
-| `src/core/record-write-triage.ts` | Source-aware runtime table classification and bounded writer-stack collector |
-| `src/core/native-mcp.ts` | BC cloud native MCP routing, lifecycle, and SDK transport |
-| `src/core/package-download.ts` | Bounded package retrieval, symbol identity validation, and safe `.alpackages` installation |
+| `src/mcp/state.ts` | Single-slot debug/capture/record-write state, opaque handles, event queue, run lock |
+| `src/core/hubs/` | TestRunnerHub and DebuggerHub clients over a SignalR seam |
+| `src/core/native-mcp.ts` | BC native MCP routing, lifecycle, and SDK transport |
+| `src/core/http10.ts` | HTTP/1.0 client for BC's on-prem API port |
+| `skills/` | Usage skills served over MCP (embedded by `bun run embed-skills`) |
 | `scripts/e2e.md` | Real-server wire-assumption checklist + known server behaviours |
-
-## Roadmap
-
-Ordered by intent, not commitment:
-
-1. **Agent-grade responses** — **shipped.** Structured run summaries, parsed call stacks mapped to source lines, verified breakpoint locations, changed-variable flags, stable machine-readable error bodies, and next-step hints on every tool.
-2. **Debugger power controls** — **shipped.** Live SQL cost at a break (`bcdev_debug_sql`), break on unhandled errors only / skip temp-record writes, abort or release a paused operation, read deployed source for off-disk objects (`bcdev_source`), un-truncated watch strings.
-3. **CPU profiling** (`bcdev_profile_*`) — **shipped.** Capture a sampling CPU profile (`.alcpuprofile`, V8 format) of a live session and get back a ranked AL-hotspot summary, not just a blob. Four tools (status/start/poll/finish), validated end-to-end against a live BC28 — a real profile with AL call frames captured through the tools (`scripts/e2e-profile-results-2026-07-04.md`). Instrumentation capture (`kind: "instrumentation"`) shares the same flow and converts to ir-json via `bc-mdc-converter`, saving the raw `.mdc` archive when that binary is absent. Debug-context snapshot recording is item 10.
-4. **Entra ID auth** — **shipped.** Azure CLI-backed cloud sandbox/production access alongside explicit on-prem UserPassword.
-5. **Coverage gap analysis** — **shipped.** Pass `coverageAgainst` to `bcdev_test_run` to cross the merge-base-to-working-tree Git diff with exact procedure coverage and identify covered, uncovered, or unresolved changed procedures.
-6. **Test orchestration** — **shipped.** Repeat one selected test plan, retain every enriched run, diff adjacent passed/failed sets, and flag flaky or incomplete method outcomes.
-7. **Break-on-record-write triage** — **shipped.** Arm bounded write triage for one numeric table ID and automatically collect grouped exact writer stacks.
-8. **BC native MCP passthrough** — **shipped.** Dynamically list and invoke BC28 cloud business-action, AL-runtime, and active-debugger native tools through one agent-facing bridge while retaining complete upstream results.
-9. **On-demand source & symbols** — **shipped.** Read a deployed server object with `bcdev_source`, download one validated installed dependency package into `.alpackages` with `bcdev_package_download`, or every package `app.json` needs with `bcdev_symbols_download`.
-10. **Snapshot debugging capture** (`bcdev_snapshot_*`) — **shipped.** Record a session that cannot be paused at snappoints and errors; bc-mdc-converter decodes the recording into agent-readable points (variables, call stack, source window), and the zip still replays in VS Code. Validated live against BC29 (`scripts/e2e.md`).
 
 ## Development
 

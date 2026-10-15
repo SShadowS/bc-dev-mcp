@@ -97,7 +97,7 @@ Three published demo apps back the walkthroughs:
 
 ## Roadmap
 
-See README `## Roadmap`. Several items are already spec'd/wire-validated in the
+See `docs/roadmap.md`. Several items are already spec'd/wire-validated in the
 local `docs/superpowers/` working docs (pointers in `CLAUDE.local.md`).
 
 ## Skills over MCP
