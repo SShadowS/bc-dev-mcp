@@ -110,7 +110,7 @@ function generatedNextSteps(name: string, result: Record<string, unknown>, param
       if (params["dryRun"] === true) {
         return Number(summary?.["missing"] ?? 0) > 0
           ? ["Call bcdev_symbols_download without dryRun to fetch the missing packages and their dependencies."]
-          : [];
+          : ["Direct references are cached; call bcdev_symbols_download without dryRun to verify their dependencies."];
       }
       return Number(summary?.["failed"] ?? 0) > 0
         ? ["Install/publish the failed packages on the server or fix their app.json version, then call bcdev_symbols_download again; NOT_FOUND also covers servers without dev/packages."]

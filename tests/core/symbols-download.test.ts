@@ -7,7 +7,7 @@ import { BasicAuthorizationProvider } from "../../src/core/authorization";
 import { downloadPackage, type PackageSelector } from "../../src/core/package-download";
 import { downloadSymbols, readPackageManifest } from "../../src/core/symbols-download";
 import type { ConnectionConfig } from "../../src/core/types";
-import { buildAppPackage, buildStoredZip, type AppPackageFixture } from "../fixtures/app-package";
+import { buildAppPackage, buildDeflatedZip, buildNavxManifest, buildStoredZip, type AppPackageFixture } from "../fixtures/app-package";
 
 const SYSTEM = "8874ed3a-0643-4247-9ced-7a7002f7135d";
 const APPLICATION = "c1335042-3002-4257-bf8a-75c898ccb1b8";
@@ -93,6 +93,15 @@ describe("readPackageManifest", () => {
   test("returns null for a package without a usable manifest", () => {
     expect(readPackageManifest(buildStoredZip([{ name: "NavxManifest.xml", content: Buffer.from("<Package />") }]))).toBeNull();
     expect(readPackageManifest(Buffer.from("not a zip"))).toBeNull();
+  });
+
+  test("returns null for an oversized NavxManifest instead of inflating it unbounded", () => {
+    const manifest = buildNavxManifest({ publisher: "P", name: "A", appId: DEP, version: "1.0.0.0" });
+    const small = buildDeflatedZip([{ name: "NavxManifest.xml", content: Buffer.from(manifest) }]);
+    expect(readPackageManifest(small)).not.toBeNull();
+    const huge = buildDeflatedZip([{ name: "NavxManifest.xml", content: Buffer.from(manifest + " ".repeat(2 * 1024 * 1024)) }]);
+    expect(huge.length).toBeLessThan(64 * 1024);
+    expect(readPackageManifest(huge)).toBeNull();
   });
 });
 
@@ -227,6 +236,47 @@ describe("downloadSymbols", () => {
     const broken = mkdtempSync(join(tmpdir(), "bcmcp-symbols-"));
     writeFileSync(join(broken, "app.json"), "{ nope");
     expect((await codeOf(broken))[0]).toBe("CONFIGURATION_ERROR");
+  });
+
+  test("a higher minimum found after the package was processed warns on that entry", async () => {
+    const a: AppPackageFixture = { publisher: "P", name: "A", appId: DEP, version: "1.0.0.0" };
+    const b: AppPackageFixture = { publisher: "P", name: "B", appId: DEP2, version: "1.0.0.0", dependencies: [{ id: DEP, name: "A", publisher: "P", minVersion: "2.0.0.0" }] };
+    const dir = project({ dependencies: [
+      { id: DEP, name: "A", publisher: "P", version: "1.0.0.0" },
+      { id: DEP2, name: "B", publisher: "P", version: "1.0.0.0" },
+    ] });
+    const fake = server([a, b]);
+    const result = await downloadSymbols(dir, {}, fake.fetchPackage(dir));
+    expect(fake.names()).toEqual(["A", "B"]);
+    expect(result.packages[0]!.warning).toContain("P/B requires >= 2.0.0.0");
+    expect(result.packages[0]!.warning).toContain("force");
+    expect(result.packages[1]!.warning).toBeUndefined();
+  });
+
+  test("a dependency on Application by appId dedups with the app.json Application concept", async () => {
+    const dep: AppPackageFixture = {
+      publisher: "Fabrikam", name: "Dep", appId: DEP, version: "1.0.0.0",
+      dependencies: [{ id: APPLICATION, name: "Application", publisher: "Microsoft", minVersion: "28.0.0.0" }],
+    };
+    const dir = project({ application: "28.0.0.0", dependencies: [{ id: DEP, name: "Dep", publisher: "Fabrikam", version: "1.0.0.0" }] });
+    const fake = server([{ ...application, dependencies: [] }, dep]);
+    const result = await downloadSymbols(dir, {}, fake.fetchPackage(dir));
+    expect(fake.names()).toEqual(["Application", "Dep"]);
+    expect(result.packages).toHaveLength(2);
+  });
+
+  test("a transitive reference with an unusable selector fails only that package", async () => {
+    const long = "X".repeat(300);
+    const dep: AppPackageFixture = {
+      publisher: "Fabrikam", name: "Dep", appId: DEP, version: "1.0.0.0",
+      dependencies: [{ id: DEP2, name: long, publisher: "Fabrikam", minVersion: "1.0.0.0" }],
+    };
+    const dir = project({ platform: "28.0.0.0", dependencies: [{ id: DEP, name: "Dep", publisher: "Fabrikam", version: "1.0.0.0" }] });
+    const fake = server([system, dep]);
+    const result = await downloadSymbols(dir, {}, fake.fetchPackage(dir));
+    expect(fake.names()).toEqual(["System", "Dep"]);
+    expect(result.packages[2]).toMatchObject({ appName: long, source: "transitive", status: "failed", error: { code: "INVALID_ARGUMENT" } });
+    expect(result.summary).toMatchObject({ downloaded: 2, failed: 1 });
   });
 
   test("a dependency cycle terminates", async () => {

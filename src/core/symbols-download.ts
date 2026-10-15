@@ -18,6 +18,8 @@ const GUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 // resolves the platform package with it (Microsoft/System, versionText = app.json platform).
 const SYSTEM_APP_ID = "8874ed3a-0643-4247-9ced-7a7002f7135d";
 const MAX_PACKAGES = 200;
+// NavxManifest.xml is a few KB; the cap keeps a crafted package from inflating without bound.
+const MAX_MANIFEST_BYTES = 1024 * 1024;
 // Per-package failures that leave the run going; anything else (auth, unreachable, local
 // filesystem) would fail every later package the same way, so it aborts the call.
 const PER_PACKAGE_FAILURES = new Set(["NOT_FOUND", "TIMEOUT", "SERVER_REJECTED", "PROTOCOL_ERROR"]);
@@ -90,7 +92,7 @@ function attributes(tag: string): Record<string, string> {
 export function readPackageManifest(bytes: Uint8Array): PackageManifest | null {
   let xml: string;
   try {
-    const entry = extractEntry(bytes, "NavxManifest.xml");
+    const entry = extractEntry(bytes, "NavxManifest.xml", MAX_MANIFEST_BYTES);
     if (!entry) return null;
     xml = entry.toString("utf8");
   } catch {
@@ -181,7 +183,10 @@ async function appJsonRoots(root: string): Promise<Reference[]> {
 async function indexCache(packageDir: string): Promise<CachedPackage[]> {
   if (!(await packageDirExists(packageDir))) return [];
   const cached: CachedPackage[] = [];
-  for (const entry of await readdir(packageDir, { withFileTypes: true })) {
+  const entries = await readdir(packageDir, { withFileTypes: true }).catch((error: unknown) => {
+    throw configError(".alpackages cannot be listed", packageDir, error);
+  });
+  for (const entry of entries) {
     // Skip in-flight temp files (.<name>.tmp) and anything that is not a top-level .app file.
     if (!entry.isFile() || entry.name.startsWith(".") || !entry.name.toLowerCase().endsWith(".app")) continue;
     const path = join(packageDir, entry.name);
@@ -235,11 +240,25 @@ export async function downloadSymbols(
       }
       queued.set(key, ref);
       queue.push(ref);
-    } else if (compareVersion(ref.parts, existing.parts) > 0 && queue.includes(existing)) {
-      // Still pending: keep the highest requested minimum. ponytail: a higher minimum discovered after
-      // the package was processed is not re-requested; rerun with force if that ever matters.
-      Object.assign(existing, { minVersion: ref.minVersion, parts: ref.parts });
+    } else if (compareVersion(ref.parts, existing.parts) > 0) {
+      if (queue.includes(existing)) {
+        // Still pending: keep the highest requested minimum.
+        Object.assign(existing, { minVersion: ref.minVersion, parts: ref.parts });
+        return;
+      }
+      // ponytail: a higher minimum discovered after the package was processed is not re-requested;
+      // the entry says so instead, so the agent knows to rerun with force.
+      const entry = processed.get(existing);
+      const resolved = entry?.resolvedVersion ? versionParts(entry.resolvedVersion) : null;
+      if (entry && resolved && compareVersion(ref.parts, resolved) > 0) {
+        const note = `${ref.requiredBy} requires >= ${ref.minVersion}; rerun bcdev_symbols_download with force`;
+        entry.warning = entry.warning ? `${entry.warning}; ${note}` : note;
+      }
     }
+  };
+  // The concept form (Application by publisher/name) and the appId form must dedup to one package.
+  const alias = (ref: Reference, appId: string) => {
+    if (!queued.has(appId)) queued.set(appId, ref);
   };
   const enqueueDependencies = (manifest: PackageManifest | null, parent: Reference) => {
     if (options.dryRun || !manifest) return;
@@ -259,6 +278,7 @@ export async function downloadSymbols(
   };
 
   const packages: SymbolsPackage[] = [];
+  const processed = new Map<Reference, SymbolsPackage>();
   roots.forEach(enqueue);
   for (let ref = queue.shift(); ref; ref = queue.shift()) {
     const base = {
@@ -272,6 +292,8 @@ export async function downloadSymbols(
     const hit = options.force ? undefined : bestCached(cache, ref);
     if (hit) {
       packages.push({ ...base, status: "skipped", resolvedVersion: hit.manifest.version, packagePath: hit.path });
+      processed.set(ref, packages.at(-1)!);
+      alias(ref, hit.manifest.appId);
       enqueueDependencies(hit.manifest, ref);
       continue;
     }
@@ -283,7 +305,11 @@ export async function downloadSymbols(
     try {
       downloaded = await fetchPackage({ publisher: ref.publisher, appName: ref.appName, version: ref.minVersion, appId: ref.appId });
     } catch (error) {
-      if (!(error instanceof BcDevError) || !PER_PACKAGE_FAILURES.has(error.code)) throw error;
+      // A transitive reference comes from a package manifest, not the caller, so a selector it
+      // cannot form (overlong or control characters) fails only that package.
+      const perPackage = error instanceof BcDevError
+        && (PER_PACKAGE_FAILURES.has(error.code) || (error.code === "INVALID_ARGUMENT" && ref.source === "transitive"));
+      if (!perPackage) throw error;
       packages.push({ ...base, status: "failed", error: { code: error.code, message: error.message } });
       continue; // a failed package's dependencies are not explored
     }
@@ -294,7 +320,15 @@ export async function downloadSymbols(
       packagePath: downloaded.packagePath,
       ...(downloaded.warning ? { warning: downloaded.warning } : {}),
     });
-    enqueueDependencies(readPackageManifest(await readFile(downloaded.packagePath)), ref);
+    processed.set(ref, packages.at(-1)!);
+    alias(ref, downloaded.appId.toLowerCase());
+    const bytes = await readFile(downloaded.packagePath).catch((error: unknown) => {
+      throw configError("Downloaded package cannot be read back", downloaded.packagePath, error);
+    });
+    const manifest = readPackageManifest(bytes);
+    const parts = manifest && versionParts(manifest.version);
+    if (manifest && parts) cache.push({ manifest, parts, path: downloaded.packagePath });
+    enqueueDependencies(manifest, ref);
   }
 
   const summary: Record<SymbolsStatus, number> = { downloaded: 0, replaced: 0, unchanged: 0, skipped: 0, missing: 0, failed: 0 };

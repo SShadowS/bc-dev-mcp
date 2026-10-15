@@ -119,6 +119,6 @@ describe("withAgentResponses", () => {
     expect((await symbols({ failed: 1 })).nextSteps.join(" ")).toContain("NOT_FOUND also covers servers without dev/packages");
     expect((await symbols({ failed: 0 })).nextSteps.join(" ")).toContain("Rerun the AL compile");
     expect((await symbols({ missing: 2 }, true)).nextSteps.join(" ")).toContain("without dryRun");
-    expect((await symbols({ missing: 0 }, true)).nextSteps).toEqual([]);
+    expect((await symbols({ missing: 0 }, true)).nextSteps.join(" ")).toContain("verify their dependencies");
   });
 });
