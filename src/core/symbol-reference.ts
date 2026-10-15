@@ -1,10 +1,13 @@
-import { extractEntry } from "./snapshot/zip";
+import { extractEntry, MAX_TEXT_ENTRY_BYTES } from "./snapshot/zip";
+
+/** Inflation cap for SymbolReference.json (Base Application is ~58 MB of JSON). */
+export const DEFAULT_SYMBOL_REFERENCE_BYTES = Math.min(512 * 1024 * 1024, MAX_TEXT_ENTRY_BYTES);
 
 /**
  * SymbolReference.json of an AL `.app` package as a plain object; null when the entry is absent.
  * Throws SyntaxError when the entry is not a JSON object; any other error means an unreadable archive.
  */
-export function readSymbolReference(appBytes: Uint8Array, maxBytes?: number): Record<string, unknown> | null {
+export function readSymbolReference(appBytes: Uint8Array, maxBytes: number = DEFAULT_SYMBOL_REFERENCE_BYTES): Record<string, unknown> | null {
   const entry = extractEntry(appBytes, "SymbolReference.json", maxBytes);
   if (!entry) return null;
   // WIRE: Microsoft "Agent Samples Tests" 29.0.54011.56136 SymbolReference.json is NUL-padded after

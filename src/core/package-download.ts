@@ -4,8 +4,7 @@ import { join, resolve } from "node:path";
 import type { AuthorizationProvider } from "./authorization";
 import { BcDevError } from "./agent-errors";
 import { upperInvariantUtf16 } from "./al-identifiers";
-import { MAX_TEXT_ENTRY_BYTES } from "./snapshot/zip";
-import { readSymbolReference } from "./symbol-reference";
+import { DEFAULT_SYMBOL_REFERENCE_BYTES, readSymbolReference } from "./symbol-reference";
 import type { ConnectionConfig } from "./types";
 import { baseClientUrl } from "./urls";
 
@@ -14,7 +13,6 @@ export const MAX_PACKAGE_DOWNLOAD_TIMEOUT_MS = 300_000;
 export const DEFAULT_PACKAGE_DOWNLOAD_BYTES = 256 * 1024 * 1024;
 export const MAX_PACKAGE_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 export const MAX_PACKAGE_SELECTOR_LENGTH = 250;
-const DEFAULT_SYMBOL_REFERENCE_BYTES = Math.min(512 * 1024 * 1024, MAX_TEXT_ENTRY_BYTES);
 const MAX_VERSION_PART = 2_147_483_647;
 const GUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const installTails = new Map<string, Promise<void>>();
