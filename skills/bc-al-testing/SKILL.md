@@ -34,9 +34,9 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
    `coverageAgainst: "origin/main"` and `changesDeployed: true`. The latter is your explicit
    confirmation that this working tree is deployed. This implies `coverage: "procedure"` and
    adds `coverageGaps` to the same result.
-6. To run only what a diff can affect, call `bcdev_test_select { baseRef: "origin/main" }`
-   before the run (local only: git plus `altool graph`; set `BC_DEV_ALTOOL` if altool is not on
-   PATH). Pass each `shards[].codeunits` to `bcdev_test_run` as `codeunits`, unchanged. Add
+7. To run only what a diff can affect, call `bcdev_test_select { baseRef: "origin/main" }`
+   before the run (local only: git plus the al-sem call graph, fetched automatically; altool
+   is the fallback engine, set `BC_DEV_ALTOOL` if it is not on PATH). Pass each `shards[].codeunits` to `bcdev_test_run` as `codeunits`, unchanged. Add
    `coverageMapFile` from an earlier full run made with `bcdev_test_run { coverageMapFile }` so
    coverage history joins the static call graph.
 

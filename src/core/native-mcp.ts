@@ -297,7 +297,8 @@ function normalizeNativeError(error: unknown, target: NativeMcpTarget): BcDevErr
         const where = url.origin + url.pathname;
         return new BcDevError(
           "UNSUPPORTED_SERVER",
-          `Business Central's MCP endpoint is not available at ${where}: check the API port and that McpServicesEnabled is on`,
+          `Business Central's MCP endpoint is not available at ${where}: check the API port and that McpServicesEnabled is on`
+            + (status === 503 ? " (a 503 on the correct API port is a temporary outage: retry)" : ""),
           "server",
           false,
           { status, url: where },
