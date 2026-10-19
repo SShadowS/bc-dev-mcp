@@ -49,7 +49,7 @@ Microsoft's own extras are worth keeping: symbol search, page inspection, transl
 
 | Feature | Description |
 |---------|-------------|
-| **Test runs** | Discovery from source or compiled `.app`s, multi-codeunit plans, per-method results and durations, parsed AL call stacks mapped to your files — [docs/testing.md](docs/testing.md) |
+| **Test runs** | Discovery from source or compiled `.app`s, multi-codeunit plans, per-method results and durations, parsed AL call stacks mapped to your files. Runs go over TestRunnerHub, which does not apply `TestPermissions` (no Permissions Mock); you get a warning, and [business-central-mcp](https://github.com/SShadowS/business-central-mcp) `bc_run_tests` gives AL Test Runner pass/fail for those suites — [docs/testing.md](docs/testing.md) |
 | **Coverage** | Procedure coverage mapped to source, crossed with a Git diff (`coverageAgainst`), Cobertura XML export for CI (`coberturaFile`) |
 | **Test selection** | Turn a Git diff into ranked, ready-to-run test shards from a whole-program call graph (al-sem, or `altool graph`) plus coverage history |
 | **Flaky and order-dependent tests** | Repeat a selection and diff pass/fail sets; `mode: "order"` finds order-dependent victims and bisects each to its polluter |
@@ -157,7 +157,7 @@ src/core/  (pure library — typed returns, injected deps)
 |------|---------|
 | `bcdev_status` | Preflight: reachability, auth, dev API version, feature gates |
 | `bcdev_test_discover` | List test codeunits and `[Test]` methods from local `.al` files, a `.app` (`appFile`) or `.alpackages` (`alpackages: true`) |
-| `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, optional coverage (Cobertura export via `coberturaFile`), and Git-aware changed-procedure gaps |
+| `bcdev_test_run` | Run tests with a summary, parsed/source-mapped failures, optional coverage (Cobertura export via `coberturaFile`), Git-aware changed-procedure gaps, and `testPermissionsWarning` for tests whose `TestPermissions` the hub ignores |
 | `bcdev_test_select` | Before a run: turn a Git diff into a ranked test selection (call graph + coverage history), uncoverable procedures, `bcdev_test_run`-ready shards, and a fallbackToAll flag |
 | `bcdev_test_orchestrate` | Repeat one selection 2–20 times, retain every run, diff adjacent pass/fail sets, and flag flaky/incomplete methods; `mode: "order"` finds order-dependent victims, bisects each to its polluter, and attributes its table writes |
 | `bcdev_debug_attach` | Arm next-session/user-filtered attach or target an existing NST session; optionally set breakpoints |
@@ -194,7 +194,7 @@ src/core/  (pure library — typed returns, injected deps)
 
 | Document | Covers |
 |----------|--------|
-| [docs/testing.md](docs/testing.md) | Repeat runs, order-dependent tests, coverage-gap analysis |
+| [docs/testing.md](docs/testing.md) | TestPermissions and the Permissions Mock, repeat runs, order-dependent tests, coverage-gap analysis |
 | [docs/debugging.md](docs/debugging.md) | Attach and session binding, breakpoint verification, record-write triage |
 | [docs/profiling-and-snapshots.md](docs/profiling-and-snapshots.md) | CPU profiling (sampling, instrumentation) and snapshot capture |
 | [docs/native-mcp.md](docs/native-mcp.md) | BC native MCP passthrough, cloud and on-prem |
