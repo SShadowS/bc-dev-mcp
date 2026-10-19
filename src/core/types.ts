@@ -101,6 +101,10 @@ export interface RunTestsResult {
   results: TestMethodResult[];
   summary?: TestRunSummary;
   sourceMappingWarning?: string;
+  testPermissionsWarning?: {
+    message: string;
+    codeunits: Array<{ codeunitId: number; name: string; testPermissions: string; methods: string[] }>;
+  };
   coverage?: CoverageEntry[];
   coverageComplete?: boolean;
   runAborted?: boolean;

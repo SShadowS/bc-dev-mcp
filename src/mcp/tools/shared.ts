@@ -20,6 +20,7 @@ import type { AlSemAnalyze } from "../../core/hotspot-explain";
 import type { NativeMcpGateway } from "../../core/native-mcp";
 import type { RiskDigestProvider } from "../../core/risk";
 import { upperInvariantUtf16 } from "../../core/al-identifiers";
+import { discoverTests, permissionsIgnoredByHub, type HubPermissionsGap, type TestCodeunitInfo } from "../../core/al-objects";
 import type { Http10Get } from "../../core/http10";
 import { DebugSession, ServerState } from "../state";
 
@@ -174,6 +175,34 @@ export async function requireTestRunningSupport(
   assertTestRunningSupport(info);
 }
 
+/** Local test codeunits run over the hub whose TestPermissions it ignores; local discovery only, so undiscoverable projects yield none. */
+export async function hubPermissionsWarning(
+  project: string,
+  groups: Array<{ id: number; methods?: string[] }>,
+): Promise<{ message: string; codeunits: HubPermissionsGap[] } | undefined> {
+  let tests: TestCodeunitInfo[];
+  try {
+    tests = await discoverTests(project);
+  } catch {
+    return undefined;
+  }
+  const codeunits = permissionsIgnoredByHub(tests, groups);
+  if (codeunits.length === 0) return undefined;
+  return {
+    // WIRE: TestRunnerHub's runner ignores TestPermissions and skips the AL Test Runner's before-test
+    // hook (130454 PlatformBeforeTestRun: Permissions Mock, 130301/130302) — BC28 + BC29, live 2026-10-19 (#49).
+    message:
+      "TestRunnerHub ignores TestPermissions: these tests ran with your own permissions (typically SUPER) and without the Permissions Mock, "
+      + "so persona calls (Permissions Mock Set/Assign, Library - Lower Permissions Set*) were silent no-ops and permission errors could not occur. "
+      + "Pass/fail for them can differ from the AL Test Runner (BcContainerHelper, business-central-mcp bc_run_tests). Debugging and coverage results are unaffected.",
+    codeunits,
+  };
+}
+
+/** One-line form of hubPermissionsWarning for tools whose output carries warnings: string[]. */
+export const hubPermissionsWarningText = (w: { message: string; codeunits: HubPermissionsGap[] }) =>
+  `${w.message} Affected codeunits: ${w.codeunits.map((c) => `${c.codeunitId} (${c.testPermissions})`).join(", ")}.`;
+
 // Wire-derived data is always loose: unknown fields from BC must never fail output validation.
 export const testMethodResultSchema = z.looseObject({
   codeunitId: z.number(),
@@ -210,6 +239,17 @@ export const runTestsOutputSchema = z.looseObject({
   }),
   sourceMappingWarning: z.string().optional().describe(
     "Nonfatal warning when local AL files could not be indexed; server test evidence remains available",
+  ),
+  testPermissionsWarning: z.object({
+    message: z.string(),
+    codeunits: z.array(z.object({
+      codeunitId: z.number(),
+      name: z.string(),
+      testPermissions: z.string().describe("Codeunit TestPermissions property (Restrictive when absent)"),
+      methods: z.array(z.string()).describe("Targeted methods whose effective TestPermissions is not Disabled"),
+    })),
+  }).optional().describe(
+    "Present when targeted local test methods are not TestPermissions = Disabled. TestRunnerHub does not apply TestPermissions or start the Permissions Mock, so their pass/fail may differ from the AL Test Runner; use business-central-mcp bc_run_tests or BcContainerHelper for those",
   ),
   coverage: z
     .array(

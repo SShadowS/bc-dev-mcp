@@ -18,8 +18,9 @@ const discovered: TestCodeunitInfo[] = [{
   codeunitId: CU,
   name: "Order Pollution Tests",
   file: "x.al",
+  testPermissions: "Disabled",
   methods: POLLUTION_METHODS.map((m) => m.name),
-  methodDetails: POLLUTION_METHODS.map((m) => ({ name: m.name, transactionModel: m.pollutes ? "AutoCommit" : "AutoRollback", attributes: ["Test"] })),
+  methodDetails: POLLUTION_METHODS.map((m) => ({ name: m.name, transactionModel: m.pollutes ? "AutoCommit" : "AutoRollback", testPermissions: "Disabled", attributes: ["Test"] })),
 }];
 
 describe("expandOrderSelection", () => {

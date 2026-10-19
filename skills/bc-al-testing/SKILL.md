@@ -55,6 +55,13 @@ description: Run AL tests against a Business Central dev endpoint with the bc-de
 
 ## Facts that save you time
 
+- **TestPermissions is not applied.** `bcdev_test_run` runs over TestRunnerHub, which never starts
+  the Permissions Mock: tests that are not `TestPermissions = Disabled` (absent means Restrictive)
+  run with your own permissions, and persona calls (`Permissions Mock`.Set, `Library - Lower
+  Permissions`.Set*) silently do nothing. The result carries `testPermissionsWarning` listing those
+  codeunits. Their pass/fail can differ from the AL Test Runner; for a trustworthy verdict run them
+  with business-central-mcp `bc_run_tests` (page 130455) or BcContainerHelper. Debugging and
+  coverage over the hub are unaffected.
 - **One run at a time.** A second `bcdev_test_run` while one is active fails with
   "already running" — wait and retry. One orchestration owns that same slot for its entire
   repeat sequence, so direct, debug-bound, native-runtime, and other orchestration runs cannot
