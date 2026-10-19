@@ -1,5 +1,34 @@
 # Testing
 
+## TestPermissions and the Permissions Mock
+
+`bcdev_test_run` and `bcdev_test_orchestrate` run tests over the dev endpoint's TestRunnerHub, the
+same path the VS Code Test Explorer uses. Its runner is built into the service tier, not Microsoft's
+AL Test Runner app, and it does not apply `TestPermissions`:
+
+- The Permissions Mock is never started. `Permissions Mock`.Set/Assign and `Library - Lower
+  Permissions`.Set* exit without doing anything, so persona tests run with your own permissions.
+- Restrictive tests (also codeunits without the property, Restrictive is the default) run as you,
+  typically SUPER. Under the AL Test Runner with Tests-TestLibraries installed they get a D365 FULL
+  ACCESS baseline, so a table missing from your permission sets fails there and passes here.
+- The rest of the AL Test Runner's before-test hook does not run either (130301 random seed reset,
+  130302, WorkDate/ApplicationArea reset, 132553).
+
+There is no hub argument that changes this (BC28 and BC29). When targeted local tests are not
+`TestPermissions = Disabled`, `bcdev_test_run` returns `testPermissionsWarning` with the codeunits and
+methods, and orchestration adds a line to `warnings`.
+
+For pass/fail on those suites, use a runner that goes through page 130455 "Command Line Test Tool":
+[business-central-mcp](https://github.com/SShadowS/business-central-mcp) `bc_run_tests` (2.2.0+,
+for example `{ "codeunits": "50100..50149" }`) or BcContainerHelper `Run-TestsInBcContainer`.
+Debugging and procedure coverage over the hub are unaffected.
+
+If a test library starts the mock itself when it is not running
+(`if not PermissionsMock.IsStarted() then PermissionsMock.Start();` before `Set`), personas apply over
+the hub too. The platform clears effective permission sets after every test, so a persona does not
+leak into the next one. This does not recreate the D365 FULL ACCESS baseline for persona-less tests.
+Evidence: `scripts/e2e-test-permissions-2026-10-19.md`.
+
 ## Repeat runs (`bcdev_test_orchestrate`)
 
 Use `bcdev_test_orchestrate` when repeatability is the question. It claims the same singleton
