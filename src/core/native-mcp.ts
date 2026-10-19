@@ -130,7 +130,7 @@ function sdkConnectionFactory(
   // observed live, and `auto` adds one round trip per call (each call builds a new Client).
   // WIRE: legacy handshake live-validated; flip to `{ versionNegotiation: { mode: "auto" } }` only
   // after the open scripts/e2e.md "Native MCP passthrough" box is verified live.
-  const client = new Client({ name: "bc-dev-mcp", version: "0.4.0" });
+  const client = new Client({ name: "bc-dev-mcp", version: "0.5.0" });
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: { headers },
     fetch: fetchFn,

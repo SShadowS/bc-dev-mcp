@@ -90,7 +90,7 @@ function skillEntry(skill: EmbeddedSkill) {
 
 export function buildServer(state: ServerState, deps: ToolDeps): McpServer {
   const server = new McpServer(
-    { name: "bc-dev-mcp", version: "0.4.0" },
+    { name: "bc-dev-mcp", version: "0.5.0" },
     {
       capabilities: {
         // Fixed lists: never send list_changed, so don't advertise it (the SDK defaults it to true).
