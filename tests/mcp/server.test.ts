@@ -176,6 +176,7 @@ describe("server wiring", () => {
     // Backticked snake_case spans that are deliberately NOT bcdev tools.
     const NON_TOOL_ALLOWLIST = new Set([
       "bc_actions_*", // BC native MCP tool family, reached via bcdev_native_call
+      "bc_run_tests", // business-central-mcp's AL Test Runner tool (page 130455), the TestPermissions-correct runner
     ]);
     const client = await connect();
     const toolNames = (await client.listTools()).tools.map((t) => t.name);

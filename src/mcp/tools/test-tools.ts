@@ -18,7 +18,10 @@ import { analyzeTestOrchestration } from "../../core/test-orchestration";
 import { redactAuthorization } from "../../core/redaction";
 import type { ServerState } from "../state";
 import { orderOutputSchema, runOrderOrchestration } from "./test-order-tool";
-import { claimTestRun, codeunitsShape, connectionShape, requireTestRunningSupport, resolve, riskSchema, runTestsOutputSchema, type ToolDefinition, type ToolDeps } from "./shared";
+import {
+  claimTestRun, codeunitsShape, connectionShape, hubPermissionsWarning, hubPermissionsWarningText, requireTestRunningSupport, resolve, riskSchema,
+  runTestsOutputSchema, type ToolDefinition, type ToolDeps,
+} from "./shared";
 
 const indexByDeps = new WeakMap<ToolDeps, Map<string, Promise<AlObjectIndex>>>();
 const procedureDiscoveryByDeps = new WeakMap<ToolDeps, AlProcedureDiscoveryCache>();
@@ -208,6 +211,9 @@ async function mapOrchestrationSources(
   for (const run of needingMapping) mapTestRunSources(run, index);
 }
 
+const TEST_PERMISSIONS_DESCRIPTION =
+  "TestPermissions property, else Restrictive. bcdev_test_run (TestRunnerHub) does not apply it: anything but Disabled runs with your own permissions and no Permissions Mock (see testPermissionsWarning)";
+
 export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinition[] {
   return [
     {
@@ -267,9 +273,15 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             codeunitId: z.number(),
             name: z.string(),
             file: z.string(),
+            testPermissions: z.string().describe(TEST_PERMISSIONS_DESCRIPTION),
             methods: z.array(z.string()),
             methodDetails: z.array(
-              z.looseObject({ name: z.string(), transactionModel: z.string(), attributes: z.array(z.string()) }),
+              z.looseObject({
+                name: z.string(),
+                transactionModel: z.string(),
+                testPermissions: z.string().describe("Effective TestPermissions: a [TestPermissions(...)] attribute, else the codeunit's"),
+                attributes: z.array(z.string()),
+              }),
             ),
           }),
         ),
@@ -287,10 +299,12 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             name: z.string().describe("Codeunit name"),
             namespace: z.string().describe("Dotted AL namespace; empty when none"),
             file: z.string().describe("The .app path"),
+            testPermissions: z.string().describe(TEST_PERMISSIONS_DESCRIPTION),
             methods: z.array(z.string()).describe("[Test] methods in declaration order"),
             methodDetails: z.array(z.looseObject({
               name: z.string().describe("Method name"),
               transactionModel: z.string().describe("TransactionModel attribute argument, else AutoCommit"),
+              testPermissions: z.string().describe("Effective TestPermissions: a [TestPermissions(...)] attribute, else the codeunit's"),
               attributes: z.array(z.string()).describe("Attributes as Name or Name(arg, ...); argument values unquoted"),
             })).describe("Per-method details"),
           })).describe("Test codeunits (Subtype = Test), including ones with no [Test] methods"),
@@ -488,6 +502,8 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
             },
           );
           enrichTestRun(result);
+          const permissionsWarning = await hubPermissionsWarning(project, plannedGroups);
+          if (permissionsWarning) result.testPermissionsWarning = permissionsWarning;
           const needsCoverageMapping = result.coverage?.some((entry) => entry.coveredProcedures.length > 0) ?? false;
           const needsCallStackMapping = testRunNeedsSourceMapping(result);
           if (needsCallStackMapping || needsCoverageMapping) {
@@ -669,6 +685,8 @@ export function createTestTools(state: ServerState, deps: ToolDeps): ToolDefinit
               "Client cancellation was observed between attempts; no later attempt was started. An active server run is never cancelled by this check.",
             );
           }
+          const permissionsWarning = await hubPermissionsWarning(project, plan);
+          if (permissionsWarning) analysis.warnings.push(hubPermissionsWarningText(permissionsWarning));
           return {
             mode: "repeat" as const,
             ...analysis,

@@ -30,6 +30,8 @@ export interface TestCodeunitInfo {
   codeunitId: number;
   name: string;
   file: string;
+  /** TestPermissions property; "Restrictive" when absent (what the AL Test Runner applies, live BC28 2026-10-19). */
+  testPermissions: string;
   methods: string[];
   methodDetails: TestMethodInfo[];
 }
@@ -38,6 +40,8 @@ export interface TestMethodInfo {
   name: string;
   /** From [TransactionModel(...)]; "AutoCommit" when the attribute is absent. */
   transactionModel: string;
+  /** Effective TestPermissions: a [TestPermissions(...)] attribute overrides the codeunit property. */
+  testPermissions: string;
   /** Raw attribute texts preceding the procedure, e.g. "Test", "HandlerFunctions('X')". */
   attributes: string[];
 }
@@ -130,6 +134,7 @@ export async function discoverTests(projectDir: string): Promise<TestCodeunitInf
     const ref = parseDeclaration(file, source);
     if (!ref || ref.typeName !== "codeunit") continue;
     if (!/Subtype\s*=\s*Test\s*;/i.test(source)) continue;
+    const testPermissions = /TestPermissions\s*=\s*(\w+)\s*;/i.exec(source)?.[1] ?? "Restrictive";
     const methodDetails: TestMethodInfo[] = [];
     let attributes: string[] = []; // attribute block preceding the next procedure
     for (const line of source.split(/\r?\n/)) {
@@ -141,14 +146,48 @@ export async function discoverTests(projectDir: string): Promise<TestCodeunitInf
       const proc = /^\s*(?:local\s+)?procedure\s+(?:"([^"]+)"|(\w+))/i.exec(line);
       if (proc && attributes.some((a) => /^Test$/i.test(a))) {
         const tm = attributes.map((a) => /^TransactionModel\s*\(\s*(?:TransactionModel\s*::\s*)?(\w+)\s*\)$/i.exec(a)).find(Boolean);
+        const tp = attributes.map((a) => /^TestPermissions\s*\(\s*(?:TestPermissions\s*::\s*)?(\w+)\s*\)$/i.exec(a)).find(Boolean);
         // Documented default when no [TransactionModel] attribute is present: AutoCommit.
-        methodDetails.push({ name: (proc[1] ?? proc[2])!, transactionModel: tm?.[1] ?? "AutoCommit", attributes });
+        methodDetails.push({ name: (proc[1] ?? proc[2])!, transactionModel: tm?.[1] ?? "AutoCommit", testPermissions: tp?.[1] ?? testPermissions, attributes });
       }
       attributes = [];
     }
-    results.push({ codeunitId: ref.objectId, name: ref.name, file, methods: methodDetails.map((m) => m.name), methodDetails });
+    results.push({ codeunitId: ref.objectId, name: ref.name, file, testPermissions, methods: methodDetails.map((m) => m.name), methodDetails });
   }
   return results;
+}
+
+export interface HubPermissionsGap {
+  codeunitId: number;
+  name: string;
+  testPermissions: string;
+  /** Targeted methods whose effective TestPermissions is not Disabled. */
+  methods: string[];
+}
+
+/**
+ * Targeted test methods whose TestPermissions TestRunnerHub does not apply. The hub's built-in
+ * runner ignores TestPermissions and never runs the AL Test Runner's before-test hook, so the
+ * Permissions Mock is never started (personas are silent no-ops) and Restrictive tests run with the
+ * caller's own permissions (SUPER) instead of the 130302 D365 FULL ACCESS baseline. Disabled methods
+ * get no baseline under either runner and are not listed; a persona inside one would still differ
+ * (the AL Test Runner starts the mock for every test), which source scanning does not detect.
+ */
+export function permissionsIgnoredByHub(
+  tests: TestCodeunitInfo[],
+  groups: Array<{ id: number; methods?: string[] }>,
+): HubPermissionsGap[] {
+  const gaps: HubPermissionsGap[] = [];
+  for (const group of groups) {
+    const cu = tests.find((t) => t.codeunitId === group.id);
+    if (!cu) continue;
+    const wanted = group.methods?.length ? new Set(group.methods.map((m) => m.toLowerCase())) : null;
+    const methods = cu.methodDetails
+      .filter((m) => (!wanted || wanted.has(m.name.toLowerCase())) && m.testPermissions.toLowerCase() !== "disabled")
+      .map((m) => m.name);
+    if (methods.length) gaps.push({ codeunitId: cu.codeunitId, name: cu.name, testPermissions: cu.testPermissions, methods });
+  }
+  return gaps;
 }
 
 /** TestRunner codeunits in the project and their TestIsolation (documented default: Disabled). */
@@ -211,19 +250,24 @@ export async function discoverPackageTests(appPath: string): Promise<PackageTest
       const subtype = property(cu, "Subtype")?.toLowerCase();
       const base = { codeunitId: Number(cu["Id"]), name: text(cu["Name"]), namespace, file: path };
       if (subtype === "test") {
+        // WIRE: TestPermissions is a codeunit Properties[] entry (absent = Restrictive) and a method
+        // Attributes[{Name:"TestPermissions", Arguments:[{Value:"Disabled"}]}] — alc 30.0.2863738, 2026-10-19.
+        const testPermissions = property(cu, "TestPermissions") ?? "Restrictive";
         const methodDetails: TestMethodInfo[] = [];
         for (const method of nodes(cu["Methods"])) {
           const attrs = nodes(method["Attributes"]);
           if (!attrs.some((a) => text(a["Name"]).toLowerCase() === "test")) continue;
           const args = (a: SymbolNode) => nodes(a["Arguments"]).map((arg) => String(arg["Value"] ?? ""));
           const tm = attrs.find((a) => text(a["Name"]).toLowerCase() === "transactionmodel");
+          const tp = attrs.find((a) => text(a["Name"]).toLowerCase() === "testpermissions");
           methodDetails.push({
             name: text(method["Name"]),
             transactionModel: (tm && args(tm)[0]) || "AutoCommit",
+            testPermissions: (tp && args(tp)[0]) || testPermissions,
             attributes: attrs.map((a) => (args(a).length ? `${text(a["Name"])}(${args(a).join(", ")})` : text(a["Name"]))),
           });
         }
-        result.tests.push({ ...base, methods: methodDetails.map((m) => m.name), methodDetails });
+        result.tests.push({ ...base, testPermissions, methods: methodDetails.map((m) => m.name), methodDetails });
       } else if (subtype === "testrunner") {
         result.runners.push({ ...base, testIsolation: property(cu, "TestIsolation") ?? "Disabled" });
       }

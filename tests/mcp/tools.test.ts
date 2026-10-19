@@ -304,6 +304,31 @@ describe("tools", () => {
     expect(state.testRunActive).toBe(false);
   });
 
+  test("bcdev_test_run warns when targeted local tests are not TestPermissions = Disabled", async () => {
+    const { tools } = setup(hub);
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      return undefined;
+    };
+    // 50100 in the fixture has no TestPermissions property: Restrictive.
+    const result = await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }, { id: 50999 }] });
+    const parsed = tools.get("bcdev_test_run")!.outputSchema.parse(result) as { testPermissionsWarning?: { message: string; codeunits: unknown[] } };
+    expect(parsed.testPermissionsWarning?.codeunits).toEqual([{ codeunitId: 50100, name: "T", testPermissions: "Restrictive", methods: ["A"] }]);
+    expect(parsed.testPermissionsWarning?.message).toContain("bc_run_tests");
+  });
+
+  test("bcdev_test_run has no permissions warning for TestPermissions = Disabled", async () => {
+    const project = makeProject();
+    writeFileSync(join(project, "T.Codeunit.al"), 'codeunit 50100 "T"\n{\n    Subtype = Test;\n    TestPermissions = Disabled;\n\n    [Test]\n    procedure A()\n    begin\n    end;\n}\n');
+    const { tools } = setup(hub, undefined, undefined, { cwd: project });
+    hub.onInvoke = (method) => {
+      if (method === "RunTests") queueMicrotask(() => hub.emit("TestRunCompleted", { Tests: [] }));
+      return undefined;
+    };
+    const result = (await tools.get("bcdev_test_run")!.handler({ codeunits: [{ id: 50100 }] })) as Record<string, unknown>;
+    expect(result["testPermissionsWarning"]).toBeUndefined();
+  });
+
   test("coverageAgainst with a deployment assertion implies procedure coverage and reports a covered changed procedure", async () => {
     const methodId = calculateProcedureMethodId("A", { navTypeKind: 0, symbolKind: 2 }, [], 16).methodId!;
     const { tools } = setup(hub, undefined, undefined, {

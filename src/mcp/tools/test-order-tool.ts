@@ -11,7 +11,7 @@ import { explainPredictions, STATIC_PREDICTION_NOTE } from "../../core/test-orde
 import { attributePolluterWrites, runTestsWithRecordWrites, type PolluterWriteAttribution } from "../../core/test-record-writes";
 import type { CodeunitTestGroup } from "../../core/types";
 import type { ServerState } from "../state";
-import { requireTestRunningSupport, resolve, type ToolDeps } from "./shared";
+import { hubPermissionsWarning, hubPermissionsWarningText, requireTestRunningSupport, resolve, type ToolDeps } from "./shared";
 
 const identity = z.object({
   codeunitId: z.number().int().describe("AL test codeunit object ID"),
@@ -151,6 +151,8 @@ export async function runOrderOrchestration(
     cancelled: () => signal?.aborted === true,
   });
   const warnings = [...predicted.warnings, ...result.warnings];
+  const permissionsWarning = await hubPermissionsWarning(project, params["codeunits"] as CodeunitTestGroup[]);
+  if (permissionsWarning) warnings.push(hubPermissionsWarningText(permissionsWarning));
   let complete = result.complete;
 
   let writeAttribution: PolluterWriteAttribution[] | null = null;

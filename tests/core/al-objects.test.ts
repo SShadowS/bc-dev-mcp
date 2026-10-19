@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { AlObjectIndex, discoverAlpackagesTests, discoverPackageTests, discoverTestRunners, discoverTests } from "../../src/core/al-objects";
+import { AlObjectIndex, discoverAlpackagesTests, discoverPackageTests, discoverTestRunners, discoverTests, permissionsIgnoredByHub, type TestCodeunitInfo } from "../../src/core/al-objects";
 import { buildAppPackage } from "../fixtures/app-package";
 
 function makeProject(): string {
@@ -153,9 +153,58 @@ describe("discoverTests", () => {
     const tx = tests.find((t) => t.codeunitId === 50105);
     expect(tx?.methods).toEqual(["Rolled", "Plain"]);
     expect(tx?.methodDetails).toEqual([
-      { name: "Rolled", transactionModel: "AutoRollback", attributes: ["Test", "TransactionModel(TransactionModel::AutoRollback)"] },
-      { name: "Plain", transactionModel: "AutoCommit", attributes: ["HandlerFunctions('ConfirmYes')", "Test"] },
+      { name: "Rolled", transactionModel: "AutoRollback", testPermissions: "Restrictive", attributes: ["Test", "TransactionModel(TransactionModel::AutoRollback)"] },
+      { name: "Plain", transactionModel: "AutoCommit", testPermissions: "Restrictive", attributes: ["HandlerFunctions('ConfirmYes')", "Test"] },
     ]);
+  });
+
+  test("captures TestPermissions: codeunit property (default Restrictive), method attribute overrides", async () => {
+    const dir = makeProject();
+    writeFileSync(
+      join(dir, "Perm.Codeunit.al"),
+      [
+        'codeunit 50108 "Perm Tests"',
+        "{",
+        "    Subtype = Test;",
+        "    TestPermissions = NonRestrictive;",
+        "",
+        "    [Test]",
+        "    procedure Inherits()",
+        "    begin",
+        "    end;",
+        "",
+        "    [Test]",
+        "    [TestPermissions(TestPermissions::Disabled)]",
+        "    procedure Overrides()",
+        "    begin",
+        "    end;",
+        "}",
+      ].join("\n"),
+    );
+    const tests = await discoverTests(dir);
+    const perm = tests.find((t) => t.codeunitId === 50108);
+    expect(perm?.testPermissions).toBe("NonRestrictive");
+    expect(perm?.methodDetails.map((m) => [m.name, m.testPermissions])).toEqual([["Inherits", "NonRestrictive"], ["Overrides", "Disabled"]]);
+    expect(tests.find((t) => t.codeunitId === 50100)?.testPermissions).toBe("Restrictive");
+  });
+
+  test("permissionsIgnoredByHub lists targeted methods whose TestPermissions is not Disabled", () => {
+    const cu = (codeunitId: number, testPermissions: string, methods: [string, string][]): TestCodeunitInfo => ({
+      codeunitId, name: `CU ${codeunitId}`, file: "", testPermissions,
+      methods: methods.map(([n]) => n),
+      methodDetails: methods.map(([name, tp]) => ({ name, transactionModel: "AutoCommit", testPermissions: tp, attributes: ["Test"] })),
+    });
+    const tests = [
+      cu(1, "Restrictive", [["A", "Restrictive"], ["B", "Disabled"]]),
+      cu(2, "Disabled", [["C", "Disabled"]]),
+      cu(3, "NonRestrictive", [["D", "NonRestrictive"]]),
+      cu(4, "Restrictive", [["E", "Restrictive"]]),
+    ];
+    expect(permissionsIgnoredByHub(tests, [{ id: 1 }, { id: 2 }, { id: 3, methods: ["d"] }, { id: 99 }])).toEqual([
+      { codeunitId: 1, name: "CU 1", testPermissions: "Restrictive", methods: ["A"] },
+      { codeunitId: 3, name: "CU 3", testPermissions: "NonRestrictive", methods: ["D"] },
+    ]);
+    expect(permissionsIgnoredByHub(tests, [{ id: 1, methods: ["B"] }])).toEqual([]);
   });
 
   test("reports TestRunner codeunits with their TestIsolation", async () => {
@@ -187,7 +236,7 @@ describe("package test discovery", () => {
         { Name: "TransactionModel", Arguments: [{ Value: "AutoRollback" }] },
       ] },
       { Name: "MsgHandler", Attributes: [{ Name: "MessageHandler" }] },
-      { Name: "SecondTest", Attributes: [{ Name: "test" }] },
+      { Name: "SecondTest", Attributes: [{ Name: "test" }, { Name: "TestPermissions", Arguments: [{ Value: "Restrictive" }] }] },
     ],
   };
   const symbols = {
@@ -219,14 +268,14 @@ describe("package test discovery", () => {
     expect(pkg).toMatchObject({ path: resolve(app), appId: "7a1c0001-0000-4000-8000-0000000000b1", appName: "Probe", publisher: "SShadowS", version: "1.0.0.0" });
     expect(pkg.tests).toEqual([
       {
-        codeunitId: 50190, name: "Probe Tests", namespace: "", file: resolve(app),
+        codeunitId: 50190, name: "Probe Tests", namespace: "", file: resolve(app), testPermissions: "Disabled",
         methods: ["WithHandlers", "SecondTest"],
         methodDetails: [
-          { name: "WithHandlers", transactionModel: "AutoRollback", attributes: ["Test", "HandlerFunctions(MsgHandler)", "TransactionModel(AutoRollback)"] },
-          { name: "SecondTest", transactionModel: "AutoCommit", attributes: ["test"] },
+          { name: "WithHandlers", transactionModel: "AutoRollback", testPermissions: "Disabled", attributes: ["Test", "HandlerFunctions(MsgHandler)", "TransactionModel(AutoRollback)"] },
+          { name: "SecondTest", transactionModel: "AutoCommit", testPermissions: "Restrictive", attributes: ["test", "TestPermissions(Restrictive)"] },
         ],
       },
-      { codeunitId: 50192, name: "Probe Empty Tests", namespace: "SShadowS.Probe", file: resolve(app), methods: [], methodDetails: [] },
+      { codeunitId: 50192, name: "Probe Empty Tests", namespace: "SShadowS.Probe", file: resolve(app), testPermissions: "Restrictive", methods: [], methodDetails: [] },
     ]);
     expect(pkg.runners).toEqual([
       { codeunitId: 50193, name: "Probe Runner", namespace: "SShadowS.Probe", file: resolve(app), testIsolation: "Codeunit" },
